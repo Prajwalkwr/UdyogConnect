@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "set1",
+    "key": "taxRate",
+    "value": 13
+  },
+  {
+    "_id": "set2",
+    "key": "deliveryFee",
+    "value": 70
+  },
+  {
+    "_id": "set3",
+    "key": "commissionRate",
+    "value": 10
+  },
+  {
+    "_id": "set4",
+    "key": "paymentMethods",
+    "value": {
+      "cod": true,
+      "stripe": false,
+      "esewa": true
+    }
+  }
+]

@@ -1,0 +1,15 @@
+import { describe, expect, it } from 'vitest';
+import { buildMultipartFormData, appendOptionalFile } from './mediaUpload';
+
+describe('media upload helpers', () => {
+  it('builds form data from text fields and appends image files', () => {
+    const file = new File(['logo'], 'logo.png', { type: 'image/png' });
+    const formData = buildMultipartFormData({ name: 'Shop', description: 'Crafts', category: 'Gift Shop' });
+    appendOptionalFile(formData, 'logo', file);
+
+    expect(formData.get('name')).toBe('Shop');
+    expect(formData.get('description')).toBe('Crafts');
+    expect(formData.get('category')).toBe('Gift Shop');
+    expect(formData.get('logo')?.name).toBe('logo.png');
+  });
+});

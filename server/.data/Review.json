@@ -1,0 +1,28 @@
+[
+  {
+    "_id": "r_v1",
+    "customerId": "u1",
+    "customerName": "Prajwal Customer",
+    "businessId": "b1",
+    "targetId": "b1",
+    "targetType": "business",
+    "rating": 5,
+    "comment": "Excellent food, traditional tastes are amazing! Love the Newari platter.",
+    "images": [],
+    "reported": false,
+    "createdAt": "2026-07-12T11:20:51.589Z"
+  },
+  {
+    "_id": "r_v2",
+    "customerId": "u1",
+    "customerName": "Prajwal Customer",
+    "businessId": "b2",
+    "targetId": "p2",
+    "targetType": "product",
+    "rating": 4,
+    "comment": "Very beautiful handmade basket. Highly recommended!",
+    "images": [],
+    "reported": false,
+    "createdAt": "2026-07-12T11:20:51.590Z"
+  }
+]

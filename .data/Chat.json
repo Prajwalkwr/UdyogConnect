@@ -1,0 +1,18 @@
+[
+  {
+    "_id": "ch1",
+    "senderId": "u1",
+    "receiverId": "s1",
+    "message": "Hello, is the Bhoj Garden open today?",
+    "type": "text",
+    "createdAt": "2026-07-12T10:20:51.592Z"
+  },
+  {
+    "_id": "ch2",
+    "senderId": "s1",
+    "receiverId": "u1",
+    "message": "Yes! We are open until 10 PM. You can order online or book a table.",
+    "type": "text",
+    "createdAt": "2026-07-12T10:30:51.592Z"
+  }
+]

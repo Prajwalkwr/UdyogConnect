@@ -1,0 +1,286 @@
+[
+  {
+    "_id": "j61asm0s2",
+    "createdAt": "2026-07-12T13:19:12.663Z",
+    "updatedAt": "2026-07-12T13:19:12.663Z",
+    "name": "Instant User",
+    "email": "instant1783862352488@test.local",
+    "password": "$2b$10$6UA/9r5SuUCfm/SXoNoYPuu/lh7vt/x1uGxYqENIG7LajN0DhvVZ6",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "516799",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "u74uwtwp1",
+    "createdAt": "2026-07-12T13:18:47.358Z",
+    "updatedAt": "2026-07-12T13:18:47.358Z",
+    "name": "Instant User",
+    "email": "instant1783862327192@test.local",
+    "password": "$2b$10$2WqgVUX/OVK0xKAK.daTYukMr/GRsSJC0qsP0H6Fe2vcwfjMkylb2",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "181640",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "8n7plzwqv",
+    "createdAt": "2026-07-12T13:18:13.105Z",
+    "updatedAt": "2026-07-12T13:18:13.105Z",
+    "name": "Instant User",
+    "email": "instant1783862292887@test.local",
+    "password": "$2b$10$rANSUpfhyNSooyBJgGBGcu9T9qolf4rQvWumQCbIDQbo6q5uCpWDi",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "347037",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "t75x9ui7o",
+    "createdAt": "2026-07-12T13:16:23.555Z",
+    "updatedAt": "2026-07-12T13:16:23.555Z",
+    "name": "ram",
+    "email": "prajwalkwr567@gmail.com",
+    "password": "$2b$10$f.5iSleqTFbvBDIK8oK1fONSWE5A3urELXtw8rjQNDHUtqwFDoTei",
+    "phone": "9846089737",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "711216",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "3y4daog5g",
+    "createdAt": "2026-07-12T13:15:21.065Z",
+    "updatedAt": "2026-07-12T13:15:21.065Z",
+    "name": "ram",
+    "email": "ram@2.com",
+    "password": "$2b$10$BbIAgiuGuR/2EyLlfkPrXe1lrizbPSXtV.P0WCMI5TGSv2Ss3v99q",
+    "phone": "9861763879",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "635326",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "t21zkpj30",
+    "createdAt": "2026-07-12T12:44:00.126Z",
+    "updatedAt": "2026-07-12T12:56:51.511Z",
+    "name": "Prajwal Google",
+    "email": "prajwal.google@udyog.np",
+    "password": "$2b$10$V8Hjy41w3AQgROtFNXE/mepZ2hamgq/P/X59R.T1yvH/ofMUflWQO",
+    "role": "customer",
+    "loyaltyPoints": 20,
+    "googleId": "g_mmu6fvn5h",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "isVerified": true
+  },
+  {
+    "_id": "u1",
+    "name": "Prajwal Customer",
+    "email": "customer@udyog.np",
+    "password": "$2b$10$6598SYlM.2FtP3i.Q5M1/.LSWvf/riQa9lhc3irUF8Sh6vWEA4MBG",
+    "phone": "9840000001",
+    "role": "customer",
+    "loyaltyPoints": 120,
+    "profilePicture": "",
+    "addresses": [
+      {
+        "_id": "a_1",
+        "title": "Home",
+        "address": "Baneshwor, Kathmandu"
+      }
+    ],
+    "paymentMethods": [
+      {
+        "_id": "p_1",
+        "brand": "Visa",
+        "last4": "4242"
+      }
+    ],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true
+  },
+  {
+    "_id": "s1",
+    "name": "Ram Seller",
+    "email": "seller@udyog.np",
+    "password": "$2b$10$6598SYlM.2FtP3i.Q5M1/.LSWvf/riQa9lhc3irUF8Sh6vWEA4MBG",
+    "phone": "9840000002",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-07-12T12:44:23.644Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-07-12T13:14:26.037Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "updatedAt": "2026-07-12T13:14:26.039Z"
+  },
+  {
+    "_id": "r1",
+    "name": "Hari Rider",
+    "email": "rider@udyog.np",
+    "password": "$2b$10$6598SYlM.2FtP3i.Q5M1/.LSWvf/riQa9lhc3irUF8Sh6vWEA4MBG",
+    "phone": "9840000003",
+    "role": "rider",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true
+  },
+  {
+    "_id": "a1",
+    "name": "Platform Admin",
+    "email": "admin@udyog.np",
+    "password": "$2b$10$6598SYlM.2FtP3i.Q5M1/.LSWvf/riQa9lhc3irUF8Sh6vWEA4MBG",
+    "phone": "9840000004",
+    "role": "admin",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-07-12T12:42:16.714Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-07-12T12:45:38.829Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-07-12T12:58:08.451Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-07-12T13:00:14.014Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.127.0 Chrome/148.0.7778.97 Electron/42.2.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-07-12T13:15:34.113Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "updatedAt": "2026-07-12T13:15:34.114Z"
+  }
+]

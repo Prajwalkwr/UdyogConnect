@@ -1,0 +1,56 @@
+[
+  {
+    "_id": "p6yhl4xks",
+    "createdAt": "2026-07-12T13:19:12.665Z",
+    "updatedAt": "2026-07-12T13:19:12.665Z",
+    "userId": "j61asm0s2",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 516799",
+    "type": "general"
+  },
+  {
+    "_id": "99zm3o6tb",
+    "createdAt": "2026-07-12T13:18:47.361Z",
+    "updatedAt": "2026-07-12T13:18:47.361Z",
+    "userId": "u74uwtwp1",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 181640",
+    "type": "general"
+  },
+  {
+    "_id": "u2w4txm1j",
+    "createdAt": "2026-07-12T13:18:13.112Z",
+    "updatedAt": "2026-07-12T13:18:13.112Z",
+    "userId": "8n7plzwqv",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 347037",
+    "type": "general"
+  },
+  {
+    "_id": "zeh21yvpg",
+    "createdAt": "2026-07-12T13:16:23.557Z",
+    "updatedAt": "2026-07-12T13:16:23.558Z",
+    "userId": "t75x9ui7o",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 711216",
+    "type": "general"
+  },
+  {
+    "_id": "gkvbumxdm",
+    "createdAt": "2026-07-12T13:15:21.067Z",
+    "updatedAt": "2026-07-12T13:15:21.067Z",
+    "userId": "3y4daog5g",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 635326",
+    "type": "general"
+  },
+  {
+    "_id": "n1",
+    "userId": "u1",
+    "title": "Welcome to UdyogConnect",
+    "message": "Explore local businesses and services around you.",
+    "type": "general",
+    "read": false,
+    "createdAt": "2026-07-12T11:20:51.593Z"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "_id": "cat1",
+    "name": "Grocery",
+    "description": "Daily grocery and essential needs"
+  },
+  {
+    "_id": "cat2",
+    "name": "Restaurants",
+    "description": "Local restaurants, food joints, and dining places"
+  },
+  {
+    "_id": "cat3",
+    "name": "Furniture",
+    "description": "Durable home and office wooden furniture"
+  },
+  {
+    "_id": "cat4",
+    "name": "Gift Shop",
+    "description": "Handcrafted gifts, crafts, and home decor"
+  },
+  {
+    "_id": "cat5",
+    "name": "Home Services",
+    "description": "Plumbing, cleaning, and beauty home services"
+  },
+  {
+    "_id": "cat6",
+    "name": "Mechanics",
+    "description": "Vehicle repair, electronics, and appliance mechanics"
+  }
+]

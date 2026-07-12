@@ -1,0 +1,18 @@
+[
+  {
+    "_id": "c_p1",
+    "code": "NEPAL50",
+    "discountPercent": 15,
+    "maxDiscount": 500,
+    "expiryDate": "2026-12-31",
+    "active": true
+  },
+  {
+    "_id": "c_p2",
+    "code": "WELCOME10",
+    "discountPercent": 10,
+    "maxDiscount": 200,
+    "expiryDate": "2026-12-31",
+    "active": true
+  }
+]

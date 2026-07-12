@@ -1,0 +1,43 @@
+[
+  {
+    "_id": "5vbp02pwi",
+    "createdAt": "2026-07-12T12:56:51.513Z",
+    "updatedAt": "2026-07-12T12:56:51.513Z",
+    "customerId": "t21zkpj30",
+    "businessId": "b1",
+    "items": [
+      {
+        "id": "p2",
+        "name": "Craft Basket",
+        "price": 750,
+        "quantity": 1,
+        "seller": "Sunar Craft House"
+      }
+    ],
+    "subtotal": 750,
+    "deliveryFee": 70,
+    "tax": 97.5,
+    "discount": 0,
+    "total": 917.5,
+    "status": "placed",
+    "paymentMethod": "COD",
+    "paymentStatus": "pending",
+    "deliveryAddress": {
+      "name": "Prajwal Google",
+      "email": "prajwal.google@udyog.np",
+      "phone": "9861763879",
+      "address": "shrijana chowk",
+      "method": "pickup"
+    },
+    "deliveryRiderId": "",
+    "deliveryOtp": "7227",
+    "deliveryProof": "",
+    "trackingHistory": [
+      {
+        "status": "placed",
+        "time": "2026-07-12T12:56:51.512Z",
+        "note": "Order placed by customer."
+      }
+    ]
+  }
+]

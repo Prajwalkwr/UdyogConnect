@@ -1,0 +1,162 @@
+[
+  {
+    "_id": "qc0tsbv6b",
+    "createdAt": "2026-07-12T12:31:54.250Z",
+    "updatedAt": "2026-07-12T12:31:57.585Z",
+    "name": "op",
+    "email": "prajwalkwr567@gmail.com",
+    "password": "$2b$10$p75SJn03Vqe6a9zSEmZiCubkiwZ689/QpStPCf7nOi62v/6e2OXKy",
+    "phone": "9861763879",
+    "role": "rider",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-07-12T12:31:57.584Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      }
+    ]
+  },
+  {
+    "_id": "78r9hczmx",
+    "createdAt": "2026-07-12T12:29:41.719Z",
+    "updatedAt": "2026-07-12T12:29:47.280Z",
+    "name": "k cha",
+    "email": "kunworprajwal2@gmail.com",
+    "password": "$2b$10$YR5fNRxZt3IwPMjB0lms8OaG0IqEPtXGMPcX1THv3e/tjFz0LgVVW",
+    "phone": "9861763879",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-07-12T12:29:47.269Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      }
+    ]
+  },
+  {
+    "_id": "egmaw382z",
+    "createdAt": "2026-07-12T12:04:08.145Z",
+    "updatedAt": "2026-07-12T12:05:17.349Z",
+    "name": "Prajwal Google",
+    "email": "prajwal.google@udyog.np",
+    "password": "$2b$10$KCqSzFfhVP4z9P.XyYWAUOHFo1pXh9JtWauQ91cotOnmmMWcYl2Py",
+    "role": "customer",
+    "loyaltyPoints": 20,
+    "googleId": "g_eytk76jbb",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    }
+  },
+  {
+    "_id": "u1",
+    "name": "Prajwal Customer",
+    "email": "customer@udyog.np",
+    "password": "$2a$10$XU.L4i3V8l6M6zL4J4G/nOiK0P3NfeH7CqE2nfe7y1XjUqI2M/b7m",
+    "phone": "9840000001",
+    "role": "customer",
+    "loyaltyPoints": 120,
+    "profilePicture": "",
+    "addresses": [
+      {
+        "_id": "a_1",
+        "title": "Home",
+        "address": "Baneshwor, Kathmandu"
+      }
+    ],
+    "paymentMethods": [
+      {
+        "_id": "p_1",
+        "brand": "Visa",
+        "last4": "4242"
+      }
+    ],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": []
+  },
+  {
+    "_id": "s1",
+    "name": "Ram Seller",
+    "email": "seller@udyog.np",
+    "password": "$2a$10$XU.L4i3V8l6M6zL4J4G/nOiK0P3NfeH7CqE2nfe7y1XjUqI2M/b7m",
+    "phone": "9840000002",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": []
+  },
+  {
+    "_id": "r1",
+    "name": "Hari Rider",
+    "email": "rider@udyog.np",
+    "password": "$2a$10$XU.L4i3V8l6M6zL4J4G/nOiK0P3NfeH7CqE2nfe7y1XjUqI2M/b7m",
+    "phone": "9840000003",
+    "role": "rider",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": []
+  },
+  {
+    "_id": "a1",
+    "name": "Platform Admin",
+    "email": "admin@udyog.np",
+    "password": "$2a$10$XU.L4i3V8l6M6zL4J4G/nOiK0P3NfeH7CqE2nfe7y1XjUqI2M/b7m",
+    "phone": "9840000004",
+    "role": "admin",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": []
+  }
+]

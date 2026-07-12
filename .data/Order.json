@@ -1,0 +1,43 @@
+[
+  {
+    "_id": "itndbvjhe",
+    "createdAt": "2026-07-12T12:05:17.352Z",
+    "updatedAt": "2026-07-12T12:05:17.352Z",
+    "customerId": "egmaw382z",
+    "businessId": "b1",
+    "items": [
+      {
+        "id": "p1",
+        "name": "Rice Platter",
+        "price": 450,
+        "quantity": 1,
+        "seller": "Bhoj Garden"
+      }
+    ],
+    "subtotal": 450,
+    "deliveryFee": 70,
+    "tax": 58.5,
+    "discount": 0,
+    "total": 578.5,
+    "status": "placed",
+    "paymentMethod": "COD",
+    "paymentStatus": "pending",
+    "deliveryAddress": {
+      "name": "Prajwal Google",
+      "email": "prajwal.google@udyog.np",
+      "phone": "9861763879",
+      "address": "",
+      "method": "pickup"
+    },
+    "deliveryRiderId": "",
+    "deliveryOtp": "1818",
+    "deliveryProof": "",
+    "trackingHistory": [
+      {
+        "status": "placed",
+        "time": "2026-07-12T12:05:17.352Z",
+        "note": "Order placed by customer."
+      }
+    ]
+  }
+]

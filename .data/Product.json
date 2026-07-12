@@ -1,0 +1,48 @@
+[
+  {
+    "_id": "p1",
+    "businessId": "b1",
+    "name": "Rice Platter",
+    "category": "Restaurants",
+    "subcategory": "Newari",
+    "description": "A traditional platter with curry, lentils, pickle, and fresh tea.",
+    "price": 500,
+    "discount": 10,
+    "stock": 19,
+    "sku": "BHOJ-RICE-01",
+    "brand": "Homegrown",
+    "images": [],
+    "availability": true,
+    "updatedAt": "2026-07-12T12:05:17.342Z"
+  },
+  {
+    "_id": "p2",
+    "businessId": "b2",
+    "name": "Craft Basket",
+    "category": "Gift Shop",
+    "subcategory": "Basketry",
+    "description": "A decorative basket made by a local artisan using bamboo fibers.",
+    "price": 750,
+    "discount": 0,
+    "stock": 5,
+    "sku": "SUNAR-BASKET-02",
+    "brand": "Sunar Crafts",
+    "images": [],
+    "availability": true
+  },
+  {
+    "_id": "p3",
+    "businessId": "b3",
+    "name": "Dining Set",
+    "category": "Furniture",
+    "subcategory": "Kitchenware",
+    "description": "A durable and stylish wooden plate and bowl set for everyday use.",
+    "price": 1200,
+    "discount": 5,
+    "stock": 6,
+    "sku": "LHE-DINING-03",
+    "brand": "Lalitpur Wood",
+    "images": [],
+    "availability": true
+  }
+]

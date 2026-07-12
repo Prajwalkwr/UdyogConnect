@@ -1,0 +1,18 @@
+[
+  {
+    "_id": "20zqkcbjb",
+    "createdAt": "2026-07-12T12:31:57.591Z",
+    "updatedAt": "2026-07-12T12:31:57.591Z",
+    "userId": "qc0tsbv6b",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "8wseevmrx",
+    "createdAt": "2026-07-12T12:29:47.284Z",
+    "updatedAt": "2026-07-12T12:29:47.284Z",
+    "userId": "78r9hczmx",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  }
+]

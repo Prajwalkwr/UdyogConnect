@@ -1,0 +1,11 @@
+[
+  {
+    "_id": "n1",
+    "userId": "u1",
+    "title": "Welcome to UdyogConnect",
+    "message": "Explore local businesses and services around you.",
+    "type": "general",
+    "read": false,
+    "createdAt": "2026-07-12T11:20:51.593Z"
+  }
+]
