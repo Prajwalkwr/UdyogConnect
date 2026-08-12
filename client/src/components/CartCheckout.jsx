@@ -120,7 +120,7 @@ export default function CartCheckout({
   const total = parseFloat((subtotal + deliveryFee + tax - rawDiscount).toFixed(2));
 
   const displayPrice = (val) => {
-    return `रु ${val}`;
+    return `Rs. ${val}`;
   };
 
   const handlePlaceOrder = async (e) => {

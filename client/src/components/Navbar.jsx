@@ -50,7 +50,7 @@ export default function Navbar({
 
           {/* Currency Switcher */}
           <button
-            onClick={() => setCurrency(currency === 'NPR' ? 'USD' : 'NPR')}
+            onClick={() => setCurrency(currency === 'Rs.' ? 'USD' : 'Rs.')}
             className="flex items-center gap-1 rounded-lg border border-slate-850 bg-slate-900/60 px-2 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
             title="Switch Currency"
           >

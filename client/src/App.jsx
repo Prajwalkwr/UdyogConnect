@@ -40,7 +40,7 @@ function App() {
 
   // Global settings
   const [lang, setLang] = useState('en'); // 'en' | 'ne'
-  const [currency, setCurrency] = useState('NPR'); // 'NPR' | 'USD'
+  const [currency, setCurrency] = useState('Rs.'); // 'Rs.' | 'USD'
   const [notifications, setNotifications] = useState([]);
   const [liveOrderTick, setLiveOrderTick] = useState(0); // increments on new_order socket event
 

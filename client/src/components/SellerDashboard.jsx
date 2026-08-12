@@ -13,7 +13,7 @@ import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
 
 /* ─── small helpers ─────────────────────────────────────────────── */
-const fmt = (n) => `NPR ${Number(n || 0).toLocaleString()}`;
+const fmt = (n) => `Rs. ${Number(n || 0).toLocaleString()}`;
 
 const statusColor = (s) => {
   const m = {
@@ -845,7 +845,7 @@ export default function SellerDashboard({ user, lang, currency }) {
                 <InputField label="Brand" placeholder="Brand name" value={prodForm.brand} onChange={e => setProdForm({...prodForm, brand: e.target.value})} />
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
-                <InputField label="Price (NPR) *" type="number" placeholder="0" value={prodForm.price} onChange={e => setProdForm({...prodForm, price: e.target.value})} required />
+                <InputField label="Price (Rs.) *" type="number" placeholder="0" value={prodForm.price} onChange={e => setProdForm({...prodForm, price: e.target.value})} required />
                 <InputField label="Discount (%)" type="number" placeholder="0" value={prodForm.discount} onChange={e => setProdForm({...prodForm, discount: e.target.value})} />
                 <InputField label="Stock Qty" type="number" placeholder="10" value={prodForm.stock} onChange={e => setProdForm({...prodForm, stock: e.target.value})} />
               </div>
@@ -872,7 +872,7 @@ export default function SellerDashboard({ user, lang, currency }) {
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <InputField label="Service Name *" placeholder="e.g. Home Cleaning" value={servForm.name} onChange={e => setServForm({...servForm, name: e.target.value})} required />
-                <InputField label="Price (NPR) *" type="number" placeholder="0" value={servForm.price} onChange={e => setServForm({...servForm, price: e.target.value})} required />
+                <InputField label="Price (Rs.) *" type="number" placeholder="0" value={servForm.price} onChange={e => setServForm({...servForm, price: e.target.value})} required />
                 <InputField label="Duration (min)" type="number" placeholder="60" value={servForm.duration} onChange={e => setServForm({...servForm, duration: e.target.value})} />
               </div>
               <TextAreaField label="Description *" placeholder="What does this service include?" value={servForm.description} onChange={e => setServForm({...servForm, description: e.target.value})} rows={3} required />
@@ -1029,7 +1029,7 @@ export default function SellerDashboard({ user, lang, currency }) {
                 <InputField label="Discount %" type="number" placeholder="e.g. 20" value={promoForm.discountPercent} onChange={e => setPromoForm({...promoForm, discountPercent: e.target.value})} required />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label="Max Discount (NPR)" type="number" placeholder="e.g. 500" value={promoForm.maxDiscount} onChange={e => setPromoForm({...promoForm, maxDiscount: e.target.value})} required />
+                <InputField label="Max Discount (Rs.)" type="number" placeholder="e.g. 500" value={promoForm.maxDiscount} onChange={e => setPromoForm({...promoForm, maxDiscount: e.target.value})} required />
                 <InputField label="Expiry Date *" type="date" value={promoForm.expiryDate} onChange={e => setPromoForm({...promoForm, expiryDate: e.target.value})} required />
               </div>
               <button type="submit" disabled={isSubmitting} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition disabled:opacity-60">

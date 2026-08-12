@@ -166,7 +166,7 @@ export default function Marketplace({
   };
 
   const displayPrice = (val) => {
-    return `रु ${Number(val || 0).toLocaleString('en-IN')}`;
+    return `Rs. ${Number(val || 0).toLocaleString('en-IN')}`;
   };
 
   const safeText = (value, fallback = '') => {

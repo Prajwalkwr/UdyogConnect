@@ -75,7 +75,7 @@ export default function DetailsModal({
   if (!businessId && !productId) return null;
 
   const displayPrice = (val) => {
-    return `रु ${val}`;
+    return `Rs. ${val}`;
   };
 
   const handleBooking = async (e) => {

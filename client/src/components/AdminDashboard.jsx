@@ -326,8 +326,8 @@ export default function AdminDashboard({ user, lang }) {
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { title: 'Total Registered Users', value: analytics?.metrics?.totalUsers, icon: <FiUsers className="text-cyan-400" /> },
-          { title: 'System Revenue Volume', value: `NPR ${analytics?.metrics?.revenue}`, icon: <FiTrendingUp className="text-emerald-400" /> },
-          { title: 'VAT Tax Collected (13%)', value: `NPR ${analytics?.metrics?.tax}`, icon: <FiCheckCircle className="text-amber-400" /> },
+          { title: 'System Revenue Volume', value: `Rs. ${analytics?.metrics?.revenue}`, icon: <FiTrendingUp className="text-emerald-400" /> },
+          { title: 'VAT Tax Collected (13%)', value: `Rs. ${analytics?.metrics?.tax}`, icon: <FiCheckCircle className="text-amber-400" /> },
           { title: 'Disputes (Reported Content)', value: analytics?.metrics?.reportedReviews, icon: <FiFlag className="text-rose-400 animate-pulse" /> },
         ].map((metric) => (
           <div key={metric.title} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
@@ -599,7 +599,7 @@ export default function AdminDashboard({ user, lang }) {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="font-bold text-white text-sm">Order #{order._id.slice(-6)}</div>
-                        <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total NPR {order.total}</div>
+                        <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total Rs. {order.total}</div>
                       </div>
                       <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">{order.status}</span>
                     </div>

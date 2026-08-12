@@ -309,7 +309,7 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                       </div>
                       <div className="mt-4 sm:mt-0 text-right flex flex-col items-end gap-2">
                         <span className="text-sm font-black text-amber-300">
-                          रु {o.total}
+                          Rs. {o.total}
                         </span>
                         {/* Live tracking action hidden */}
                       </div>
@@ -395,7 +395,7 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                         <h4 className="font-bold text-slate-200 text-xs truncate max-w-[150px]">{p.name}</h4>
                         <p className="text-[10px] text-slate-500">{p.brand}</p>
                         <span className="text-xs font-bold text-amber-300 mt-1 block">
-                          रु {p.price}
+                          Rs. {p.price}
                         </span>
                       </div>
                     </div>
