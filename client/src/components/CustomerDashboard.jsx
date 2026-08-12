@@ -4,7 +4,7 @@ import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
-export default function CustomerDashboard({ user, lang, currency, onOpenProduct }) {
+export default function CustomerDashboard({ user, lang, onOpenProduct }) {
   const [profileData, setProfileData] = useState(null);
   const [orders, setOrders] = useState([]);
   const [bookings, setBookings] = useState([]);

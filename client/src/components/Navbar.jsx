@@ -8,8 +8,6 @@ export default function Navbar({
   onLogout,
   lang,
   setLang,
-  currency,
-  setCurrency,
   onOpenDashboard,
   onOpenChat,
   notifications,
@@ -46,16 +44,6 @@ export default function Navbar({
           >
             <FiGlobe className="text-emerald-400" />
             <span>{lang === 'en' ? 'EN' : 'नेपाली'}</span>
-          </button>
-
-          {/* Currency Switcher */}
-          <button
-            onClick={() => setCurrency(currency === 'Rs.' ? 'USD' : 'Rs.')}
-            className="flex items-center gap-1 rounded-lg border border-slate-850 bg-slate-900/60 px-2 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
-            title="Switch Currency"
-          >
-            <FiDollarSign className="text-amber-400" />
-            <span>{currency}</span>
           </button>
 
           {/* Chat Launcher */}

@@ -10,7 +10,6 @@ export default function DetailsModal({
   productId,
   onClose,
   onAddToCart,
-  currency,
   lang,
   user,
 }) {

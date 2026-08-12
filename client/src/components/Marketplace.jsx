@@ -9,7 +9,6 @@ export default function Marketplace({
   user,
   businesses,
   products,
-  currency,
   lang,
   onOpenProduct,
   onOpenBusiness,

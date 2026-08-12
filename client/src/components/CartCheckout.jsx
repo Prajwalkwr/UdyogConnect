@@ -9,7 +9,6 @@ export default function CartCheckout({
   cart,
   user,
   lang,
-  currency,
   onUpdateQty,
   onRemoveItem,
   onClearCart,

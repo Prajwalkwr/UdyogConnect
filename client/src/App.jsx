@@ -40,7 +40,6 @@ function App() {
 
   // Global settings
   const [lang, setLang] = useState('en'); // 'en' | 'ne'
-  const [currency, setCurrency] = useState('Rs.'); // 'Rs.' | 'USD'
   const [notifications, setNotifications] = useState([]);
   const [liveOrderTick, setLiveOrderTick] = useState(0); // increments on new_order socket event
 
@@ -220,8 +219,6 @@ function App() {
           onLogout={handleLogout}
           lang={lang}
           setLang={setLang}
-          currency={currency}
-          setCurrency={setCurrency}
           onOpenDashboard={handleOpenDashboard}
           onOpenChat={() => {
             // Triggers floating chat visibility in children automatically
@@ -250,7 +247,6 @@ function App() {
               }
             }}
             onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
-            currency={currency}
             lang={lang}
             user={user}
           />
@@ -266,7 +262,6 @@ function App() {
                   user={user}
                   businesses={businesses}
                   products={products}
-                  currency={currency}
                   lang={lang}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={(id) => setSelectedBusinessId(id)}
@@ -285,7 +280,6 @@ function App() {
                     user={user}
                     businesses={businesses}
                     products={products}
-                    currency={currency}
                     lang={lang}
                     onOpenProduct={(id) => setSelectedProductId(id)}
                     onOpenBusiness={(id) => setSelectedBusinessId(id)}
@@ -303,7 +297,6 @@ function App() {
                   cart={cart}
                   user={user}
                   lang={lang}
-                  currency={currency}
                   onUpdateQty={(id, qty) => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { id, quantity: qty } })}
                   onRemoveItem={(id) => dispatch({ type: 'REMOVE_FROM_CART', payload: id })}
                   onClearCart={() => dispatch({ type: 'CLEAR_CART' })}
@@ -320,7 +313,6 @@ function App() {
                 <CustomerDashboard
                   user={user}
                   lang={lang}
-                  currency={currency}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                 />
               }
@@ -328,7 +320,7 @@ function App() {
 
             <Route
               path="/business"
-              element={<SellerDashboard user={user} lang={lang} currency={currency} onLogout={handleLogout} liveOrderTick={liveOrderTick} />}
+              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} />}
             />
 
             <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} />} />

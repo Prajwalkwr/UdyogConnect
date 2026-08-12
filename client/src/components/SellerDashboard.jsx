@@ -83,7 +83,7 @@ function TextAreaField({ label, ...props }) {
 /* ══════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════ */
-export default function SellerDashboard({ user, lang, currency }) {
+export default function SellerDashboard({ user, lang }) {
   const t = (en, ne) => lang === 'en' ? en : ne;
 
   const [myBusiness, setMyBusiness]   = useState(null);
