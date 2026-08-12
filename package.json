@@ -38,6 +38,7 @@
     "react-router-dom": "^7.18.1",
     "redux": "^5.0.1",
     "resend": "^6.16.0",
+    "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "stripe": "^22.3.0",
     "sweetalert2": "^11.26.25",
@@ -48,8 +49,8 @@
     "@tailwindcss/postcss": "^4.3.2",
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^9.2.3",
-    "vitest": "^2.1.4",
+    "mongodb-memory-server": "^8.12.1",
     "supertest": "^7.2.2",
-    "mongodb-memory-server": "^8.12.1"
+    "vitest": "^2.1.4"
   }
 }
