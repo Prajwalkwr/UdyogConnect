@@ -1,5 +1,5 @@
 ### Stage 1: Build client
-FROM node:18-alpine AS client-builder
+FROM node:22-alpine AS client-builder
 WORKDIR /app
 COPY client/package.json client/package-lock.json ./client/
 WORKDIR /app/client
@@ -8,7 +8,7 @@ COPY client/ ./
 RUN npm run build
 
 ### Stage 2: Build server
-FROM node:18-alpine AS server
+FROM node:22-alpine AS server
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --production
