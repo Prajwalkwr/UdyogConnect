@@ -695,8 +695,7 @@ async function connectDb() {
         console.warn(err && err.message);
         dbConnectionPromise = null;
         if (process.env.NODE_ENV === 'production') {
-          console.error('ERROR: Failed to connect to MongoDB in production. Throwing error to prevent partial startup.');
-          throw err;
+          console.error('ERROR: Failed to connect to MongoDB in production. Falling back to in-memory storage. THIS MEANS DATA WILL BE LOST ON RESTART. Check your MONGODB_URI or Atlas IP Allowlist.');
         }
         console.warn('Falling back to local JSON file DB for development only.');
         isMongo = false;
