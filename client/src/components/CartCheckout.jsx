@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCreditCard, FiCheckCircle, FiTag } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
+import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
 export default function CartCheckout({
   cart,
@@ -34,6 +35,9 @@ export default function CartCheckout({
   // QR Modal
   const [showQrModal, setShowQrModal] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [checkoutBusinessName, setCheckoutBusinessName] = useState('');
+  const [checkoutBusinessQrUrl, setCheckoutBusinessQrUrl] = useState('');
+  const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -50,13 +54,38 @@ export default function CartCheckout({
     }
   }, [user]);
 
+  useEffect(() => {
+    const businessId = resolveCheckoutBusinessId(cart);
+    if (!businessId) {
+      setCheckoutBusinessName('');
+      setCheckoutBusinessQrUrl('');
+      return;
+    }
+
+    let cancelled = false;
+    const loadBusiness = async () => {
+      try {
+        const response = await api.get(`/api/businesses/${businessId}`);
+        if (cancelled) return;
+        setCheckoutBusinessName(response.data.business?.name || '');
+        setCheckoutBusinessQrUrl(response.data.business?.qrUrl || '');
+      } catch (err) {
+        if (!cancelled) {
+          setCheckoutBusinessName('');
+          setCheckoutBusinessQrUrl('');
+        }
+      }
+    };
+    loadBusiness();
+    return () => { cancelled = true; };
+  }, [cart]);
+
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleApplyCoupon = async () => {
     if (!promoCode) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/admin/coupons', { headers: { Authorization: `Bearer ${token}` } });
+      const response = await api.get('/api/admin/coupons');
       const match = response.data.find(
         (c) => c.code === promoCode.toUpperCase() && c.active
       );
@@ -91,55 +120,65 @@ export default function CartCheckout({
   const total = parseFloat((subtotal + deliveryFee + tax - rawDiscount).toFixed(2));
 
   const displayPrice = (val) => {
-    if (currency === 'USD') {
-      return `$ ${(parseFloat(val) / 130).toFixed(2)}`;
-    }
     return `रु ${val}`;
   };
 
   const handlePlaceOrder = async (e) => {
     if (e) e.preventDefault();
     if (cart.length === 0) return;
+    if (!submitGuard.begin()) return;
     if (!name || !email || !phone || (!address && deliveryMethod === 'delivery')) {
       Swal.fire({ icon: 'error', text: translate('Please fill all delivery contact fields.', 'कृपया सबै डेलिभरी विवरणहरू भर्नुहोस्।') });
+      submitGuard.finish();
       return;
     }
 
     if (paymentMethod === 'Card' && (!cardNumber || !cardExpiry || !cardCvc)) {
       Swal.fire({ icon: 'error', text: 'Please fill credit/debit card information.' });
+      submitGuard.finish();
       return;
     }
 
     if (paymentMethod === 'QR' && !showQrModal) {
       setShowQrModal(true);
+      submitGuard.finish();
       return;
     }
 
     setPlacingOrder(true);
     try {
-      const token = localStorage.getItem('token');
       const businessId = resolveCheckoutBusinessId(cart);
-      const response = await axios.post(
+      const response = await api.post(
         '/api/checkout',
         {
           businessId,
-          items: cart,
+          items: cart.map((item) => ({
+            ...item,
+            businessId: item.businessId || item.business?.id || businessId || item.sellerId || item.vendorId || '',
+          })),
           promoCode: couponData ? couponData.code : undefined,
           paymentMethod,
           deliveryAddress: { name, email, phone, address, method: deliveryMethod },
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { ...createIdempotencyHeader('checkout-order') } }
       );
 
       const placedOrder = response.data.order;
 
-      // Card / Wallet Simulated validation
-      if (paymentMethod === 'Card' || paymentMethod === 'Wallet' || paymentMethod === 'QR') {
-        await axios.post(
-          '/api/payment/confirm',
-          { orderId: placedOrder._id, status: 'paid' },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+      // For card payments, create a Stripe Checkout session and redirect the user.
+      if (paymentMethod === 'Card') {
+        const sessResp = await api.post('/api/payment/create-session', { orderId: placedOrder._id });
+        if (sessResp.data && sessResp.data.url) {
+          // Redirect to Stripe Checkout
+          window.location.href = sessResp.data.url;
+          return;
+        }
+        throw new Error('Failed to initiate card payment.');
+      }
+
+      // Wallet / QR simulated validation (instant)
+      if (paymentMethod === 'Wallet' || paymentMethod === 'QR') {
+        await api.post('/api/payment/confirm', { orderId: placedOrder._id, status: 'paid' });
       }
 
       Swal.fire({
@@ -156,6 +195,7 @@ export default function CartCheckout({
       Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Order checkout failed.' });
     } finally {
       setPlacingOrder(false);
+      submitGuard.finish();
     }
   };
 
@@ -169,7 +209,7 @@ export default function CartCheckout({
       </div>
 
       {cart.length === 0 ? (
-        <div className="py-20 text-center rounded-[32px] border border-slate-850 bg-slate-900/10 mt-6">
+        <div className="py-20 text-center rounded-4xl border border-slate-850 bg-slate-900/10 mt-6">
           <FiShoppingBag className="mx-auto h-12 w-12 text-slate-650" />
           <p className="mt-4 text-sm text-slate-400">{translate('Your cart is currently empty.', 'तपाईंको कार्ट हाल खाली छ।')}</p>
         </div>
@@ -188,20 +228,26 @@ export default function CartCheckout({
                   <p className="text-[10px] text-slate-500 mt-0.5">{item.seller}</p>
                 </div>
                 <div className="flex items-center gap-3.5">
-                  <div className="flex items-center rounded-xl bg-slate-950 border border-slate-850 p-1">
-                    <button
-                      onClick={() => onUpdateQty(item.id, item.quantity - 1)}
-                      className="px-2 text-slate-450 hover:text-white"
-                    >
-                      -
-                    </button>
-                    <span className="px-2 text-xs font-bold text-white">{item.quantity}</span>
-                    <button
-                      onClick={() => onUpdateQty(item.id, item.quantity + 1)}
-                      className="px-2 text-slate-450 hover:text-white"
-                    >
-                      +
-                    </button>
+                  <div className="flex flex-col items-end gap-1">
+                    {item.stock !== undefined && (
+                      <span className="text-[10px] text-slate-500">Stock: {item.stock}</span>
+                    )}
+                    <div className="flex items-center rounded-xl bg-slate-950 border border-slate-850 p-1">
+                      <button
+                        onClick={() => onUpdateQty(item.id, item.quantity - 1)}
+                        className="px-2 text-slate-450 hover:text-white"
+                      >
+                        -
+                      </button>
+                      <span className="px-2 text-xs font-bold text-white">{item.quantity}</span>
+                      <button
+                        onClick={() => onUpdateQty(item.id, item.quantity + 1)}
+                        disabled={item.quantity >= Math.min(20, item.stock || 20)}
+                        className={`px-2 ${item.quantity >= Math.min(20, item.stock || 20) ? 'text-slate-600 cursor-not-allowed' : 'text-slate-450 hover:text-white'}`}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                   <span className="font-black text-amber-300 text-xs sm:text-sm">
                     {displayPrice(item.price * item.quantity)}
@@ -240,7 +286,7 @@ export default function CartCheckout({
             </div>
 
             {/* Address Details */}
-            <div className="rounded-[32px] border border-slate-800 bg-slate-900/30 p-5 space-y-4">
+            <div className="rounded-4xl border border-slate-800 bg-slate-900/30 p-5 space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-450">{translate('Delivery Details', 'डेलिभरी ठेगाना')}</h3>
               
               <div className="grid gap-4 sm:grid-cols-2">
@@ -289,7 +335,7 @@ export default function CartCheckout({
           <div className="space-y-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-450">{translate('Order Summary', 'अर्डर विवरण')}</h3>
 
-            <div className="rounded-[32px] border border-slate-800 bg-slate-905 p-6 space-y-5">
+            <div className="rounded-4xl border border-slate-800 bg-slate-905 p-6 space-y-5">
               {/* Delivery choices */}
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">{translate('Delivery Method', 'डेलिभरी विधि')}</span>
@@ -414,25 +460,33 @@ export default function CartCheckout({
       {/* QR MODAL */}
       {showQrModal && (
         <div className="fixed inset-0 z-55 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-md">
-          <div className="w-full max-w-sm rounded-[32px] border border-slate-800 bg-slate-900 p-6 text-center space-y-4 shadow-2xl">
+          <div className="w-full max-w-sm rounded-4xl border border-slate-800 bg-slate-900 p-6 text-center space-y-4 shadow-2xl">
             <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400">{translate('Scan to Pay', 'स्क्यान गरी भुक्तानी गर्नुहोस्')}</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              {checkoutBusinessName ? `${translate('Pay the business', 'व्यवसायलाई भुक्तान गर्नुहोस्')}: ${checkoutBusinessName}` : translate('Scan the QR code with your mobile banking or eSewa app.', 'मोबाइल बैंकिङ वा eSewa एपबाट QR स्क्यान गर्नुहोस्।')}
+            </p>
             <div className="mx-auto flex h-48 w-48 items-center justify-center rounded-2xl bg-white p-3 shadow-inner">
-              {/* Simulated QR Code matrix */}
-              <div className="grid grid-cols-5 gap-2.5 h-full w-full opacity-90">
-                {Array.from({ length: 25 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`rounded ${
-                      (i % 3 === 0 && i % 2 === 0) || i === 0 || i === 4 || i === 20 || i === 24
-                        ? 'bg-slate-950'
-                        : 'bg-slate-200'
-                    }`}
-                  />
-                ))}
-              </div>
+              {checkoutBusinessQrUrl ? (
+                <img src={checkoutBusinessQrUrl} alt="Business payment QR" className="h-full w-full rounded-2xl object-contain" />
+              ) : (
+                <div className="grid grid-cols-5 gap-2.5 h-full w-full opacity-90">
+                  {Array.from({ length: 25 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`rounded ${
+                        (i % 3 === 0 && i % 2 === 0) || i === 0 || i === 4 || i === 20 || i === 24
+                          ? 'bg-slate-950'
+                          : 'bg-slate-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              {translate('Scan with eSewa, Khalti, or Mobile Banking app. Simulated QR code for platform checkout.', 'eSewa, Khalti वा मोबाइल बैंकिङ मार्फत भुक्तानी गर्नुहोस्।')}
+              {checkoutBusinessQrUrl
+                ? translate('Scan with eSewa, Khalti, or Mobile Banking app. Business-specific QR code is shown when available.', 'eSewa, Khalti वा मोबाइल बैंकिङ प्रयोग गरी स्क्यान गर्नुहोस्। उपलब्ध भएमा व्यवसाय-विशिष्ट QR कोड देखाइन्छ।')
+                : translate('This business has not uploaded a QR code yet. Complete payment via your preferred method and confirm when ready.', 'यस व्यवसायले अझै QR कोड अपलोड गरेको छैन। तपाईंको मनपर्ने तरिका प्रयोग गरी भुक्तानी गरी पुष्टि गर्नुहोस्।')}
             </p>
             <button
               onClick={() => handlePlaceOrder(null)}
@@ -440,13 +494,13 @@ export default function CartCheckout({
               className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400"
             >
               <FiCheckCircle />
-              <span>{placingOrder ? 'Confirming...' : 'Simulate Scan & Approve'}</span>
+              <span>{placingOrder ? translate('Confirming...', 'पुष्टि हुँदैछ...') : translate('Simulate Scan & Approve', 'स्क्यान र पुष्टि गर्नुहोस्')}</span>
             </button>
             <button
               onClick={() => setShowQrModal(false)}
               className="text-xs text-slate-500 hover:text-slate-400"
             >
-              Cancel
+              {translate('Cancel', 'रद्द गर्नुहोस्')}
             </button>
           </div>
         </div>

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag } from 'react-icons/fi';
+import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingBag, FiTruck, FiPackage, FiFileText } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 
-export default function AdminDashboard({ user, lang }) {
+export default function AdminDashboard({ user, lang, liveOrderTick }) {
   const [analytics, setAnalytics] = useState(null);
   const [businesses, setBusinesses] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('approvals'); // 'approvals' | 'coupons' | 'reviews' | 'reports'
+  const [activeTab, setActiveTab] = useState('approvals');
 
   // Coupon Form State
   const [couponCode, setCouponCode] = useState('');
@@ -27,34 +28,87 @@ export default function AdminDashboard({ user, lang }) {
     }
   }, [user]);
 
+  /* ⚡ Real-time: silently refresh when a new order arrives via Socket.IO */
+  useEffect(() => {
+    if (liveOrderTick > 0 && user) {
+      const token = localStorage.getItem('token');
+      // Refresh analytics and orders list
+      axios.get('/api/admin/analytics', { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => setAnalytics(res.data)).catch(() => {});
+      axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => setOrders(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+    }
+  }, [liveOrderTick, user]);
+
   const fetchAdminData = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      // Fetch platform stats
       const statsRes = await axios.get('/api/admin/analytics', { headers: { Authorization: `Bearer ${token}` } });
       setAnalytics(statsRes.data);
 
-      // Fetch all businesses
       const bizRes = await axios.get('/api/businesses');
       setBusinesses(bizRes.data);
 
-      // Fetch active coupons
+      const ordRes = await axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+      setOrders(Array.isArray(ordRes.data) ? ordRes.data : []);
+
       const coupRes = await axios.get('/api/admin/coupons', { headers: { Authorization: `Bearer ${token}` } });
       setCoupons(coupRes.data);
 
-      // Seed reviews list
       const allBizReviews = [];
       for (let b of bizRes.data) {
-        const details = await axios.get(`/api/businesses/${b._id}`);
-        allBizReviews.push(...details.data.reviews);
+        try {
+          const details = await axios.get(`/api/businesses/${b._id}`);
+          allBizReviews.push(...(details.data.reviews || []));
+        } catch (_) {}
       }
       setReviews(allBizReviews);
 
       setLoading(false);
     } catch (e) {
-      console.log(e);
+      console.error(e);
       setLoading(false);
+    }
+  };
+
+  // Refresh orders list
+  const fetchOrders = async () => {
+    const token = localStorage.getItem('token');
+    const res = await axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+    setOrders(Array.isArray(res.data) ? res.data : []);
+  };
+
+  // Mark order as dispatched
+  const handleDispatchOrder = async (orderId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/delivery/${orderId}/assign`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      Swal.fire({ icon: 'success', title: 'Order Dispatched!', text: 'Customer has been notified.', timer: 1800, showConfirmButton: false });
+      fetchOrders();
+    } catch (e) {
+      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'Dispatch failed.' });
+    }
+  };
+
+  // Complete delivery with OTP
+  const handleCompleteDelivery = async (orderId, deliveryOtp) => {
+    const { value: enteredOtp } = await Swal.fire({
+      title: 'Enter Delivery OTP',
+      html: `<p style="font-size:12px;color:#94a3b8;margin-bottom:8px">Ask the customer for their 4-digit delivery OTP code</p>
+             <input id="otp-input" class="swal2-input" placeholder="e.g. 1234" maxlength="4" style="font-family:monospace;font-size:20px;text-align:center;letter-spacing:6px" />`,
+      focusConfirm: false,
+      confirmButtonColor: '#f59e0b',
+      preConfirm: () => document.getElementById('otp-input').value,
+    });
+    if (!enteredOtp) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/delivery/${orderId}/complete`, { otp: enteredOtp }, { headers: { Authorization: `Bearer ${token}` } });
+      Swal.fire({ icon: 'success', title: 'Delivery Completed! ✅', text: 'Order marked as delivered and paid.', confirmButtonColor: '#f59e0b' });
+      fetchOrders();
+    } catch (e) {
+      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'OTP verification failed.' });
     }
   };
 
@@ -74,6 +128,42 @@ export default function AdminDashboard({ user, lang }) {
       fetchAdminData();
     } catch (e) {
       Swal.fire({ icon: 'error', text: 'Action failed.' });
+    }
+  };
+
+  const handleDeleteBusiness = async (bizId) => {
+    const confirmResult = await Swal.fire({
+      title: translate('Are you sure?', 'के तपाईं पक्का हुनुहुन्छ?'),
+      text: translate(
+        'This will permanently delete this business account and all its associated products, services, and reviews!',
+        'यसले यो व्यवसाय खाता र यससँग सम्बन्धित सबै उत्पादनहरू, सेवाहरू र समीक्षाहरू स्थायी रूपमा हटाउनेछ!'
+      ),
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: translate('Yes, delete it!', 'हो, मेटाउनुहोस्!'),
+      cancelButtonText: translate('Cancel', 'रद्द गर्नुहोस्'),
+    });
+
+    if (confirmResult.isConfirmed) {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.delete(`/api/businesses/${bizId}`, { headers: { Authorization: `Bearer ${token}` } });
+        Swal.fire({
+          icon: 'success',
+          title: translate('Deleted!', 'मेटाइयो!'),
+          text: translate('Business account has been deleted.', 'व्यवसाय खाता मेटाइएको छ।'),
+        });
+        fetchAdminData();
+      } catch (e) {
+        const errorMsg = e.response?.data?.error || e.response?.data?.message || e.message || 'Action failed.';
+        Swal.fire({
+          icon: 'error',
+          title: translate('Failed to delete business account.', 'व्यवसाय खाता मेटाउन असफल भयो।'),
+          text: errorMsg
+        });
+      }
     }
   };
 
@@ -170,7 +260,8 @@ export default function AdminDashboard({ user, lang }) {
         <aside className="w-full lg:w-64 space-y-1.5 flex-shrink-0">
           <div className="rounded-3xl border border-slate-800 bg-slate-900/10 p-2 space-y-1">
             {[
-              { key: 'approvals', label: translate('Business Approvals', 'पसल स्वीकृत सूची'), icon: <FiCheckCircle /> },
+                      { key: 'approvals', label: translate('Business Approvals', 'पसल स्वीकृत सूची'), icon: <FiCheckCircle /> },
+              { key: 'orders', label: translate('Orders Management', 'अर्डर व्यवस्थापन'), icon: <FiShoppingBag /> },
               { key: 'coupons', label: translate('Coupons Management', 'कुपन कोड व्यवस्थापन'), icon: <FiTag /> },
               { key: 'reviews', label: translate('Safety Moderation', 'सामग्री मध्यस्थता'), icon: <FiShield /> },
               { key: 'reports', label: translate('Financial Reports', 'वित्तीय रिपोर्टहरू'), icon: <FiDownload /> },
@@ -193,6 +284,89 @@ export default function AdminDashboard({ user, lang }) {
 
         {/* Tab content area */}
         <main className="flex-1 space-y-6">
+          {/* Orders Management Tab */}
+          {activeTab === 'orders' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-extrabold text-white">{translate('All Orders', 'सबै अर्डरहरू')} <span className="text-sm text-slate-400 font-normal">({orders.length})</span></h3>
+                <button onClick={fetchOrders} className="text-xs text-amber-400 hover:underline">Refresh</button>
+              </div>
+              {orders.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500">No orders found.</div>
+              ) : (
+                <div className="space-y-3">
+                  {orders.map((o) => {
+                    const statusColor = {
+                      placed: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+                      preparing: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+                      dispatched: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                      completed: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                      cancelled: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+                    }[o.status] || 'bg-slate-500/15 text-slate-300';
+                    return (
+                      <div key={o._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <p className="text-xs font-mono font-bold text-white">#{String(o._id).slice(-8).toUpperCase()}</p>
+                            <p className="text-[11px] text-slate-400">{o.deliveryAddress?.name} · {o.deliveryAddress?.phone}</p>
+                            <p className="text-[10px] text-slate-500">{o.deliveryAddress?.address}</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusColor}`}>{o.status}</span>
+                            <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${o.paymentStatus === 'paid' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>{o.paymentStatus}</span>
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-slate-300 bg-slate-950/40 rounded-xl px-3 py-2">
+                          {o.items?.map(i => `${i.name} ×${i.quantity}`).join(' | ')}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-800 flex-wrap gap-2">
+                          <div className="text-xs">
+                            <span className="font-bold text-amber-300">NPR {o.total}</span>
+                            <span className="text-slate-500 ml-2 font-mono text-[10px]">OTP: {o.deliveryOtp}</span>
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            {o.status === 'preparing' && (
+                              <button
+                                onClick={() => handleDispatchOrder(o._id)}
+                                className="rounded-lg bg-purple-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-purple-400 transition"
+                              >
+                                <FiTruck className="inline mr-1" />Dispatch
+                              </button>
+                            )}
+                            {o.status === 'dispatched' && (
+                              <button
+                                onClick={() => handleCompleteDelivery(o._id, o.deliveryOtp)}
+                                className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition"
+                              >
+                                <FiCheckCircle className="inline mr-1" />Verify OTP & Complete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Tracking timeline */}
+                        {o.trackingHistory && o.trackingHistory.length > 0 && (
+                          <div className="border-t border-slate-800 pt-2 space-y-1">
+                            {o.trackingHistory.slice().reverse().slice(0, 3).map((t, i) => (
+                              <div key={i} className="flex items-center gap-2 text-[10px] text-slate-500">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                                <span className="font-semibold text-slate-400">{t.status}</span>
+                                <span>— {t.note}</span>
+                                <span className="ml-auto">{new Date(t.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* A. Approvals panel */}
           {activeTab === 'approvals' && (
             <div className="space-y-4">
@@ -235,6 +409,12 @@ export default function AdminDashboard({ user, lang }) {
                           Suspend Shop
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteBusiness(biz._id)}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-rose-500 transition"
+                      >
+                        {translate('Delete Business', 'व्यवसाय हटाउनुहोस्')}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -259,6 +439,8 @@ export default function AdminDashboard({ user, lang }) {
                   />
                   <input
                     type="number"
+                    min="1"
+                    max="100"
                     placeholder="Discount Percentage (e.g. 15)"
                     value={couponDiscount}
                     onChange={(e) => setCouponDiscount(e.target.value)}
@@ -269,6 +451,7 @@ export default function AdminDashboard({ user, lang }) {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input
                     type="number"
+                    min="0"
                     placeholder="Max Discount Cap Value (NPR)"
                     value={couponMax}
                     onChange={(e) => setCouponMax(e.target.value)}

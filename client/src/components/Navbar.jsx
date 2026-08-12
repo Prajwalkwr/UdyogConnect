@@ -18,7 +18,8 @@ export default function Navbar({
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
 
-  const unreadNotifs = notifications.filter(n => !n.read);
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
+  const unreadNotifs = safeNotifications.filter((n) => !n.read);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -101,12 +102,12 @@ export default function Navbar({
                   )}
                 </div>
                 <div className="max-h-60 overflow-y-auto py-1">
-                  {notifications.length === 0 ? (
+                  {safeNotifications.length === 0 ? (
                     <div className="py-6 text-center text-xs text-slate-500">
                       {translate('No new notifications', 'कुनै नयाँ सूचना छैन')}
                     </div>
                   ) : (
-                    notifications.map((notif) => (
+                    safeNotifications.map((notif) => (
                       <div
                         key={notif._id}
                         className={`rounded-lg px-3 py-2 text-xs transition hover:bg-slate-800/50 ${

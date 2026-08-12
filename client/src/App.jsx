@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import axios from 'axios';
+import api from './utils/api';
 import Swal from 'sweetalert2';
+import { normalizeUser } from './utils/authFlow';
+import { readStoredJson, removeStoredValue } from './utils/storage';
+import { io as socketIO } from 'socket.io-client';
 
 // Import Modular Components
 import Navbar from './components/Navbar';
@@ -14,7 +17,7 @@ import ChatAndAI from './components/ChatAndAI';
 import CustomerDashboard from './components/CustomerDashboard';
 import SellerDashboard from './components/SellerDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import RiderDashboard from './components/RiderDashboard';
+import PaymentSuccess from './components/PaymentSuccess';
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -39,6 +42,10 @@ function App() {
   const [lang, setLang] = useState('en'); // 'en' | 'ne'
   const [currency, setCurrency] = useState('NPR'); // 'NPR' | 'USD'
   const [notifications, setNotifications] = useState([]);
+  const [liveOrderTick, setLiveOrderTick] = useState(0); // increments on new_order socket event
+
+  // Socket ref
+  const socketRef = useRef(null);
 
   // Data lists
   const [businesses, setBusinesses] = useState([]);
@@ -49,57 +56,95 @@ function App() {
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
 
-  // Sync token and notifications
+  // Sync token, notifications, and Socket.IO connection
   useEffect(() => {
     const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    if (token && savedUser) {
-      const parsed = JSON.parse(savedUser);
-      dispatch({ type: 'SET_USER', payload: parsed });
-      fetchNotifications(token);
+    const parsedUser = readStoredJson('user', null);
 
-      // Poll notifications every 8 seconds
-      const interval = setInterval(() => {
-        fetchNotifications(token);
-      }, 8000);
-      return () => clearInterval(interval);
+    if (token) {
+      if (parsedUser) {
+        const normalizedUser = normalizeUser(parsedUser);
+        dispatch({ type: 'SET_USER', payload: normalizedUser });
+      }
+      fetchNotifications();
+
+      // ── Real-time Socket.IO connection ────────────────────────
+      const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin;
+      const socket = socketIO(backendUrl, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000,
+      });
+      socketRef.current = socket;
+
+      // Receive a notification pushed by the server in real-time
+      socket.on('new_notification', () => {
+        fetchNotifications();
+      });
+
+      // Receive a new_order event — trigger seller/admin dashboard refresh
+      socket.on('new_order', () => {
+        setLiveOrderTick((t) => t + 1);
+      });
+
+      return () => {
+        socket.disconnect();
+        socketRef.current = null;
+      };
     }
   }, [dispatch]);
 
   // Load Marketplace Catalogs
   const fetchMarketplaceData = () => {
-    axios.get('/api/businesses').then((res) => {
-      setBusinesses(res.data);
-      dispatch({ type: 'SET_BUSINESSES', payload: res.data });
-    });
-    axios.get('/api/products').then((res) => {
-      setProducts(res.data);
-    });
+    api.get('/api/businesses')
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setBusinesses(list);
+        dispatch({ type: 'SET_BUSINESSES', payload: list });
+      })
+      .catch(() => {
+        setBusinesses([]);
+        dispatch({ type: 'SET_BUSINESSES', payload: [] });
+      });
+
+    api.get('/api/products')
+      .then((res) => {
+        const items = Array.isArray(res.data) ? res.data : [];
+        setProducts(items);
+      })
+      .catch(() => {
+        setProducts([]);
+      });
   };
 
   useEffect(() => {
     fetchMarketplaceData();
   }, [dispatch]);
 
-  const fetchNotifications = (token) => {
-    axios
-      .get('/api/notifications', { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => setNotifications(res.data))
-      .catch(() => {});
+  const fetchNotifications = () => {
+    api
+      .get('/api/notifications')
+      .then((res) => {
+        const notificationsData = Array.isArray(res.data) ? res.data : [];
+        setNotifications(notificationsData);
+      })
+      .catch(() => {
+        setNotifications([]);
+      });
   };
 
   const handleClearNotifications = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    axios.put('/api/notifications/read', {}, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
-      fetchNotifications(token);
+    api.put('/api/notifications/read', {}).then(() => {
+      fetchNotifications();
     });
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    removeStoredValue('token');
+    removeStoredValue('user');
     dispatch({ type: 'SET_USER', payload: null });
+    setNotifications([]);
     Swal.fire({
       icon: 'success',
       title: lang === 'en' ? 'Signed Out' : 'साइन आउट भयो',
@@ -111,15 +156,16 @@ function App() {
   };
 
   const handleAuthSuccess = (data) => {
+    const normalizedUser = normalizeUser(data.user);
     localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-    dispatch({ type: 'SET_USER', payload: data.user });
-    fetchNotifications(data.token);
+    localStorage.setItem('user', JSON.stringify(normalizedUser));
+    dispatch({ type: 'SET_USER', payload: normalizedUser });
+    setNotifications([]);
+    fetchNotifications();
 
     // Redirect to dashboards based on role
-    if (data.user.role === 'admin') navigate('/admin');
-    else if (data.user.role === 'seller') navigate('/business');
-    else if (data.user.role === 'rider') navigate('/rider');
+    if (normalizedUser.role === 'admin') navigate('/admin');
+    else if (normalizedUser.role === 'seller') navigate('/business');
     else navigate('/customer');
   };
 
@@ -133,13 +179,38 @@ function App() {
       }
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'seller') navigate('/business');
-      else if (user.role === 'rider') navigate('/rider');
       else navigate('/customer');
     }
   };
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      removeStoredValue('token');
+      removeStoredValue('user');
+      dispatch({ type: 'SET_USER', payload: null });
+      setNotifications([]);
+      if (location.pathname !== '/') {
+        navigate('/');
+      }
+    };
+
+    const handleStorage = (event) => {
+      if (event.key === 'token' && !event.newValue) {
+        dispatch({ type: 'SET_USER', payload: null });
+        setNotifications([]);
+      }
+    };
+
+    window.addEventListener('api-unauthorized', handleUnauthorized);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('api-unauthorized', handleUnauthorized);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [dispatch, location.pathname, navigate]);
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.1),_transparent_40%),linear-gradient(135deg,_#07111c_0%,_#0f1f2d_100%)] text-slate-100 font-sans selection:bg-amber-400 selection:text-slate-950 flex flex-col justify-between">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-amber-400 selection:text-slate-950 flex flex-col justify-between">
       <div>
         {/* Sticky Header Navbar */}
         <Navbar
@@ -200,6 +271,7 @@ function App() {
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={(id) => setSelectedBusinessId(id)}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
+                  onOpenDashboard={handleOpenDashboard}
                 />
               }
             />
@@ -218,6 +290,7 @@ function App() {
                     onOpenProduct={(id) => setSelectedProductId(id)}
                     onOpenBusiness={(id) => setSelectedBusinessId(id)}
                     onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
+                    onOpenDashboard={handleOpenDashboard}
                   />
                 </>
               }
@@ -255,12 +328,13 @@ function App() {
 
             <Route
               path="/business"
-              element={<SellerDashboard user={user} lang={lang} currency={currency} />}
+              element={<SellerDashboard user={user} lang={lang} currency={currency} onLogout={handleLogout} liveOrderTick={liveOrderTick} />}
             />
 
-            <Route path="/admin" element={<AdminDashboard user={user} lang={lang} />} />
+            <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} />} />
 
-            <Route path="/rider" element={<RiderDashboard user={user} lang={lang} />} />
+            {/* Rider role temporarily removed */}
+            <Route path="/payment-success" element={<PaymentSuccess />} />
           </Routes>
         </main>
       </div>

@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
 import { DEMO_ACCOUNTS } from '../utils/demoAccounts';
+import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+
+const getAuthErrorMessage = (err, fallback = 'Authentication operation failed.') => {
+  return err?.response?.data?.message || err?.response?.statusText || err?.message || fallback;
+};
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot' | 'otp'
@@ -15,6 +20,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   if (!isOpen) return null;
 
@@ -23,10 +29,11 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
   };
 
   const handleGoogleLogin = async () => {
+    if (!submitGuard.begin()) return;
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('/api/auth/google', {
+      const response = await api.post('/api/auth/google', {
         email: 'prajwal.google@udyog.np',
         name: 'Prajwal Google',
         googleId: 'g_' + Math.random().toString(36).substr(2, 9),
@@ -41,17 +48,19 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
       onAuthSuccess(response.data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Google login failed.');
+      setError(getAuthErrorMessage(err, 'Google login failed.'));
     } finally {
       setLoading(false);
+      submitGuard.finish();
     }
   };
 
   const handleQuickLogin = async (quickEmail, quickPassword, label) => {
+    if (!submitGuard.begin()) return;
     setError('');
     setLoading(true);
     try {
-      const response = await axios.post('/api/auth/login', { email: quickEmail, password: quickPassword, otp: undefined });
+      const response = await api.post('/api/auth/login', { email: quickEmail, password: quickPassword, otp: undefined });
       Swal.fire({
         icon: 'success',
         title: translate('Welcome Back!', 'स्वागत छ!'),
@@ -62,23 +71,26 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
       onAuthSuccess(response.data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Authentication operation failed.');
+      setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
+      submitGuard.finish();
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
     setError('');
     setLoading(true);
 
     try {
       if (mode === 'login') {
-        const response = await axios.post('/api/auth/login', { email, password, otp: otp || undefined });
+        const response = await api.post('/api/auth/login', { email, password, otp: otp || undefined }, { headers: createIdempotencyHeader('auth-login') });
         if (response.data.require2FA) {
           setMode('otp');
           setLoading(false);
+          submitGuard.finish();
           return;
         }
         Swal.fire({
@@ -91,7 +103,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
         onAuthSuccess(response.data);
         onClose();
       } else if (mode === 'otp') {
-        const response = await axios.post('/api/auth/login', { email, password, otp });
+        const response = await api.post('/api/auth/login', { email, password, otp }, { headers: createIdempotencyHeader('auth-otp') });
         Swal.fire({
           icon: 'success',
           title: translate('2FA Confirmed', '२FA स्वीकृत भयो'),
@@ -105,30 +117,19 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
         if (password !== confirmPassword) {
           setError(translate('Passwords do not match.', 'पासवर्डहरू मिल्दैनन्।'));
           setLoading(false);
+          submitGuard.finish();
           return;
         }
-        const response = await axios.post('/api/auth/register', { name, email, password, confirmPassword, phone, role });
+        await api.post('/api/auth/register', { name, email, password, confirmPassword, phone, role }, { headers: createIdempotencyHeader('auth-register') });
         Swal.fire({
           icon: 'success',
           title: translate('Success!', 'सफल भयो!'),
-          text: translate('Registration completed. You can now sign in immediately.', 'दर्ता पूरा भयो। तपाईंले तुरुन्त लगइन गर्न सक्नुहुन्छ।'),
+          text: translate('Registration completed.', 'दर्ता पूरा भयो।'),
         });
-        setEmail(email);
-        setPassword(password);
-        setMode('login');
-        setOtp('');
-        const loginResponse = await axios.post('/api/auth/login', { email, password, otp: undefined });
+        // Auto-login after successful registration
+        const loginResponse = await api.post('/api/auth/login', { email, password, otp: undefined }, { headers: createIdempotencyHeader('auth-auto-login') });
         onAuthSuccess(loginResponse.data);
         onClose();
-      } else if (mode === 'verify') {
-        const response = await axios.post('/api/auth/verify', { email, otp });
-        Swal.fire({
-          icon: 'success',
-          title: translate('Account Verified', 'खाता प्रमाणित भयो'),
-          text: translate('Your account is active. You can now login.', 'तपाईंको खाता सक्रिय भयो। अब लगइन गर्नुहोस्।'),
-        });
-        setMode('login');
-        setOtp('');
       } else if (mode === 'forgot') {
         Swal.fire({
           icon: 'info',
@@ -138,21 +139,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
         setMode('login');
       }
     } catch (err) {
-      if (err.response?.data?.requireVerification) {
-        setError('');
-        setMode('verify');
-        setOtp('');
-        Swal.fire({
-          icon: 'info',
-          title: translate('Account Verification Needed', 'खाता प्रमाणीकरण आवश्यक'),
-          text: translate('Please enter the verification OTP sent to your email. OTP: ' + err.response.data.otp, 'कृपया तपाईंको इमेलमा पठाइएको OTP हाल्नुहोस्। OTP: ' + err.response.data.otp),
-        });
-        setLoading(false);
-        return;
-      }
-      setError(err.response?.data?.message || 'Authentication operation failed.');
+      setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
+      submitGuard.finish();
     }
   };
 
@@ -174,14 +164,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
             {mode === 'signup' && translate('Join UdyogConnect', 'दर्ता गर्नुहोस्')}
             {mode === 'forgot' && translate('Forgot Password', 'पासवर्ड बिर्सनुभयो')}
             {mode === 'otp' && translate('Two-Factor Verification', '२-चरण प्रमाणीकरण')}
-            {mode === 'verify' && translate('Verify Your Account', 'खाता प्रमाणित गर्नुहोस्')}
           </h2>
           <p className="mt-1.5 text-xs text-slate-400">
             {mode === 'login' && translate('Access Nepal\'s local marketplace', 'नेपालको स्थानीय बजारमा पहुँच पाउनुहोस्')}
             {mode === 'signup' && translate('Create an account to start buying or selling', 'सामान किन्न वा बेच्न खाता सिर्जना गर्नुहोस्')}
             {mode === 'forgot' && translate('Recover access to your seller or buyer account', 'आफ्नो खाता पुनः प्राप्त गर्नुहोस्')}
             {mode === 'otp' && translate('Provide the 2FA code sent to your registered app', 'तपाईंको एपमा पठाइएको कोड हाल्नुहोस्')}
-            {mode === 'verify' && translate('Enter the 6-digit OTP code to activate your account', 'तपाईंको खाता सक्रिय गर्न ६-अङ्कको OTP कोड हाल्नुहोस्')}
           </p>
         </div>
 
@@ -274,11 +262,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450">
                 {translate('I want to register as:', 'म यस रूपमा दर्ता हुन चाहन्छु:')}
               </span>
-              <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 {[
                   { value: 'customer', label: translate('Buyer', 'ग्राहक') },
                   { value: 'seller', label: translate('Seller', 'विक्रेता') },
-                  { value: 'rider', label: translate('Rider', 'डेलिभरी') },
                 ].map((item) => (
                   <button
                     key={item.value}
@@ -298,13 +285,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
           )}
 
           {/* OTP Screen Input */}
-          {(mode === 'otp' || mode === 'verify') && (
+          {mode === 'otp' && (
             <div className="space-y-2">
-              <label className="text-xs text-slate-400">
-                {mode === 'verify'
-                  ? translate('Enter the 6-digit verification code sent to your account:', 'तपाईंको खातामा पठाइएको ६-अङ्कको प्रमाणीकरण कोड हाल्नुहोस्:')
-                  : translate('Enter the 6-digit OTP code (mock validation uses "123456"):', '६-अङ्कको OTP कोड हाल्नुहोस् (परीक्षण कोड: "123456"):')}
-              </label>
+              <label className="text-xs text-slate-400">{translate('Enter the 6-digit code.', '६-अङ्कको कोड हाल्नुहोस्।')}</label>
               <input
                 type="text"
                 maxLength="6"
@@ -363,7 +346,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.99] disabled:opacity-50"
+            className="w-full rounded-full bg-linear-to-r from-amber-400 to-amber-500 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.99] disabled:opacity-50"
           >
             {loading ? translate('Processing...', 'प्रक्रियामा...') : (
               mode === 'login' ? translate('Login', 'लगइन') :

@@ -38,6 +38,21 @@ export default function CartCheckout({
     return lang === 'en' ? enText : neText;
   };
 
+  /* Phone key filter — only allow digits, +, -, space, (, ) */
+  const handlePhoneKeyDown = (e) => {
+    const allowed = ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'];
+    if (allowed.includes(e.key)) return;
+    if (/^[\d+\-() ]$/.test(e.key)) return;
+    e.preventDefault();
+  };
+
+  const handlePhonePaste = (e) => {
+    const pasted = e.clipboardData.getData('text');
+    if (!/^[+\d\s\-()]+$/.test(pasted)) {
+      e.preventDefault();
+    }
+  };
+
   useEffect(() => {
     if (user) {
       setName(user.name || '');
@@ -116,11 +131,42 @@ export default function CartCheckout({
     setPlacingOrder(true);
     try {
       const token = localStorage.getItem('token');
+
+      // ── Resolve businessId per item ──────────────────────────────────────────
+      // Fetch current product list from server so we can look up businessId for
+      // any cart item that is missing it (old cart, missing field, etc.)
+      let productLookup = {};
+      try {
+        const prodRes = await axios.get('/api/products');
+        if (Array.isArray(prodRes.data)) {
+          prodRes.data.forEach(p => {
+            if (p._id && p.businessId) productLookup[p._id] = p.businessId;
+          });
+        }
+      } catch (_) {}
+
+      // Build items with guaranteed businessId
+      const resolvedItems = cart.map(item => {
+        const bizId = item.businessId || productLookup[item.id] || '';
+        return {
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          businessId: bizId,
+          seller: item.seller,
+          type: item.type || 'product',
+        };
+      });
+
+      // Top-level businessId: first non-empty one from resolved items
+      const realBusinessId = resolvedItems.find(i => i.businessId)?.businessId || '';
+
       const response = await axios.post(
         '/api/checkout',
         {
-          businessId: 'b1', // Assume vendor
-          items: cart,
+          businessId: realBusinessId,
+          items: resolvedItems,
           promoCode: couponData ? couponData.code : undefined,
           paymentMethod,
           deliveryAddress: { name, email, phone, address, method: deliveryMethod },
@@ -130,7 +176,7 @@ export default function CartCheckout({
 
       const placedOrder = response.data.order;
 
-      // Card / Wallet Simulated validation
+      // Card / Wallet / QR Simulated payment confirmation
       if (paymentMethod === 'Card' || paymentMethod === 'Wallet' || paymentMethod === 'QR') {
         await axios.post(
           '/api/payment/confirm',
@@ -141,16 +187,18 @@ export default function CartCheckout({
 
       Swal.fire({
         icon: 'success',
-        title: translate('Order Confirmed!', 'अर्डर सफल भयो!'),
-        text: `Your order has been placed. Order ID: ${placedOrder._id}`,
+        title: translate('Order Confirmed! 🎉', 'अर्डर सफल भयो! 🎉'),
+        html: `<p style="font-size:13px;color:#94a3b8">Order ID: <strong style="color:#fbbf24;font-family:monospace">#${String(placedOrder._id).slice(-8).toUpperCase()}</strong></p>
+               <p style="font-size:12px;color:#64748b;margin-top:4px">You can track your order in My Orders.</p>`,
         confirmButtonColor: '#fbbf24',
+        confirmButtonText: 'View Orders',
       });
 
       onClearCart();
       setShowQrModal(false);
       onOrderSuccess();
     } catch (err) {
-      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Order checkout failed.' });
+      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Order checkout failed. Please try again.' });
     } finally {
       setPlacingOrder(false);
     }
@@ -262,9 +310,12 @@ export default function CartCheckout({
               <div className="grid gap-4 sm:grid-cols-2">
                 <input
                   type="tel"
+                  inputMode="numeric"
                   placeholder={translate('Phone Number', 'फोन नम्बर')}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  onKeyDown={handlePhoneKeyDown}
+                  onPaste={handlePhonePaste}
                   className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
                   required
                 />

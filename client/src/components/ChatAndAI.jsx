@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiMessageSquare, FiX, FiSend, FiPaperclip, FiImage, FiCpu, FiUser, FiTerminal } from 'react-icons/fi';
-import axios from 'axios';
+import api from '../utils/api';
 import Swal from 'sweetalert2';
 
 export default function ChatAndAI({ user, lang }) {
@@ -12,7 +12,7 @@ export default function ChatAndAI({ user, lang }) {
   const [aiHistory, setAiHistory] = useState([
     {
       sender: 'ai',
-      text: 'Namaste! I am your UdyogConnect Assistant. Ask me about local shops (e.g. "Bhoj Garden"), active discount coupons, or provide an Order ID to track delivery status.\n\n💻 **Developer CLI Shortcuts:**\n- Click or type `cd server` to check server connection.\n- Click or type `cd client` to open the website link.',
+      text: 'Namaste! I am your UdyogConnect Assistant. Ask me about local shops (e.g. "Bhoj Garden") or active discount coupons. You can also provide an Order ID to check its status.\n\n💻 **Developer CLI Shortcuts:**\n- Click or type `cd server` to check server connection.\n- Click or type `cd client` to open the website link.',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -20,7 +20,6 @@ export default function ChatAndAI({ user, lang }) {
   // DM Chat State
   const [contacts, setContacts] = useState([
     { id: 's1', name: 'Ram Seller (Bhoj Garden)', role: 'seller' },
-    { id: 'r1', name: 'Hari Rider (Courier)', role: 'rider' },
     { id: 'a1', name: 'System Admin Support', role: 'admin' },
   ]);
   const [selectedContact, setSelectedContact] = useState(null);
@@ -59,10 +58,8 @@ export default function ChatAndAI({ user, lang }) {
   }, [selectedContact, user]);
 
   const fetchDmHistory = (contactId) => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    axios
-      .get(`/api/chat/${contactId}`, { headers: { Authorization: `Bearer ${token}` } })
+    api
+      .get(`/api/chat/${contactId}`)
       .then((res) => setDmHistory(res.data))
       .catch((err) => console.log('Chat logs offline'));
   };
@@ -129,7 +126,7 @@ export default function ChatAndAI({ user, lang }) {
 
       try {
         const start = Date.now();
-        const res = await axios.get('/health');
+        const res = await api.get('/health');
         const latency = Date.now() - start;
         
         if (res.data && res.data.ok) {
@@ -223,7 +220,7 @@ export default function ChatAndAI({ user, lang }) {
       ]);
       try {
         const start = Date.now();
-        const res = await axios.get('/health');
+        const res = await api.get('/health');
         const latency = Date.now() - start;
         if (res.data && res.data.ok) {
           setAiHistory((prev) => [
@@ -266,7 +263,7 @@ export default function ChatAndAI({ user, lang }) {
 
     // Normal Bot API calls
     try {
-      const response = await axios.post('/api/ai/chatbot', {
+      const response = await api.post('/api/ai/chatbot', {
         message: userText,
         customerId: user ? user._id : undefined,
       });
@@ -296,7 +293,6 @@ export default function ChatAndAI({ user, lang }) {
     if (!dmMessage.trim() && !dmImage) return;
 
     try {
-      const token = localStorage.getItem('token');
       const formData = new FormData();
       formData.append('receiverId', selectedContact.id);
       formData.append('message', dmMessage);
@@ -304,9 +300,8 @@ export default function ChatAndAI({ user, lang }) {
         formData.append('image', dmImage);
       }
 
-      const response = await axios.post('/api/chat', formData, {
+      const response = await api.post('/api/chat', formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });

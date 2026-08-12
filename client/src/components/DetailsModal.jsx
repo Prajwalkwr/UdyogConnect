@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUser, FiInfo, FiTruck } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
 import { useDispatch } from 'react-redux';
+import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
 export default function DetailsModal({
   businessId,
@@ -29,6 +30,8 @@ export default function DetailsModal({
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewImage, setReviewImage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -39,7 +42,7 @@ export default function DetailsModal({
 
     if (productId && !businessId) {
       // Find businessId from product catalog first
-      axios.get('/api/products').then((res) => {
+      api.get('/api/products').then((res) => {
         const prod = res.data.find((p) => p._id === productId);
         if (prod) {
           fetchBusinessDetails(prod.businessId);
@@ -52,10 +55,16 @@ export default function DetailsModal({
 
   const fetchBusinessDetails = (id) => {
     setLoading(true);
-    axios
+    api
       .get(`/api/businesses/${id}`)
       .then((res) => {
         setBusinessData(res.data);
+        const offering = res.data?.business?.offeringType || 'both';
+        if (offering === 'services') {
+          setActiveTab('services');
+        } else {
+          setActiveTab('products');
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -66,26 +75,26 @@ export default function DetailsModal({
   if (!businessId && !productId) return null;
 
   const displayPrice = (val) => {
-    if (currency === 'USD') {
-      return `$ ${(parseFloat(val) / 130).toFixed(2)}`;
-    }
     return `रु ${val}`;
   };
 
   const handleBooking = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
     if (!user) {
       Swal.fire({ icon: 'warning', text: translate('Please sign in to book an appointment.', 'कृपया अपोइन्टमेन्ट बुक गर्न लगइन गर्नुहोस्।') });
+      submitGuard.finish();
       return;
     }
     if (!bookingDate || !bookingSlot) {
       Swal.fire({ icon: 'error', text: 'Select date and slot.' });
+      submitGuard.finish();
       return;
     }
 
+    setIsSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
+      await api.post(
         '/api/bookings',
         {
           businessId: businessData.business._id,
@@ -95,7 +104,7 @@ export default function DetailsModal({
           staffMember: bookingStaff,
           homeService: bookingHome,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { ...createIdempotencyHeader('booking-create') } }
       );
 
       Swal.fire({
@@ -112,18 +121,22 @@ export default function DetailsModal({
       fetchBusinessDetails(businessData.business._id);
     } catch (err) {
       Swal.fire({ icon: 'error', text: 'Booking request failed.' });
+    } finally {
+      setIsSubmitting(false);
+      submitGuard.finish();
     }
   };
 
   const handlePostReview = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
     if (!user) {
       Swal.fire({ icon: 'warning', text: translate('Please log in to leave a review.', 'समीक्षा राख्न कृपया लगइन गर्नुहोस्।') });
+      submitGuard.finish();
       return;
     }
 
     try {
-      const token = localStorage.getItem('token');
       const formData = new FormData();
       formData.append('businessId', businessData.business._id);
       formData.append('targetId', businessData.business._id);
@@ -134,10 +147,10 @@ export default function DetailsModal({
         formData.append('image', reviewImage);
       }
 
-      await axios.post('/api/reviews', formData, {
+      await api.post('/api/reviews', formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
+          ...createIdempotencyHeader('review-create'),
         },
       });
 
@@ -147,13 +160,15 @@ export default function DetailsModal({
       fetchBusinessDetails(businessData.business._id);
     } catch (err) {
       Swal.fire({ icon: 'error', text: 'Failed to upload review.' });
+    } finally {
+      setIsSubmitting(false);
+      submitGuard.finish();
     }
   };
 
   const handleReportReview = async (reviewId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(`/api/reviews/${reviewId}/report`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/api/reviews/${reviewId}/report`, {});
       Swal.fire({
         icon: 'success',
         title: translate('Report Submitted', 'रिपोर्ट पेश भयो'),
@@ -170,7 +185,6 @@ export default function DetailsModal({
       return;
     }
     try {
-      const token = localStorage.getItem('token');
       const updatedWishlist = { ...user.wishlist };
       if (!updatedWishlist[type]) updatedWishlist[type] = [];
       
@@ -182,7 +196,7 @@ export default function DetailsModal({
         Swal.fire({ icon: 'success', text: 'Added to favorites' });
       }
       
-      await axios.put('/api/auth/profile', { wishlist: updatedWishlist }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put('/api/auth/profile', { wishlist: updatedWishlist });
       const updatedUser = { ...user, wishlist: updatedWishlist };
       localStorage.setItem('user', JSON.stringify(updatedUser));
       dispatch({ type: 'SET_USER', payload: updatedUser });
@@ -291,7 +305,12 @@ export default function DetailsModal({
                     { key: 'products', label: translate('Products', 'उत्पादनहरू') },
                     { key: 'services', label: translate('Services & Bookings', 'सेवा तथा बुकिङ') },
                     { key: 'reviews', label: translate('Reviews', 'समीक्षाहरू') },
-                  ].map((tab) => (
+                  ].filter(tab => {
+                    const offering = businessData?.business?.offeringType || 'both';
+                    if (tab.key === 'products' && offering === 'services') return false;
+                    if (tab.key === 'services' && offering === 'products') return false;
+                    return true;
+                  }).map((tab) => (
                     <button
                       key={tab.key}
                       onClick={() => setActiveTab(tab.key)}
@@ -329,6 +348,9 @@ export default function DetailsModal({
                               <h4 className="font-bold text-slate-200 text-sm mt-2">{p.name}</h4>
                               <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{p.description}</p>
                               <div className="mt-2 text-[10px] text-slate-500 font-mono">SKU: {p.sku}</div>
+                              <div className={`mt-1 text-[10px] font-bold ${p.stock > 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
+                                {p.stock > 0 ? `Stock: ${p.stock}` : translate('Out of stock', 'स्टक छैन')}
+                              </div>
                             </div>
                             <div className="mt-4 flex items-center justify-between">
                               <div>
@@ -339,12 +361,13 @@ export default function DetailsModal({
                               </div>
                               <button
                                 onClick={() => {
-                                  onAddToCart({ id: p._id, name: p.name, price: finalPrice, quantity: 1, seller: businessData.business.name });
+                                  onAddToCart({ id: p._id, name: p.name, price: finalPrice, quantity: 1, seller: businessData.business.name, stock: p.stock });
                                   Swal.fire({ icon: 'success', text: translate('Added to cart', 'कार्टमा थपियो'), timer: 800, showConfirmButton: false });
                                 }}
-                                className="rounded-lg bg-amber-400 px-3 py-1 text-xs font-bold text-slate-950 hover:bg-amber-300"
+                                disabled={p.stock <= 0}
+                                className={`rounded-lg px-3 py-1 text-xs font-bold ${p.stock > 0 ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
                               >
-                                + Add
+                                {p.stock > 0 ? '+ Add' : translate('Sold Out', 'बिकिसकेको')}
                               </button>
                             </div>
                           </div>
@@ -423,9 +446,10 @@ export default function DetailsModal({
                         </div>
                         <button
                           type="submit"
-                          className="w-full rounded-xl bg-amber-400 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300"
+                          disabled={isSubmitting}
+                          className="w-full rounded-xl bg-amber-400 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
                         >
-                          {translate('Confirm Appointment', 'अपोइन्टमेन्ट पक्का गर्नुहोस्')}
+                          {isSubmitting ? translate('Processing...', 'प्रोसेस हुँदै...') : translate('Confirm Appointment', 'अपोइन्टमेन्ट पक्का गर्नुहोस्')}
                         </button>
                       </form>
                     ) : (
@@ -500,9 +524,10 @@ export default function DetailsModal({
                         />
                         <button
                           type="submit"
-                          className="rounded-lg bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300"
+                          disabled={isSubmitting}
+                          className="rounded-lg bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
                         >
-                          Submit
+                          {isSubmitting ? translate('Processing...', 'प्रोसेस हुँदै...') : 'Submit'}
                         </button>
                       </div>
                     </form>

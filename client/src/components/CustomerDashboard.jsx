@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { FiUser, FiSettings, FiShoppingBag, FiStar, FiCalendar, FiMapPin, FiAward, FiShare2, FiClock, FiCheckCircle } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
+import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
 export default function CustomerDashboard({ user, lang, currency, onOpenProduct }) {
   const [profileData, setProfileData] = useState(null);
@@ -16,9 +17,9 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
   const [addressInput, setAddressInput] = useState('');
   const [twoFactor, setTwoFactor] = useState(false);
 
-  // Live order tracking simulation states
-  const [activeTrackingOrder, setActiveTrackingOrder] = useState(null);
-  const [routeProgress, setRouteProgress] = useState(0);
+  // Live order tracking simulation removed
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -33,41 +34,24 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
     }
   }, [user]);
 
-  // Simulated live route progression
-  useEffect(() => {
-    let interval;
-    if (activeTrackingOrder) {
-      setRouteProgress(10);
-      interval = setInterval(() => {
-        setRouteProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            return 100;
-          }
-          return prev + 15;
-        });
-      }, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [activeTrackingOrder]);
+  // Live route simulator removed
 
   const fetchDashboardData = async () => {
     try {
-      const token = localStorage.getItem('token');
       // Fetch orders
-      const oRes = await axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+      const oRes = await api.get('/api/orders');
       setOrders(oRes.data);
 
       // Fetch bookings
-      const bRes = await axios.get('/api/bookings', { headers: { Authorization: `Bearer ${token}` } });
+      const bRes = await api.get('/api/bookings');
       setBookings(bRes.data);
 
       // Fetch profile for wishlist details
-      const pRes = await axios.get('/api/auth/profile', { headers: { Authorization: `Bearer ${token}` } });
+      const pRes = await api.get('/api/auth/profile');
       setProfileData(pRes.data);
 
       // Seed mock favorite details
-      axios.get('/api/products').then((res) => {
+      api.get('/api/products').then((res) => {
         const wishProds = res.data.filter((p) => pRes.data.wishlist?.products?.includes(p._id));
         setFavorites((prev) => ({ ...prev, products: wishProds }));
       });
@@ -78,20 +62,24 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
+    setIsSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
       const addrs = addressInput ? [{ _id: 'a_' + Date.now(), address: addressInput }] : user.addresses;
       
-      await axios.put(
+      await api.put(
         '/api/auth/profile',
         { name, phone, twoFactorEnabled: twoFactor, addresses: addrs },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { ...createIdempotencyHeader('customer-profile') } }
       );
       
       Swal.fire({ icon: 'success', title: translate('Profile Updated', 'प्रोफाइल अद्यावधिक भयो') });
       fetchDashboardData();
     } catch (err) {
       Swal.fire({ icon: 'error', text: 'Profile update failed.' });
+    } finally {
+      setIsSubmitting(false);
+      submitGuard.finish();
     }
   };
 
@@ -106,8 +94,7 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
-          const token = localStorage.getItem('token');
-          await axios.put(`/api/bookings/${bookingId}`, { status: 'cancelled' }, { headers: { Authorization: `Bearer ${token}` } });
+          await api.put(`/api/bookings/${bookingId}`, { status: 'cancelled' });
           Swal.fire(translate('Cancelled!', 'रद्द भयो!'), 'Booking cancelled.', 'success');
           fetchDashboardData();
         } catch (e) {
@@ -138,11 +125,9 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
 
     if (formValues && formValues[0]) {
       try {
-        const token = localStorage.getItem('token');
-        await axios.put(
+        await api.put(
           `/api/bookings/${bookingId}`,
-          { date: formValues[0], timeSlot: formValues[1], status: 'pending' },
-          { headers: { Authorization: `Bearer ${token}` } }
+          { date: formValues[0], timeSlot: formValues[1], status: 'pending' }
         );
         Swal.fire('Success', 'Rescheduled booking slot.', 'success');
         fetchDashboardData();
@@ -202,7 +187,8 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
             <p className="text-[10px] text-slate-450">{translate('Earn 10 points on every purchase. Redeemable on checkout.', 'प्रत्येक खरिदमा १० पोइन्ट पाउनुहोस्।')}</p>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(`http://localhost:5173/?ref=${user?._id}`);
+                const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+                navigator.clipboard.writeText(`${origin}/?ref=${user?._id}`);
                 Swal.fire({ icon: 'success', text: translate('Referral link copied to clipboard!', 'रेफरल लिङ्क कपी भयो!') });
               }}
               className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/60 py-2 text-[10px] font-bold text-slate-300 hover:bg-slate-900"
@@ -273,9 +259,10 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
 
                 <button
                   type="submit"
-                  className="rounded-full bg-gradient-to-r from-cyan-400 to-cyan-550 px-6 py-2.5 text-xs font-bold text-slate-950"
+                  disabled={isSubmitting}
+                  className="rounded-full bg-gradient-to-r from-cyan-400 to-cyan-550 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60"
                 >
-                  Save changes
+                  {isSubmitting ? 'Processing...' : 'Save changes'}
                 </button>
               </form>
             </div>
@@ -286,92 +273,7 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Order Status', 'अर्डर स्थिति')}</h3>
 
-              {/* Live Tracking panel drawer */}
-              {activeTrackingOrder && (
-                <div className="rounded-[32px] border border-cyan-400/20 bg-slate-905 p-5 sm:p-6 space-y-4 animate-fade-in">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{translate('Live Delivery Tracking', 'प्रत्यक्ष डेलिभरी ट्र्याकिङ')}</span>
-                    <button onClick={() => setActiveTrackingOrder(null)} className="text-xs text-slate-500 hover:text-white">Close Tracker</button>
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-550">Order Code</span>
-                    <p className="text-sm font-black text-white font-mono">{activeTrackingOrder._id}</p>
-                  </div>
-
-                  {/* Stepper display */}
-                  <div className="grid grid-cols-4 gap-2 pt-2 text-center text-[10px] font-bold">
-                    {[
-                      { key: 'placed', label: 'Placed' },
-                      { key: 'preparing', label: 'Preparing' },
-                      { key: 'dispatched', label: 'Dispatched' },
-                      { key: 'completed', label: 'Delivered' }
-                    ].map((step, idx) => {
-                      const stages = ['placed', 'accepted', 'preparing', 'dispatched', 'completed'];
-                      const activeIdx = stages.indexOf(activeTrackingOrder.status);
-                      const stepIdx = stages.indexOf(step.key);
-                      const isDone = activeIdx >= stepIdx;
-
-                      return (
-                        <div key={step.key} className="space-y-1.5">
-                          <div className={`mx-auto h-4 w-4 rounded-full flex items-center justify-center font-bold text-[8px] ${
-                            isDone ? 'bg-cyan-400 text-slate-950 shadow shadow-cyan-550/20' : 'bg-slate-805 text-slate-500'
-                          }`}>
-                            {idx + 1}
-                          </div>
-                          <span className={isDone ? 'text-cyan-300' : 'text-slate-500'}>{step.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Rider Detail & OTP code */}
-                  {activeTrackingOrder.status === 'dispatched' && (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 flex flex-wrap justify-between items-center gap-4">
-                      <div>
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Delivery Agent</span>
-                        <h5 className="text-xs font-bold text-slate-200">Hari Rider (Courier Partner)</h5>
-                        <p className="text-[10px] text-slate-450">Contact: +977-9840000003</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Delivery OTP Code</span>
-                        <div className="mt-0.5 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-1 font-mono text-xs font-black text-amber-300">
-                          {activeTrackingOrder.deliveryOtp}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Live animated route simulator */}
-                  {activeTrackingOrder.status === 'dispatched' && (
-                    <div className="space-y-2">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Rider Position map</span>
-                      <div className="relative h-10 w-full rounded-xl bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center">
-                        {/* Street Line */}
-                        <div className="absolute left-6 right-6 h-0.5 bg-slate-800 border-dashed border-t" />
-                        
-                        {/* Start pin */}
-                        <div className="absolute left-6 text-emerald-400 text-xs">🏪</div>
-                        
-                        {/* Rider Motorcycle icon */}
-                        <div
-                          className="absolute text-cyan-400 text-xs transition-all duration-1000 ease-out"
-                          style={{ left: `calc(1.5rem + ${routeProgress}% * 0.85)` }}
-                        >
-                          🛵
-                        </div>
-
-                        {/* Customer End pin */}
-                        <div className="absolute right-6 text-amber-400 text-xs">🏠</div>
-                      </div>
-                      <div className="flex justify-between text-[8px] text-slate-500 px-1 font-medium">
-                        <span>Bhoj Garden (Shop)</span>
-                        <span>{routeProgress === 100 ? 'Rider arrived at your location!' : 'Simulating transit progress...'}</span>
-                        <span>Your Address (Home)</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Live tracking temporarily hidden */}
 
               {/* General Orders list */}
               {orders.length === 0 ? (
@@ -407,19 +309,9 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                       </div>
                       <div className="mt-4 sm:mt-0 text-right flex flex-col items-end gap-2">
                         <span className="text-sm font-black text-amber-300">
-                          {currency === 'USD' ? `$ ${(o.total / 130).toFixed(2)}` : `रु ${o.total}`}
+                          रु {o.total}
                         </span>
-                        {(o.status !== 'completed' && o.status !== 'cancelled') && (
-                          <button
-                            onClick={() => {
-                              setActiveTrackingOrder(o);
-                              setRouteProgress(0);
-                            }}
-                            className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/20"
-                          >
-                            Track Live
-                          </button>
-                        )}
+                        {/* Live tracking action hidden */}
                       </div>
                     </div>
                   ))}
@@ -503,7 +395,7 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                         <h4 className="font-bold text-slate-200 text-xs truncate max-w-[150px]">{p.name}</h4>
                         <p className="text-[10px] text-slate-500">{p.brand}</p>
                         <span className="text-xs font-bold text-amber-300 mt-1 block">
-                          {currency === 'USD' ? `$ ${(p.price / 130).toFixed(2)}` : `रु ${p.price}`}
+                          रु {p.price}
                         </span>
                       </div>
                     </div>

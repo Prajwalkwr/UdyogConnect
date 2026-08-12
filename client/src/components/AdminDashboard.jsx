@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText } from 'react-icons/fi';
+import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
-import { buildAdminSettingsPayload, getBusinessStatusMeta } from '../utils/admin';
+import api from '../utils/api';
+import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
+import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
 export default function AdminDashboard({ user, lang }) {
   const [analytics, setAnalytics] = useState(null);
@@ -12,9 +13,10 @@ export default function AdminDashboard({ user, lang }) {
   const [orders, setOrders] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [settings, setSettings] = useState({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] });
+  const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('approvals'); // 'approvals' | 'users' | 'categories' | 'orders' | 'coupons' | 'reviews' | 'reports' | 'settings'
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [announcementText, setAnnouncementText] = useState('');
 
   // Coupon Form State
   const [couponCode, setCouponCode] = useState('');
@@ -24,7 +26,9 @@ export default function AdminDashboard({ user, lang }) {
   const [categoryName, setCategoryName] = useState('');
   const [categoryDescription, setCategoryDescription] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState(null);
-  const [settingsForm, setSettingsForm] = useState(settings);
+  const [settingsForm, setSettingsForm] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
+  const [submittingAction, setSubmittingAction] = useState(false);
+  const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -39,33 +43,33 @@ export default function AdminDashboard({ user, lang }) {
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
       // Fetch platform stats
-      const statsRes = await axios.get('/api/admin/analytics', { headers: { Authorization: `Bearer ${token}` } });
+      const statsRes = await api.get('/api/admin/analytics');
       setAnalytics(statsRes.data);
 
-      const bizRes = await axios.get('/api/businesses');
+      const bizRes = await api.get('/api/businesses');
       setBusinesses(bizRes.data);
 
-      const usersRes = await axios.get('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } });
+      const usersRes = await api.get('/api/admin/users');
       setUsers(usersRes.data);
 
-      const categoriesRes = await axios.get('/api/categories');
+      const categoriesRes = await api.get('/api/categories');
       setCategories(categoriesRes.data);
 
-      const ordersRes = await axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+      const ordersRes = await api.get('/api/orders');
       setOrders(ordersRes.data);
 
-      const coupRes = await axios.get('/api/admin/coupons', { headers: { Authorization: `Bearer ${token}` } });
+      const coupRes = await api.get('/api/admin/coupons');
       setCoupons(coupRes.data);
 
-      const settingsRes = await axios.get('/api/admin/settings', { headers: { Authorization: `Bearer ${token}` } });
-      setSettings(settingsRes.data);
-      setSettingsForm(settingsRes.data);
+      const settingsRes = await api.get('/api/admin/settings');
+      const normalizedSettings = normalizeAdminSettings(settingsRes.data);
+      setSettings(normalizedSettings);
+      setSettingsForm(normalizedSettings);
 
       const allBizReviews = [];
       for (let b of bizRes.data) {
-        const details = await axios.get(`/api/businesses/${b._id}`);
+        const details = await api.get(`/api/businesses/${b._id}`);
         allBizReviews.push(...details.data.reviews);
       }
       setReviews(allBizReviews);
@@ -79,12 +83,7 @@ export default function AdminDashboard({ user, lang }) {
 
   const handleVerifyBusiness = async (bizId, nextStatus) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(
-        `/api/businesses/${bizId}/verify`,
-        { status: nextStatus },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.put(`/api/businesses/${bizId}/verify`, { status: nextStatus });
       Swal.fire({
         icon: 'success',
         title: translate('Status Updated', 'अवस्था परिवर्तन भयो'),
@@ -96,21 +95,54 @@ export default function AdminDashboard({ user, lang }) {
     }
   };
 
+  const handleDeleteBusiness = async (bizId) => {
+    const confirmResult = await Swal.fire({
+      title: translate('Are you sure?', 'के तपाईं पक्का हुनुहुन्छ?'),
+      text: translate(
+        'This will permanently delete this business account and all its associated products, services, and reviews!',
+        'यसले यो व्यवसाय खाता र यससँग सम्बन्धित सबै उत्पादनहरू, सेवाहरू र समीक्षाहरू स्थायी रूपमा हटाउनेछ!'
+      ),
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: translate('Yes, delete it!', 'हो, मेटाउनुहोस्!'),
+      cancelButtonText: translate('Cancel', 'रद्द गर्नुहोस्'),
+    });
+
+    if (confirmResult.isConfirmed) {
+      try {
+        await api.delete(`/api/businesses/${bizId}`);
+        Swal.fire({
+          icon: 'success',
+          title: translate('Deleted!', 'मेटाइयो!'),
+          text: translate('Business account has been deleted.', 'व्यवसाय खाता मेटाइएको छ।'),
+        });
+        fetchAdminData();
+      } catch (e) {
+        const errorMsg = e.response?.data?.error || e.response?.data?.message || e.message || 'Action failed.';
+        Swal.fire({
+          icon: 'error',
+          title: translate('Failed to delete business account.', 'व्यवसाय खाता मेटाउन असफल भयो।'),
+          text: errorMsg
+        });
+      }
+    }
+  };
+
   const handleCreateCoupon = async (e) => {
     e.preventDefault();
     if (!couponCode || !couponDiscount || !couponMax || !couponExpiry) return;
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
+      await api.post(
         '/api/admin/coupons',
         {
           code: couponCode,
           discountPercent: couponDiscount,
           maxDiscount: couponMax,
           expiryDate: couponExpiry,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       Swal.fire({ icon: 'success', title: translate('Coupon Created', 'कुपन सिर्जना भयो') });
@@ -125,11 +157,10 @@ export default function AdminDashboard({ user, lang }) {
   };
 
   const handleDownloadReport = (reportType) => {
-    const token = localStorage.getItem('token');
     // Direct link to download report CSV
     const url = `/api/admin/reports?type=${reportType}`;
     
-    axios.get(url, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
+    api.get(url, { responseType: 'blob' })
       .then((res) => {
         const downloadUrl = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
@@ -146,13 +177,18 @@ export default function AdminDashboard({ user, lang }) {
   };
 
   const handleDismissReportedReview = async (reviewId) => {
-    Swal.fire({ icon: 'success', text: translate('Review flag dismissed.', 'समीक्षा खण्डन खारेज गरियो।') });
+    try {
+      await api.put(`/api/admin/reviews/${reviewId}`, { reported: false });
+      setReviews((prev) => prev.map((review) => (review._id === reviewId ? { ...review, reported: false } : review)));
+      Swal.fire({ icon: 'success', text: translate('Review flag dismissed.', 'समीक्षा खण्डन खारेज गरियो।') });
+    } catch (e) {
+      Swal.fire({ icon: 'error', text: 'Failed to dismiss review flag.' });
+    }
   };
 
   const handleToggleUserStatus = async (userId, suspended) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(`/api/admin/users/${userId}/status`, { suspended }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/api/admin/users/${userId}/status`, { suspended });
       Swal.fire({ icon: 'success', text: translate('User status updated.', 'प्रयोगकर्ता स्थिति अद्यावधिक भयो।') });
       fetchAdminData();
     } catch (e) {
@@ -162,8 +198,7 @@ export default function AdminDashboard({ user, lang }) {
 
   const handleDeleteUser = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/api/admin/users/${userId}`);
       Swal.fire({ icon: 'success', text: translate('User removed.', 'प्रयोगकर्ता हटाइयो।') });
       fetchAdminData();
     } catch (e) {
@@ -173,12 +208,13 @@ export default function AdminDashboard({ user, lang }) {
 
   const handleSaveCategory = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
+    setSubmittingAction(true);
     try {
-      const token = localStorage.getItem('token');
       if (editingCategoryId) {
-        await axios.put(`/api/categories/${editingCategoryId}`, { name: categoryName, description: categoryDescription }, { headers: { Authorization: `Bearer ${token}` } });
+        await api.put(`/api/categories/${editingCategoryId}`, { name: categoryName, description: categoryDescription }, { headers: { ...createIdempotencyHeader('admin-category') } });
       } else {
-        await axios.post('/api/categories', { name: categoryName, description: categoryDescription }, { headers: { Authorization: `Bearer ${token}` } });
+        await api.post('/api/categories', { name: categoryName, description: categoryDescription }, { headers: { ...createIdempotencyHeader('admin-category') } });
       }
       setCategoryName('');
       setCategoryDescription('');
@@ -187,6 +223,9 @@ export default function AdminDashboard({ user, lang }) {
       fetchAdminData();
     } catch (e) {
       Swal.fire({ icon: 'error', text: 'Failed to save category.' });
+    } finally {
+      setSubmittingAction(false);
+      submitGuard.finish();
     }
   };
 
@@ -198,8 +237,7 @@ export default function AdminDashboard({ user, lang }) {
 
   const handleDeleteCategory = async (categoryId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/categories/${categoryId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/api/categories/${categoryId}`);
       Swal.fire({ icon: 'success', text: translate('Category deleted.', 'श्रेणी हटाइयो।') });
       fetchAdminData();
     } catch (e) {
@@ -209,22 +247,68 @@ export default function AdminDashboard({ user, lang }) {
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
+    if (!submitGuard.begin()) return;
+    setSubmittingAction(true);
     try {
-      const token = localStorage.getItem('token');
       const payload = buildAdminSettingsPayload(settingsForm);
-      await axios.put('/api/admin/settings', payload, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put('/api/admin/settings', payload, { headers: { ...createIdempotencyHeader('admin-settings') } });
       Swal.fire({ icon: 'success', text: translate('Platform settings updated.', 'प्लेटफर्म सेटिङ अद्यावधिक भयो।') });
       fetchAdminData();
     } catch (e) {
       Swal.fire({ icon: 'error', text: 'Failed to update platform settings.' });
+    } finally {
+      setSubmittingAction(false);
+      submitGuard.finish();
     }
   };
 
-  if (loading || !analytics) {
+  const handleSendAnnouncement = async (e) => {
+    e.preventDefault();
+    if (!submitGuard.begin()) return;
+    if (!announcementText.trim()) return;
+
+    setSubmittingAction(true);
+    try {
+      await api.post('/api/notifications', { title: 'Admin Announcement', message: announcementText }, { headers: { ...createIdempotencyHeader('admin-announcement') } });
+      Swal.fire({ icon: 'success', text: translate('Announcement sent.', 'घोषणा पठाइयो।') });
+      setAnnouncementText('');
+    } catch (e) {
+      Swal.fire({ icon: 'error', text: 'Failed to send announcement.' });
+    } finally {
+      setSubmittingAction(false);
+      submitGuard.finish();
+    }
+  };
+
+  const handleAdminLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/';
+  };
+
+  if (loading) {
     return (
       <div className="py-20 text-center text-slate-500">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400 mx-auto"></div>
         <p className="mt-3 text-sm">{translate('Accessing admin portal...', 'ड्यासबोर्ड खोल्दैछ...')}</p>
+      </div>
+    );
+  }
+
+  if (!analytics || !analytics.metrics) {
+    return (
+      <div className="py-25 text-center text-rose-500 max-w-md mx-auto">
+        <div className="text-4xl mb-4">⚠️</div>
+        <h3 className="text-lg font-bold text-white mb-2">{translate('Connection Error', 'जडान त्रुटि')}</h3>
+        <p className="text-xs text-slate-400">
+          {translate(
+            'Unable to load platform analytics. Please make sure the backend server is running and you are logged in as an administrator.',
+            'प्लेटफर्म विश्लेषण लोड गर्न असमर्थ। कृपया ब्याकइन्ड सर्भर चलिरहेको र तपाईं प्रशासकको रूपमा लग इन भएको निश्चित गर्नुहोस्।'
+          )}
+        </p>
+        <button onClick={fetchAdminData} className="mt-4 rounded-full bg-slate-800 px-4 py-2 text-xs font-bold text-white hover:bg-slate-700 transition">
+          {translate('Retry', 'पुन: प्रयास गर्नुहोस्')}
+        </button>
       </div>
     );
   }
@@ -241,10 +325,10 @@ export default function AdminDashboard({ user, lang }) {
       {/* Stats row */}
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { title: 'Total Registered Users', value: analytics.metrics.totalUsers, icon: <FiUsers className="text-cyan-400" /> },
-          { title: 'System Revenue Volume', value: `NPR ${analytics.metrics.revenue}`, icon: <FiTrendingUp className="text-emerald-400" /> },
-          { title: 'VAT Tax Collected (13%)', value: `NPR ${analytics.metrics.tax}`, icon: <FiCheckCircle className="text-amber-400" /> },
-          { title: 'Disputes (Reported Content)', value: analytics.metrics.reportedReviews, icon: <FiFlag className="text-rose-400 animate-pulse" /> },
+          { title: 'Total Registered Users', value: analytics?.metrics?.totalUsers, icon: <FiUsers className="text-cyan-400" /> },
+          { title: 'System Revenue Volume', value: `NPR ${analytics?.metrics?.revenue}`, icon: <FiTrendingUp className="text-emerald-400" /> },
+          { title: 'VAT Tax Collected (13%)', value: `NPR ${analytics?.metrics?.tax}`, icon: <FiCheckCircle className="text-amber-400" /> },
+          { title: 'Disputes (Reported Content)', value: analytics?.metrics?.reportedReviews, icon: <FiFlag className="text-rose-400 animate-pulse" /> },
         ].map((metric) => (
           <div key={metric.title} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
             <div className="text-2xl">{metric.icon}</div>
@@ -259,18 +343,30 @@ export default function AdminDashboard({ user, lang }) {
         <aside className="w-full lg:w-64 space-y-1.5 shrink-0">
           <div className="rounded-3xl border border-slate-800 bg-slate-900/10 p-2 space-y-1">
             {[
-              { key: 'approvals', label: translate('Business Approvals', 'पसल स्वीकृत सूची'), icon: <FiCheckCircle /> },
+              { key: 'dashboard', label: translate('Dashboard', 'ड्यासबोर्ड'), icon: <FiHome /> },
+              { key: 'businesses', label: translate('Business Management', 'व्यवसाय व्यवस्थापन'), icon: <FiBriefcase /> },
               { key: 'users', label: translate('User Management', 'प्रयोगकर्ता व्यवस्थापन'), icon: <FiUsers /> },
               { key: 'categories', label: translate('Category Management', 'श्रेणी व्यवस्थापन'), icon: <FiGrid /> },
+              { key: 'coupons', label: translate('Coupons Management', 'कुपन व्यवस्थापन'), icon: <FiTag /> },
+              { key: 'products', label: translate('Product & Service Management', 'उत्पादन र सेवा व्यवस्थापन'), icon: <FiPackage /> },
               { key: 'orders', label: translate('Order Management', 'अर्डर व्यवस्थापन'), icon: <FiShoppingCart /> },
-              { key: 'coupons', label: translate('Coupons Management', 'कुपन कोड व्यवस्थापन'), icon: <FiTag /> },
-              { key: 'reviews', label: translate('Safety Moderation', 'सामग्री मध्यस्थता'), icon: <FiShield /> },
-              { key: 'reports', label: translate('Financial Reports', 'वित्तीय रिपोर्टहरू'), icon: <FiDownload /> },
-              { key: 'settings', label: translate('Platform Settings', 'प्लेटफर्म सेटिङ'), icon: <FiSettings /> },
+              { key: 'reviews', label: translate('Review & Rating Management', 'समीक्षा र रेटिङ व्यवस्थापन'), icon: <FiShield /> },
+              { key: 'reports', label: translate('Reports & Analytics', 'रिपोर्ट र विश्लेषण'), icon: <FiDownload /> },
+              { key: 'announcements', label: translate('Announcements & Notifications', 'घोषणा र सूचनाहरू'), icon: <FiBell /> },
+              { key: 'support', label: translate('Complaints & Support', 'समस्या र सहयोग'), icon: <FiLifeBuoy /> },
+              { key: 'settings', label: translate('Settings', 'सेटिङ'), icon: <FiSettings /> },
+              { key: 'profile', label: translate('Admin Profile', 'प्रशासक प्रोफाइल'), icon: <FiUser /> },
+              { key: 'logout', label: translate('Logout', 'लगआउट'), icon: <FiLogOut /> },
             ].map((menu) => (
               <button
                 key={menu.key}
-                onClick={() => setActiveTab(menu.key)}
+                onClick={() => {
+                  if (menu.key === 'logout') {
+                    handleAdminLogout();
+                    return;
+                  }
+                  setActiveTab(menu.key);
+                }}
                 className={`flex w-full items-center gap-2.5 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
                   activeTab === menu.key
                     ? 'bg-amber-400/10 text-amber-300 border border-amber-400/20'
@@ -286,11 +382,42 @@ export default function AdminDashboard({ user, lang }) {
 
         {/* Tab content area */}
         <main className="flex-1 space-y-6">
-          {/* A. Approvals panel */}
-          {activeTab === 'approvals' && (
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-amber-300">
+                      ADMIN DASHBOARD
+                    </div>
+                    <h3 className="mt-3 text-lg font-extrabold text-white">{translate('Control the marketplace from one place', 'बजारलाई एकै ठाउँबाट नियन्त्रण गर्नुहोस्')}</h3>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-200">
+                    <div className="font-bold">{user?.name || 'Administrator'}</div>
+                    <div className="mt-1 text-[11px] text-cyan-300/80">{translate('Platform administrator', 'प्लेटफर्म प्रशासक')}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-4xl border border-slate-800 bg-slate-900/30 p-5">
+                  <h4 className="text-sm font-bold text-white">{translate('Marketplace Overview', 'बजार अवलोकन')}</h4>
+                  <p className="mt-2 text-xs text-slate-400">{translate('Monitor approvals, users, sales, disputes, and platform health from the dashboard.', 'स्वीकृतिहरू, प्रयोगकर्ता, बिक्री, विवाद र प्लेटफर्म स्वास्थ्य ड्यासबोर्डबाट अनुगमन गर्नुहोस्।')}</p>
+                </div>
+                <div className="rounded-4xl border border-slate-800 bg-slate-900/30 p-5">
+                  <h4 className="text-sm font-bold text-white">{translate('Quick Actions', 'छोटो कार्य')}</h4>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={() => setActiveTab('businesses')} className="rounded-full bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950">Review Businesses</button>
+                    <button onClick={() => setActiveTab('users')} className="rounded-full bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-slate-950">Manage Users</button>
+                    <button onClick={() => setActiveTab('reports')} className="rounded-full bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950">Export Reports</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'businesses' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Pending Business Approvals', 'दर्ताका लागि आएका आवेदनहरू')}</h3>
-              
+              <h3 className="text-lg font-extrabold text-white">{translate('Business Management', 'व्यवसाय व्यवस्थापन')}</h3>
               <div className="space-y-3">
                 {businesses.map((biz) => (
                   <div key={biz._id} className="rounded-3xl border border-slate-850 bg-slate-905 p-4 flex flex-col justify-between sm:flex-row sm:items-center">
@@ -312,22 +439,75 @@ export default function AdminDashboard({ user, lang }) {
                       )}
                     </div>
                     <div className="mt-4 sm:mt-0 flex gap-2">
-                      {biz.verified !== 'verified' && (
-                        <button
-                          onClick={() => handleVerifyBusiness(biz._id, 'verified')}
-                          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950"
-                        >
-                          Approve Shop
-                        </button>
+                      {biz.verified === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleVerifyBusiness(biz._id, 'verified')}
+                            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-emerald-400 transition"
+                          >
+                            Approve Shop
+                          </button>
+                          <button
+                            onClick={() => handleVerifyBusiness(biz._id, 'rejected')}
+                            className="rounded-lg bg-rose-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-rose-600 transition"
+                          >
+                            Decline Shop
+                          </button>
+                        </>
                       )}
-                      {biz.verified !== 'suspended' && (
+                      {biz.verified === 'verified' && (
                         <button
                           onClick={() => handleVerifyBusiness(biz._id, 'suspended')}
-                          className="rounded-lg bg-rose-500 px-3 py-1.5 text-[10px] font-bold text-slate-950"
+                          className="rounded-lg bg-rose-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-rose-600 transition"
                         >
                           Suspend Shop
                         </button>
                       )}
+                      {biz.verified === 'rejected' && (
+                        <button
+                          onClick={() => handleVerifyBusiness(biz._id, 'verified')}
+                          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-emerald-400 transition"
+                        >
+                          Approve Shop
+                        </button>
+                      )}
+                      {biz.verified === 'suspended' && (
+                        <button
+                          onClick={() => handleVerifyBusiness(biz._id, 'verified')}
+                          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-emerald-400 transition"
+                        >
+                          Reactivate Shop
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          const { value: text } = await Swal.fire({
+                            title: 'Request more info',
+                            input: 'textarea',
+                            inputLabel: 'Message to owner',
+                            inputPlaceholder: 'Please describe what additional documents or clarifications are required',
+                            showCancelButton: true,
+                          });
+                          if (text) {
+                            try {
+                              await api.post(`/api/admin/businesses/${biz._id}/request-info`, { message: text });
+                              Swal.fire({ icon: 'success', text: 'Request sent to owner.' });
+                              fetchAdminData();
+                            } catch (e) {
+                              Swal.fire({ icon: 'error', text: 'Failed to send request.' });
+                            }
+                          }
+                        }}
+                        className="rounded-lg bg-yellow-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-yellow-400 transition"
+                      >
+                        Request More Info
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBusiness(biz._id)}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-rose-500 transition"
+                      >
+                        {translate('Delete Business', 'व्यवसाय हटाउनुहोस्')}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -372,7 +552,7 @@ export default function AdminDashboard({ user, lang }) {
                   <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="Category Name" className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none" required />
                   <input value={categoryDescription} onChange={(e) => setCategoryDescription(e.target.value)} placeholder="Description" className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none" />
                 </div>
-                <button type="submit" className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950">{editingCategoryId ? 'Update Category' : 'Add Category'}</button>
+                <button type="submit" disabled={submittingAction} className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60">{submittingAction ? 'Processing...' : (editingCategoryId ? 'Update Category' : 'Add Category')}</button>
               </form>
               <div className="space-y-2">
                 {categories.map((cat) => (
@@ -385,6 +565,24 @@ export default function AdminDashboard({ user, lang }) {
                       <button onClick={() => handleEditCategory(cat)} className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-[10px] text-slate-300"><FiEdit3 /></button>
                       <button onClick={() => handleDeleteCategory(cat._id)} className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1.5 text-[10px] text-rose-300"><FiTrash2 /></button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'products' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Product & Service Management', 'उत्पादन र सेवा व्यवस्थापन')}</h3>
+              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
+                {translate('Admin can review all listed products and services across the marketplace and keep catalog quality high.', 'प्रशासकले बजारमा सूचीबद्ध सबै उत्पादन र सेवाहरू जाँच गर्न सक्छ र सूची गुणस्तर कायम राख्न सक्छ।')}
+              </div>
+              <div className="space-y-3">
+                {businesses.flatMap((biz) => (
+                  biz.products || []
+                )).slice(0, 8).map((item, index) => (
+                  <div key={index} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-3 text-sm text-slate-300">
+                    {item?.name || 'Catalog item'}
                   </div>
                 ))}
               </div>
@@ -407,74 +605,6 @@ export default function AdminDashboard({ user, lang }) {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {/* E. Coupon campaigns editor */}
-          {activeTab === 'coupons' && (
-            <div className="space-y-6">
-              {/* Creator Form */}
-              <form onSubmit={handleCreateCoupon} className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 space-y-4">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">{translate('Generate Promo Discount Code', 'नयाँ छुट कुपन कोड सिर्जना')}</h4>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    placeholder="Coupon Code Name (e.g. FESTIVAL20)"
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value)}
-                    className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none"
-                    required
-                  />
-                  <input
-                    type="number"
-                    placeholder="Discount Percentage (e.g. 15)"
-                    value={couponDiscount}
-                    onChange={(e) => setCouponDiscount(e.target.value)}
-                    className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none"
-                    required
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="number"
-                    placeholder="Max Discount Cap Value (NPR)"
-                    value={couponMax}
-                    onChange={(e) => setCouponMax(e.target.value)}
-                    className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none"
-                    required
-                  />
-                  <input
-                    type="date"
-                    value={couponExpiry}
-                    onChange={(e) => setCouponExpiry(e.target.value)}
-                    className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-slate-300 outline-none"
-                    required
-                  />
-                </div>
-                <button type="submit" className="rounded-full bg-linear-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-xs font-bold text-slate-950">
-                  <FiPlus className="inline mr-1" /> Create Coupon
-                </button>
-              </form>
-
-              {/* Coupons List */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Active Promo Codes ({coupons.length})</h4>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {coupons.map((c) => (
-                    <div key={c._id} className="rounded-2xl border border-slate-850 bg-slate-950/20 p-4">
-                      <div className="flex justify-between items-center">
-                        <span className="font-mono text-sm font-black text-amber-300 tracking-wider">{c.code}</span>
-                        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-400">Active</span>
-                      </div>
-                      <div className="mt-2 text-xs text-slate-400 space-y-0.5">
-                        <p>Discount: {c.discountPercent}% off</p>
-                        <p>Max discount value: NPR {c.maxDiscount}</p>
-                        <p>Expiry Limit: {c.expiryDate}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           )}
@@ -546,6 +676,25 @@ export default function AdminDashboard({ user, lang }) {
             </div>
           )}
 
+          {activeTab === 'announcements' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Announcements & Notifications', 'घोषणा र सूचनाहरू')}</h3>
+              <form onSubmit={handleSendAnnouncement} className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 space-y-4">
+                <textarea value={announcementText} onChange={(e) => setAnnouncementText(e.target.value)} rows="4" className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none" placeholder="Write an announcement for sellers or customers" />
+                <button type="submit" disabled={submittingAction} className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60">{submittingAction ? 'Processing...' : 'Send Announcement'}</button>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'support' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Complaints & Support', 'समस्या र सहयोग')}</h3>
+              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
+                {translate('Review support requests, complaints, and escalation tickets submitted by users and sellers.', 'प्रयोगकर्ता र विक्रेता tərəfindən पेश गरिएका सहयोग निवेदन, शिकायत र उन्नयन टिकटहरू समीक्षा गर्नुहोस्।')}
+              </div>
+            </div>
+          )}
+
           {/* H. Platform settings panel */}
           {activeTab === 'settings' && (
             <div className="space-y-4">
@@ -559,8 +708,17 @@ export default function AdminDashboard({ user, lang }) {
                   <input type="number" value={settingsForm.commissionRate ?? ''} onChange={(e) => setSettingsForm({ ...settingsForm, commissionRate: e.target.value })} placeholder="Commission Rate (%)" className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none" />
                   <input value={settingsForm.paymentMethods?.join(', ') || ''} onChange={(e) => setSettingsForm({ ...settingsForm, paymentMethods: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} placeholder="Payment methods (comma separated)" className="rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none" />
                 </div>
-                <button type="submit" className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950">Save Settings</button>
+                <button type="submit" disabled={submittingAction} className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60">{submittingAction ? 'Processing...' : 'Save Settings'}</button>
               </form>
+            </div>
+          )}
+
+          {activeTab === 'profile' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Admin Profile', 'प्रशासक प्रोफाइल')}</h3>
+              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
+                {translate('This admin account can manage all marketplace operations, approvals, settings, announcements, and support workflows.', 'यो प्रशासक खाता सबै बजार सञ्चालन, स्वीकृति, सेटिङ, घोषणा र सहयोग कार्य प्रवाह व्यवस्थापन गर्न सक्छ।')}
+              </div>
             </div>
           )}
         </main>

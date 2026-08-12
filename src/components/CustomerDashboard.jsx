@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { FiUser, FiSettings, FiShoppingBag, FiStar, FiCalendar, FiMapPin, FiAward, FiShare2, FiClock, FiCheckCircle } from 'react-icons/fi';
+import React, { useState, useEffect, useRef } from 'react';
+import { FiUser, FiSettings, FiShoppingBag, FiStar, FiCalendar, FiMapPin, FiAward, FiShare2, FiClock, FiCheckCircle, FiBell } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import { io as socketIO } from 'socket.io-client';
 
 export default function CustomerDashboard({ user, lang, currency, onOpenProduct }) {
   const [profileData, setProfileData] = useState(null);
@@ -16,12 +17,26 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
   const [addressInput, setAddressInput] = useState('');
   const [twoFactor, setTwoFactor] = useState(false);
 
-  // Live order tracking simulation states
-  const [activeTrackingOrder, setActiveTrackingOrder] = useState(null);
-  const [routeProgress, setRouteProgress] = useState(0);
+  // Live order tracking simulation removed
+  const socketRef = useRef(null);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
+  };
+
+  /* Phone key filter — only allow digits, +, -, space, (, ) */
+  const handlePhoneKeyDown = (e) => {
+    const allowed = ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'];
+    if (allowed.includes(e.key)) return;
+    if (/^[\d+\-() ]$/.test(e.key)) return;
+    e.preventDefault();
+  };
+
+  const handlePhonePaste = (e) => {
+    const pasted = e.clipboardData.getData('text');
+    if (!/^[+\d\s\-()]+$/.test(pasted)) {
+      e.preventDefault();
+    }
   };
 
   useEffect(() => {
@@ -33,23 +48,51 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
     }
   }, [user]);
 
-  // Simulated live route progression
+  /* ⚡ Socket.IO — listen for real-time order status updates from seller */
   useEffect(() => {
-    let interval;
-    if (activeTrackingOrder) {
-      setRouteProgress(10);
-      interval = setInterval(() => {
-        setRouteProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            return 100;
-          }
-          return prev + 15;
-        });
-      }, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [activeTrackingOrder]);
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const socket = socketIO(window.location.origin, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+    });
+    socketRef.current = socket;
+
+    socket.on('order_status_update', ({ orderId, status, note }) => {
+      // Update the order in local state immediately
+      setOrders((prev) =>
+        prev.map((o) => o._id === orderId ? { ...o, status } : o)
+      );
+      // Show a friendly toast notification
+      const statusLabel = {
+        preparing: 'Your order is being prepared 🍳',
+        dispatched: 'Your order is on the way! 🚴',
+        completed: 'Your order has been delivered! ✅',
+        cancelled: 'Your order was cancelled ❌',
+      }[status] || `Order updated: ${status}`;
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: status === 'cancelled' ? 'error' : 'success',
+        title: statusLabel,
+        text: note || '',
+        showConfirmButton: false,
+        timer: 4000,
+        timerProgressBar: true,
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [user]);
+
+  // Live route simulator removed
 
   const fetchDashboardData = async () => {
     try {
@@ -239,8 +282,11 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Phone Number</label>
                     <input
                       type="tel"
+                      inputMode="numeric"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      onKeyDown={handlePhoneKeyDown}
+                      onPaste={handlePhonePaste}
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400"
                     />
                   </div>
@@ -287,91 +333,6 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
               <h3 className="text-lg font-extrabold text-white">{translate('Order Status', 'अर्डर स्थिति')}</h3>
 
               {/* Live Tracking panel drawer */}
-              {activeTrackingOrder && (
-                <div className="rounded-[32px] border border-cyan-400/20 bg-slate-905 p-5 sm:p-6 space-y-4 animate-fade-in">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{translate('Live Delivery Tracking', 'प्रत्यक्ष डेलिभरी ट्र्याकिङ')}</span>
-                    <button onClick={() => setActiveTrackingOrder(null)} className="text-xs text-slate-500 hover:text-white">Close Tracker</button>
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-550">Order Code</span>
-                    <p className="text-sm font-black text-white font-mono">{activeTrackingOrder._id}</p>
-                  </div>
-
-                  {/* Stepper display */}
-                  <div className="grid grid-cols-4 gap-2 pt-2 text-center text-[10px] font-bold">
-                    {[
-                      { key: 'placed', label: 'Placed' },
-                      { key: 'preparing', label: 'Preparing' },
-                      { key: 'dispatched', label: 'Dispatched' },
-                      { key: 'completed', label: 'Delivered' }
-                    ].map((step, idx) => {
-                      const stages = ['placed', 'accepted', 'preparing', 'dispatched', 'completed'];
-                      const activeIdx = stages.indexOf(activeTrackingOrder.status);
-                      const stepIdx = stages.indexOf(step.key);
-                      const isDone = activeIdx >= stepIdx;
-
-                      return (
-                        <div key={step.key} className="space-y-1.5">
-                          <div className={`mx-auto h-4 w-4 rounded-full flex items-center justify-center font-bold text-[8px] ${
-                            isDone ? 'bg-cyan-400 text-slate-950 shadow shadow-cyan-550/20' : 'bg-slate-805 text-slate-500'
-                          }`}>
-                            {idx + 1}
-                          </div>
-                          <span className={isDone ? 'text-cyan-300' : 'text-slate-500'}>{step.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Rider Detail & OTP code */}
-                  {activeTrackingOrder.status === 'dispatched' && (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 flex flex-wrap justify-between items-center gap-4">
-                      <div>
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Delivery Agent</span>
-                        <h5 className="text-xs font-bold text-slate-200">Hari Rider (Courier Partner)</h5>
-                        <p className="text-[10px] text-slate-450">Contact: +977-9840000003</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Delivery OTP Code</span>
-                        <div className="mt-0.5 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-1 font-mono text-xs font-black text-amber-300">
-                          {activeTrackingOrder.deliveryOtp}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Live animated route simulator */}
-                  {activeTrackingOrder.status === 'dispatched' && (
-                    <div className="space-y-2">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-550">Rider Position map</span>
-                      <div className="relative h-10 w-full rounded-xl bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center">
-                        {/* Street Line */}
-                        <div className="absolute left-6 right-6 h-0.5 bg-slate-800 border-dashed border-t" />
-                        
-                        {/* Start pin */}
-                        <div className="absolute left-6 text-emerald-400 text-xs">🏪</div>
-                        
-                        {/* Rider Motorcycle icon */}
-                        <div
-                          className="absolute text-cyan-400 text-xs transition-all duration-1000 ease-out"
-                          style={{ left: `calc(1.5rem + ${routeProgress}% * 0.85)` }}
-                        >
-                          🛵
-                        </div>
-
-                        {/* Customer End pin */}
-                        <div className="absolute right-6 text-amber-400 text-xs">🏠</div>
-                      </div>
-                      <div className="flex justify-between text-[8px] text-slate-500 px-1 font-medium">
-                        <span>Bhoj Garden (Shop)</span>
-                        <span>{routeProgress === 100 ? 'Rider arrived at your location!' : 'Simulating transit progress...'}</span>
-                        <span>Your Address (Home)</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* General Orders list */}
               {orders.length === 0 ? (
@@ -409,17 +370,6 @@ export default function CustomerDashboard({ user, lang, currency, onOpenProduct 
                         <span className="text-sm font-black text-amber-300">
                           {currency === 'USD' ? `$ ${(o.total / 130).toFixed(2)}` : `रु ${o.total}`}
                         </span>
-                        {(o.status !== 'completed' && o.status !== 'cancelled') && (
-                          <button
-                            onClick={() => {
-                              setActiveTrackingOrder(o);
-                              setRouteProgress(0);
-                            }}
-                            className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/20"
-                          >
-                            Track Live
-                          </button>
-                        )}
                       </div>
                     </div>
                   ))}

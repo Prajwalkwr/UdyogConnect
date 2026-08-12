@@ -3,6 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^[+\d\s\-()]{7,20}$/;
+const URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 let isMongo = false;
 const DEMO_PASSWORD_HASH = bcrypt.hashSync('password', 10);
 const DEMO_USERS = [
@@ -36,21 +41,7 @@ const DEMO_USERS = [
     loginHistory: [],
     isVerified: true,
   },
-  {
-    name: 'Hari Rider',
-    email: 'rider@udyog.np',
-    password: DEMO_PASSWORD_HASH,
-    phone: '9840000003',
-    role: 'rider',
-    loyaltyPoints: 0,
-    profilePicture: '',
-    addresses: [],
-    paymentMethods: [],
-    wishlist: { products: [], services: [], businesses: [] },
-    twoFactorEnabled: false,
-    loginHistory: [],
-    isVerified: true,
-  },
+  
   {
     name: 'Platform Admin',
     email: 'admin@udyog.np',
@@ -188,6 +179,19 @@ class MockModel {
     data.splice(index, 1);
     this._write(data);
     return { deletedCount: 1 };
+  }
+
+  async deleteMany(query) {
+    let data = this._read();
+    let initialLength = data.length;
+    data = data.filter((item) => {
+      for (let key in query) {
+        if (item[key] !== query[key]) return true;
+      }
+      return false;
+    });
+    this._write(data);
+    return { deletedCount: initialLength - data.length };
   }
 
   async countDocuments(query = {}) {
@@ -357,12 +361,12 @@ const seedDemoUsers = async () => {
 
 const initMongooseModels = async () => {
   const userSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, trim: true, lowercase: true, match: [EMAIL_PATTERN, 'Invalid email address'] },
     password: { type: String, required: true },
-    phone: { type: String },
-    role: { type: String, enum: ['customer', 'seller', 'rider', 'admin'], default: 'customer' },
-    profilePicture: { type: String, default: '' },
+    phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
+    role: { type: String, enum: ['customer', 'seller', 'admin'], default: 'customer' },
+    profilePicture: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid profile picture URL'] },
     addresses: { type: Array, default: [] },
     paymentMethods: { type: Array, default: [] },
     wishlist: {
@@ -370,84 +374,97 @@ const initMongooseModels = async () => {
       services: { type: Array, default: [] },
       businesses: { type: Array, default: [] },
     },
-    loyaltyPoints: { type: Number, default: 0 },
-    googleId: { type: String },
+    loyaltyPoints: { type: Number, default: 0, min: 0 },
+    googleId: { type: String, trim: true },
     twoFactorEnabled: { type: Boolean, default: false },
     loginHistory: { type: Array, default: [] },
     isVerified: { type: Boolean, default: false },
     verificationOtp: { type: String, default: '' },
-    failedLoginAttempts: { type: Number, default: 0 },
+    failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockUntil: { type: Date, default: null },
     resetOtp: { type: String, default: '' },
   }, { timestamps: true });
 
   const businessSchema = new mongoose.Schema({
-    ownerId: { type: String, required: true },
-    name: { type: String, required: true },
-    category: { type: String, required: true },
-    subcategory: { type: String, default: '' },
-    location: { type: String, required: true },
-    price: { type: String, default: '0' },
-    description: { type: String, required: true },
-    contactEmail: { type: String },
-    phone: { type: String },
-    website: { type: String, default: '' },
-    hours: { type: String, default: '09:00 - 18:00' },
-    imageUrl: { type: String, default: '' },
-    coverUrl: { type: String, default: '' },
+    ownerId: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    category: { type: String, required: true, trim: true },
+    subcategory: { type: String, default: '', trim: true },
+    location: { type: String, required: true, trim: true },
+    price: { type: String, default: '0', trim: true },
+    description: { type: String, required: true, trim: true },
+    contactEmail: { type: String, trim: true, lowercase: true, match: [EMAIL_PATTERN, 'Invalid email address'] },
+    phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
+    website: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid website URL'] },
+    hours: { type: String, default: '09:00 - 18:00', trim: true },
+    imageUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid image URL'] },
+    coverUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid cover URL'] },
+    qrUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid QR URL'] },
     latitude: { type: Number, default: 27.7007 },
     longitude: { type: Number, default: 85.3001 },
     verified: { type: String, enum: ['pending', 'verified', 'approved', 'rejected', 'suspended'], default: 'pending' },
     documents: { type: Array, default: [] },
-    rating: { type: Number, default: 5.0 },
-    reviewCount: { type: Number, default: 0 },
-    registrationNumber: { type: String, default: '' },
-    panVatNumber: { type: String, default: '' },
+    rating: { type: Number, default: 5.0, min: 0, max: 5 },
+    reviewCount: { type: Number, default: 0, min: 0 },
+    registrationNumber: { type: String, default: '', trim: true },
+    panVatNumber: { type: String, default: '', trim: true },
     deliveryAvailable: { type: Boolean, default: true },
-    visitorsCount: { type: Number, default: 0 },
-    commissionRate: { type: Number, default: 10 },
+    visitorsCount: { type: Number, default: 0, min: 0 },
+    commissionRate: { type: Number, default: 10, min: 0, max: 100 },
+    offeringType: { type: String, enum: ['products', 'services', 'both'], default: 'both' },
+    isOpen: { type: Boolean, default: true },
+    deliveryAvailable: { type: Boolean, default: true },
+    deliveryRadiusKm: { type: Number, default: 5, min: 0 },
   }, { timestamps: true });
 
   const productSchema = new mongoose.Schema({
-    businessId: { type: String, required: true },
-    name: { type: String, required: true },
-    category: { type: String, required: true },
-    subcategory: { type: String, default: '' },
-    description: { type: String, required: true },
-    price: { type: Number, required: true },
-    discount: { type: Number, default: 0 },
-    stock: { type: Number, default: 0 },
-    sku: { type: String, default: '' },
-    brand: { type: String, default: '' },
+    businessId: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    category: { type: String, required: true, trim: true },
+    subcategory: { type: String, default: '', trim: true },
+    description: { type: String, required: true, trim: true },
+    price: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
+    stock: { type: Number, default: 0, min: 0 },
+    sku: { type: String, default: '', trim: true },
+    brand: { type: String, default: '', trim: true },
     images: { type: Array, default: [] },
     availability: { type: Boolean, default: true },
   }, { timestamps: true });
 
   const serviceSchema = new mongoose.Schema({
-    businessId: { type: String, required: true },
-    name: { type: String, required: true },
-    description: { type: String, required: true },
-    price: { type: Number, required: true },
-    duration: { type: Number, default: 60 },
+    businessId: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    description: { type: String, required: true, trim: true },
+    price: { type: Number, required: true, min: 0 },
+    duration: { type: Number, default: 60, min: 0 },
     availability: { type: Boolean, default: true },
     slots: { type: Array, default: [] },
     staff: { type: Array, default: [] },
     homeService: { type: Boolean, default: false },
   }, { timestamps: true });
 
+  const deliveryAddressSchema = new mongoose.Schema({
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, trim: true, lowercase: true, match: [EMAIL_PATTERN, 'Invalid email address'] },
+    phone: { type: String, required: true, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
+    address: { type: String, required: true, trim: true },
+    method: { type: String, enum: ['delivery', 'pickup'], required: true },
+  }, { _id: false });
+
   const orderSchema = new mongoose.Schema({
-    customerId: { type: String, required: true },
-    businessId: { type: String, required: true },
+    customerId: { type: String, required: true, trim: true },
+    businessId: { type: String, required: true, trim: true },
     items: { type: Array, required: true },
-    subtotal: { type: Number, required: true },
-    deliveryFee: { type: Number, default: 0 },
-    tax: { type: Number, default: 0 },
-    discount: { type: Number, default: 0 },
-    total: { type: Number, required: true },
+    subtotal: { type: Number, required: true, min: 0 },
+    deliveryFee: { type: Number, default: 0, min: 0 },
+    tax: { type: Number, default: 0, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
+    total: { type: Number, required: true, min: 0 },
     status: { type: String, enum: ['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled'], default: 'placed' },
-    paymentMethod: { type: String, required: true },
+    paymentMethod: { type: String, enum: ['COD', 'Card', 'Wallet', 'QR'], required: true },
     paymentStatus: { type: String, enum: ['pending', 'paid', 'refunded'], default: 'pending' },
-    deliveryAddress: { type: Object, required: true },
+    deliveryAddress: { type: deliveryAddressSchema, required: true },
     deliveryRiderId: { type: String, default: '' },
     deliveryOtp: { type: String, default: '' },
     deliveryProof: { type: String, default: '' },
@@ -467,13 +484,13 @@ const initMongooseModels = async () => {
   }, { timestamps: true });
 
   const reviewSchema = new mongoose.Schema({
-    customerId: { type: String, required: true },
-    customerName: { type: String, required: true },
-    businessId: { type: String, required: true },
-    targetId: { type: String, required: true },
+    customerId: { type: String, required: true, trim: true },
+    customerName: { type: String, required: true, trim: true },
+    businessId: { type: String, required: true, trim: true },
+    targetId: { type: String, required: true, trim: true },
     targetType: { type: String, enum: ['product', 'service', 'business'], required: true },
-    rating: { type: Number, required: true },
-    comment: { type: String, required: true },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, required: true, trim: true },
     images: { type: Array, default: [] },
     reported: { type: Boolean, default: false },
   }, { timestamps: true });
@@ -495,10 +512,10 @@ const initMongooseModels = async () => {
   }, { timestamps: true });
 
   const couponSchema = new mongoose.Schema({
-    code: { type: String, required: true, unique: true },
-    discountPercent: { type: Number, required: true },
-    maxDiscount: { type: Number, required: true },
-    expiryDate: { type: String, required: true },
+    code: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    discountPercent: { type: Number, required: true, min: 0 },
+    maxDiscount: { type: Number, required: true, min: 0 },
+    expiryDate: { type: String, required: true, trim: true, match: [DATE_PATTERN, 'Expiry date must be YYYY-MM-DD'] },
     active: { type: Boolean, default: true },
   }, { timestamps: true });
 
@@ -533,6 +550,13 @@ const initMongooseModels = async () => {
   db.SystemSetting = mongoose.model('SystemSetting', systemSettingSchema);
 
   await seedDemoUsers();
+  // Ensure indexes (unique constraints) are created
+  try {
+    await db.User.createIndexes();
+    console.log('User indexes ensured');
+  } catch (e) {
+    console.warn('Failed to create user indexes:', e && e.message);
+  }
 };
 
 const initMockModels = () => {
@@ -542,7 +566,6 @@ const initMockModels = () => {
   }));
 
   const userModel = new MockModel('User', seededUsers);
-  userModel._write(seededUsers);
   db.User = userModel;
 
   db.Business = new MockModel('Business', defaultBusinesses);
@@ -631,20 +654,46 @@ const initMockModels = () => {
 };
 
 async function connectDb() {
+  // If running in production, require MONGODB_URI to ensure persistent storage
+  if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
+    console.error('ERROR: MONGODB_URI must be set in production. Aborting startup to prevent ephemeral storage.');
+    process.exit(1);
+  }
+
   if (process.env.MONGODB_URI) {
     try {
-      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 });
+      console.log('Attempting to connect to MongoDB...');
+      await mongoose.connect(process.env.MONGODB_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+      });
+
       isMongo = true;
+
+      mongoose.connection.on('connected', () => console.log('Mongoose connected to MongoDB'));
+      mongoose.connection.on('error', (err) => console.error('Mongoose connection error:', err && err.message));
+      mongoose.connection.on('disconnected', () => console.warn('Mongoose disconnected.'));
+      mongoose.connection.on('reconnected', () => console.log('Mongoose reconnected to MongoDB'));
+
       await initMongooseModels();
       console.log('Database initialized: Connected to MongoDB.');
       return true;
     } catch (err) {
-      console.warn('MongoDB connection failed. Initializing local JSON fallback database.', err.message);
+      console.warn('MongoDB connection failed.');
+      console.warn(err && err.message);
+      if (process.env.NODE_ENV === 'production') {
+        console.error('ERROR: Failed to connect to MongoDB in production. Aborting startup.');
+        process.exit(1);
+      }
+      console.warn('Falling back to local JSON file DB for development only.');
     }
   } else {
-    console.log('MONGODB_URI not found. Initializing local JSON fallback database.');
+    console.log('MONGODB_URI not provided; using local JSON DB for development/testing.');
   }
 
+  // Initialize fallback mock DB (development only)
   isMongo = false;
   initMockModels();
   return false;

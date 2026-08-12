@@ -513,7 +513,7 @@ export default function Marketplace({
 
                   <button
                     onClick={() => {
-                      onAddToCart({ id: p._id, name: p.name, price: discountedPrice, quantity: 1, seller: p.brand });
+                      onAddToCart({ id: p._id, name: p.name, price: discountedPrice, quantity: 1, seller: p.brand, businessId: p.businessId });
                       Swal.fire({
                         icon: 'success',
                         title: translate('Added', 'थपियो'),

@@ -128,6 +128,19 @@ class MockModel {
     return { deletedCount: 1 };
   }
 
+  async deleteMany(query) {
+    let data = this._read();
+    let initialLength = data.length;
+    data = data.filter((item) => {
+      for (let key in query) {
+        if (item[key] !== query[key]) return true;
+      }
+      return false;
+    });
+    this._write(data);
+    return { deletedCount: initialLength - data.length };
+  }
+
   async countDocuments(query = {}) {
     const results = await this.find(query);
     return results.length;
@@ -287,7 +300,7 @@ const initMongooseModels = () => {
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone: { type: String },
-    role: { type: String, enum: ['customer', 'seller', 'rider', 'admin'], default: 'customer' },
+    role: { type: String, enum: ['customer', 'seller', 'admin'], default: 'customer' },
     profilePicture: { type: String, default: '' },
     addresses: { type: Array, default: [] },
     paymentMethods: { type: Array, default: [] },
@@ -332,6 +345,7 @@ const initMongooseModels = () => {
     deliveryAvailable: { type: Boolean, default: true },
     visitorsCount: { type: Number, default: 0 },
     commissionRate: { type: Number, default: 10 },
+    offeringType: { type: String, enum: ['products', 'services', 'both'], default: 'both' },
   }, { timestamps: true });
 
   const productSchema = new mongoose.Schema({

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiPackage, FiTruck, FiMapPin, FiCheckCircle, FiClock } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function RiderDashboard({ user, lang }) {
   const [availableDeliveries, setAvailableDeliveries] = useState([]);
@@ -27,13 +27,12 @@ export default function RiderDashboard({ user, lang }) {
   const fetchRiderData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
       // Fetch pending prepared orders that need delivery assignment
-      const pendingRes = await axios.get('/api/delivery/pending', { headers: { Authorization: `Bearer ${token}` } });
+      const pendingRes = await api.get('/api/delivery/pending');
       setAvailableDeliveries(pendingRes.data);
 
       // Fetch rider's claimed deliveries
-      const allOrdersRes = await axios.get('/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+      const allOrdersRes = await api.get('/api/orders');
       const claimed = allOrdersRes.data.filter((o) => o.deliveryRiderId === user._id && o.status === 'dispatched');
       setMyDeliveries(claimed);
 
@@ -46,8 +45,7 @@ export default function RiderDashboard({ user, lang }) {
 
   const handleClaimDelivery = async (orderId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(`/api/delivery/${orderId}/assign`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/api/delivery/${orderId}/assign`, {}, {});
       Swal.fire({
         icon: 'success',
         title: translate('Delivery Claimed', 'डेलिभरी स्वीकार भयो'),
@@ -64,11 +62,9 @@ export default function RiderDashboard({ user, lang }) {
     if (!otpInput) return;
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(
+      await api.put(
         `/api/delivery/${activeCompletingOrder._id}/complete`,
-        { otp: otpInput, proof: deliveryProofText || 'OTP Confirmed Delivery' },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { otp: otpInput, proof: deliveryProofText || 'OTP Confirmed Delivery' }
       );
 
       Swal.fire({

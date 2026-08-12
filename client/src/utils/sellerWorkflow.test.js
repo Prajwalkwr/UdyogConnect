@@ -11,6 +11,7 @@ describe('buildSellerProfilePayload', () => {
       phone: '9800000000',
       contactEmail: 'fresh@udyog.np',
       description: 'Fresh produce and staples',
+      offeringType: 'both',
     });
 
     expect(payload).toEqual({
@@ -21,6 +22,7 @@ describe('buildSellerProfilePayload', () => {
       phone: '9800000000',
       contactEmail: 'fresh@udyog.np',
       description: 'Fresh produce and staples',
+      offeringType: 'both',
     });
   });
 });

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import api from '../utils/api';
+import { matchesSearchQuery } from '../utils/search';
+import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
 
 export default function Marketplace({
   user,
@@ -12,8 +14,10 @@ export default function Marketplace({
   onOpenProduct,
   onOpenBusiness,
   onAddToCart,
+  onOpenDashboard,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchTrigger, setSearchTrigger] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
   const [distanceFilter, setDistanceFilter] = useState(15); // max km
@@ -23,6 +27,7 @@ export default function Marketplace({
   const [sortBy, setSortBy] = useState('popular'); // 'popular' | 'price' | 'distance' | 'newest'
   const [isListening, setIsListening] = useState(false);
   const [aiRecs, setAiRecs] = useState({ businesses: [], products: [] });
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Countdown timer for Flash Sales
   const [timeLeft, setTimeLeft] = useState('');
@@ -83,7 +88,7 @@ export default function Marketplace({
 
     recognition.onresult = (event) => {
       const result = event.results[0][0].transcript;
-      setSearchQuery(result);
+      triggerSearch(result);
       Swal.fire({
         icon: 'success',
         title: translate('Captured Query', 'खोजी शब्द प्राप्त भयो'),
@@ -117,7 +122,7 @@ export default function Marketplace({
           title: translate('Match Found!', 'नतिजा फेला पर्यो!'),
           text: translate('Matched with local artisan "Sunar Craft House" items.', '"Sunar Craft House" का सामानहरूसँग मेल खायो।'),
         });
-        setSearchQuery('basket');
+        triggerSearch('basket');
       }
     });
   };
@@ -142,51 +147,110 @@ export default function Marketplace({
 
   // Retrieve AI Recommendations if token exists
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      axios.get('/api/ai/recommendations', { headers: { Authorization: `Bearer ${token}` } })
-        .then(res => setAiRecs(res.data))
-        .catch(err => console.log('AI recs offline'));
-    }
+    api.get('/api/ai/recommendations')
+      .then(res => setAiRecs(res.data))
+      .catch(err => console.log('AI recs offline'));
   }, [user]);
 
+  const safeString = (value) => (typeof value === 'string' ? value : '');
+  const safeNumber = (value, fallback = 0) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+  };
+
+  const triggerSearch = (value = '') => {
+    const nextQuery = String(value ?? '').trim();
+    setSearchQuery(nextQuery);
+    setSearchTrigger(nextQuery);
+    setShowSuggestions(false);
+  };
+
+  const displayPrice = (val) => {
+    return `रु ${Number(val || 0).toLocaleString('en-IN')}`;
+  };
+
+  const safeText = (value, fallback = '') => {
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+    if (typeof value === 'number') return String(value);
+    return fallback;
+  };
+
+  const safeName = (entity) => safeText(entity?.name, 'Unknown');
+  const safeProducts = (Array.isArray(products) ? products : []).filter((p) => {
+    const parentBiz = Array.isArray(businesses) ? businesses.find((b) => b._id === p.businessId) : null;
+    return parentBiz && parentBiz.verified === 'verified';
+  });
+
+  const verifiedBusinesses = Array.isArray(businesses)
+    ? businesses.filter((b) => b?.verified === 'verified')
+    : [];
+
+  const activeSearchQuery = searchTrigger || searchQuery;
+  const searchSuggestions = (activeSearchQuery ? [
+    ...verifiedBusinesses
+      .filter((b) => matchesSearchQuery(b, activeSearchQuery, ['name', 'description', 'category', 'location']))
+      .slice(0, 4)
+      .map((b) => ({
+        id: `biz-${b._id}`,
+        type: 'business',
+        label: safeName(b),
+        subtitle: safeText(b?.category, 'Shop'),
+        onSelect: () => {
+          triggerSearch(safeName(b));
+          onOpenBusiness(b._id);
+        },
+      })),
+    ...safeProducts.filter((p) => matchesSearchQuery(p, activeSearchQuery, ['name', 'description', 'brand', 'category'])).slice(0, 4).map((p) => ({
+      id: `prod-${p._id}`,
+      type: 'product',
+      label: safeText(p?.name, 'Product'),
+      subtitle: safeText(p?.brand, 'Product'),
+      onSelect: () => {
+        triggerSearch(safeText(p?.name, ''));
+        onOpenProduct(p._id);
+      },
+    })),
+  ] : []).slice(0, 6);
+
   // Apply filtering rules client-side (to complement server results)
-  let filteredBizs = [...businesses];
+  let filteredBizs = Array.isArray(businesses) ? [...businesses] : [];
+  // Only show verified businesses to the buyer
+  filteredBizs = filteredBizs.filter(b => b.verified === 'verified');
 
   // Category
   if (selectedCategory !== 'All') {
-    filteredBizs = filteredBizs.filter(b => b.category.toLowerCase() === selectedCategory.toLowerCase());
+    filteredBizs = filteredBizs.filter(b => safeString(b.category).toLowerCase() === selectedCategory.toLowerCase());
   }
 
   // Text search
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    filteredBizs = filteredBizs.filter(b =>
-      b.name.toLowerCase().includes(q) ||
-      b.description.toLowerCase().includes(q) ||
-      b.category.toLowerCase().includes(q)
+  if (activeSearchQuery) {
+    filteredBizs = filteredBizs.filter((b) =>
+      matchesSearchQuery(b, activeSearchQuery, ['name', 'description', 'category', 'location'])
     );
   }
 
   // Distance Slider Filter
-  filteredBizs = filteredBizs.filter(b => {
-    if (!b.distance) return true;
+  filteredBizs = filteredBizs.filter((b) => {
+    if (!b?.distance) return true;
     const distanceVal = parseFloat(b.distance);
+    const radiusLimit = Number(b.deliveryRadiusKm || b.radius || 0);
+    const effectiveLimit = radiusLimit > 0 ? Math.min(distanceFilter, radiusLimit) : distanceFilter;
     if (isNaN(distanceVal)) return true;
-    return distanceVal <= distanceFilter;
+    return distanceVal <= effectiveLimit;
   });
 
   // Rating Filter
   if (minRating > 0) {
-    filteredBizs = filteredBizs.filter(b => b.rating >= minRating);
+    filteredBizs = filteredBizs.filter(b => safeNumber(b.rating) >= minRating);
   }
 
-  // Open Now Mock
+  // Open Now / delivery filter
   if (openNow) {
-    filteredBizs = filteredBizs.filter(b => {
-      const hr = new Date().getHours();
-      return hr >= 9 && hr < 20; // assumed 9am - 8pm open hours
-    });
+    filteredBizs = filteredBizs.filter((b) => getBusinessAvailabilityMeta(b).isOpen);
+  }
+
+  if (deliveryOnly) {
+    filteredBizs = filteredBizs.filter((b) => getBusinessAvailabilityMeta(b).deliveryAvailable);
   }
 
   // Sorting
@@ -201,17 +265,15 @@ export default function Marketplace({
     return 0;
   });
 
-  const displayPrice = (val) => {
-    if (currency === 'USD') {
-      return `$ ${(parseFloat(val) / 130).toFixed(2)}`; // static NPR->USD rate
-    }
-    return `रु ${val}`;
-  };
+  const safeProductsFiltered = safeProducts.filter((p) => {
+    if (!activeSearchQuery) return true;
+    return matchesSearchQuery(p, activeSearchQuery, ['name', 'description', 'brand', 'category']);
+  });
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       {/* 1. Flash Sale / Event Promo Banner */}
-      <section className="relative mb-8 overflow-hidden rounded-[32px] border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-slate-900 to-emerald-500/5 p-6 sm:p-8">
+      <section className="relative mb-8 overflow-hidden rounded-4xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-slate-900 to-emerald-500/5 p-6 sm:p-8">
         <div className="relative z-10 flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div>
             <div className="flex items-center gap-2 text-amber-400">
@@ -243,10 +305,51 @@ export default function Marketplace({
             type="text"
             placeholder={translate('Search stores, products, services...', 'पसल, उत्पादन, वा सेवा खोज्नुहोस्...')}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-2xl border border-slate-800/90 bg-slate-900/60 py-3.5 pl-12 pr-24 text-sm text-white placeholder-slate-500 outline-none ring-amber-400/20 transition focus:border-amber-400 focus:bg-slate-900 focus:ring-4"
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setSearchQuery(nextValue);
+              setSearchTrigger(nextValue);
+              setShowSuggestions(Boolean(nextValue.trim()));
+            }}
+            onFocus={() => setShowSuggestions(Boolean(searchQuery.trim()))}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                triggerSearch(searchQuery);
+              }
+            }}
+            className="w-full rounded-2xl border border-slate-800/90 bg-slate-900/60 py-3.5 pl-12 pr-32 text-sm text-white placeholder-slate-500 outline-none ring-amber-400/20 transition focus:border-amber-400 focus:bg-slate-900 focus:ring-4"
           />
+          {showSuggestions && searchSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-2xl border border-slate-800 bg-slate-900/95 p-2 shadow-2xl">
+              {searchSuggestions.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    suggestion.onSelect();
+                    setShowSuggestions(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800"
+                >
+                  <span>
+                    <span className="block font-semibold text-white">{suggestion.label}</span>
+                    <span className="text-xs text-slate-500">{suggestion.subtitle}</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wide text-amber-400">{suggestion.type}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="absolute top-2 right-2 flex items-center gap-1">
+            <button
+              onClick={() => triggerSearch(searchQuery)}
+              className="rounded-xl bg-amber-400/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+              title="Search"
+            >
+              {translate('Search', 'खोज्नुहोस्')}
+            </button>
             <button
               onClick={handleVoiceSearch}
               className={`rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white ${isListening ? 'text-amber-400 animate-pulse bg-amber-500/10' : ''}`}
@@ -383,10 +486,10 @@ export default function Marketplace({
               <div
                 key={b._id}
                 onClick={() => onOpenBusiness(b._id)}
-                className="flex items-center gap-3 rounded-2xl border border-slate-850 bg-slate-950/60 p-3 hover:border-indigo-550/30 cursor-pointer transition hover:translate-y-[-1px]"
+                className="flex items-center gap-3 rounded-2xl border border-slate-850 bg-slate-950/60 p-3 hover:border-indigo-550/30 cursor-pointer transition hover:-translate-y-px"
               >
-                <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg font-bold">
-                  {b.name.charAt(0)}
+                <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg font-bold">
+                  {safeName(b).charAt(0)}
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-slate-200 truncate max-w-[150px]">{b.name}</h4>
@@ -411,9 +514,10 @@ export default function Marketplace({
           </div>
 
           {filteredBizs.length === 0 ? (
-            <div className="rounded-3xl border border-slate-850 bg-slate-900/20 py-16 text-center text-slate-500">
+            <div className="rounded-3xl border border-slate-850 bg-slate-900/20 py-16 text-center text-slate-400">
               <FiClock className="mx-auto h-8 w-8 text-slate-600" />
-              <p className="mt-3 text-sm">{translate('No businesses match your active filter settings.', 'कुनै पसल फेला परेन।')}</p>
+              <p className="mt-3 text-sm">{translate('No businesses match your active filter settings right now.', 'हालका फिल्टरमा कुनै पसल मेल खाँदैन।')}</p>
+              <p className="mt-2 text-xs text-slate-500">{translate('Try a broader search or reset the filters to browse the market.', 'थोरै ठूलो खोज वा फिल्टर रीसेट गरेर बजार हेर्नुहोस्।')}</p>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -430,7 +534,7 @@ export default function Marketplace({
                         <img src={biz.imageUrl} alt={biz.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                       ) : (
                         <div className="h-full w-full bg-gradient-to-br from-amber-400/20 to-emerald-500/20 flex items-center justify-center text-slate-500 text-3xl font-black">
-                          {biz.name.charAt(0)}
+                          {safeName(biz).charAt(0)}
                         </div>
                       )}
                       {biz.verified === 'verified' && (
@@ -438,7 +542,15 @@ export default function Marketplace({
                           ✓ Verified
                         </span>
                       )}
-                      <span className="absolute bottom-2 right-2 rounded-md bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-350">
+                      <div className="absolute top-2 right-2 flex flex-col gap-1">
+                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${getBusinessAvailabilityMeta(biz).isOpen ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' : 'border-rose-400/30 bg-rose-500/10 text-rose-300'}`}>
+                          {getBusinessAvailabilityMeta(biz).isOpen ? 'Open' : 'Closed'}
+                        </span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${getBusinessAvailabilityMeta(biz).deliveryAvailable ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-300' : 'border-slate-500/30 bg-slate-700/50 text-slate-300'}`}>
+                          {getBusinessAvailabilityMeta(biz).deliveryAvailable ? `Delivery ${getBusinessAvailabilityMeta(biz).deliveryRadiusKm}km` : 'No Delivery'}
+                        </span>
+                      </div>
+                      <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-350">
                         {biz.hours}
                       </span>
                     </div>
@@ -480,8 +592,12 @@ export default function Marketplace({
           </h3>
 
           <div className="space-y-3">
-            {products.slice(0, 4).map((p) => {
-              const discountedPrice = p.price - (p.price * (p.discount || 0)) / 100;
+            {safeProducts.length === 0 ? (
+              <div className="rounded-2xl border border-slate-800/80 bg-slate-900/30 p-4 text-sm text-slate-400">
+                {translate('Product listings will appear here as soon as sellers add them.', 'बिक्रेताहरूले सामान थप गरेपछि यहाँ सूची देखिनेछ।')}
+              </div>
+            ) : safeProducts.slice(0, 4).map((p) => {
+              const discountedPrice = safeNumber(p.price) - (safeNumber(p.price) * safeNumber(p.discount)) / 100;
               return (
                 <div
                   key={p._id}
@@ -509,11 +625,14 @@ export default function Marketplace({
                         <span className="text-[10px] text-slate-500 line-through">{displayPrice(p.price)}</span>
                       )}
                     </div>
+                    <div className={`mt-1 text-[10px] font-bold ${p.stock > 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
+                      {p.stock > 0 ? `Stock: ${p.stock}` : translate('Out of stock', 'स्टक छैन')}
+                    </div>
                   </div>
 
                   <button
                     onClick={() => {
-                      onAddToCart({ id: p._id, name: p.name, price: discountedPrice, quantity: 1, seller: p.brand });
+                      onAddToCart({ id: p._id, name: p.name, price: discountedPrice, quantity: 1, seller: p.brand, stock: p.stock });
                       Swal.fire({
                         icon: 'success',
                         title: translate('Added', 'थपियो'),
@@ -522,8 +641,9 @@ export default function Marketplace({
                         showConfirmButton: false,
                       });
                     }}
-                    className="absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full bg-amber-400 text-slate-950 font-bold hover:scale-105 active:scale-95 text-sm"
-                    title="Add to Cart"
+                    disabled={p.stock <= 0}
+                    className={`absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full ${p.stock > 0 ? 'bg-amber-400 text-slate-950 hover:scale-105 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'} font-bold text-sm`}
+                    title={p.stock > 0 ? 'Add to Cart' : translate('Out of stock', 'स्टक छैन')}
                   >
                     +
                   </button>
@@ -533,7 +653,7 @@ export default function Marketplace({
           </div>
 
           {/* Sell promo card */}
-          <div className="rounded-[24px] border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-slate-950 p-5 text-left">
+          <div className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-slate-950 p-5 text-left">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">UdyogConnect Business</span>
             <h4 className="mt-1 text-sm font-bold text-white">{translate('Run a Small Shop?', 'आफ्नो व्यवसाय छ?')}</h4>
             <p className="mt-2 text-xs text-slate-400 leading-relaxed">

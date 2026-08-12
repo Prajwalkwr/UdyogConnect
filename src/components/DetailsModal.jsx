@@ -54,6 +54,12 @@ export default function DetailsModal({
       .get(`/api/businesses/${id}`)
       .then((res) => {
         setBusinessData(res.data);
+        const offering = res.data?.business?.offeringType || 'both';
+        if (offering === 'services') {
+          setActiveTab('services');
+        } else {
+          setActiveTab('products');
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -286,7 +292,12 @@ export default function DetailsModal({
                     { key: 'products', label: translate('Products', 'उत्पादनहरू') },
                     { key: 'services', label: translate('Services & Bookings', 'सेवा तथा बुकिङ') },
                     { key: 'reviews', label: translate('Reviews', 'समीक्षाहरू') },
-                  ].map((tab) => (
+                  ].filter(tab => {
+                    const offering = businessData?.business?.offeringType || 'both';
+                    if (tab.key === 'products' && offering === 'services') return false;
+                    if (tab.key === 'services' && offering === 'products') return false;
+                    return true;
+                  }).map((tab) => (
                     <button
                       key={tab.key}
                       onClick={() => setActiveTab(tab.key)}
@@ -334,7 +345,7 @@ export default function DetailsModal({
                               </div>
                               <button
                                 onClick={() => {
-                                  onAddToCart({ id: p._id, name: p.name, price: finalPrice, quantity: 1, seller: businessData.business.name });
+                                  onAddToCart({ id: p._id, name: p.name, price: finalPrice, quantity: 1, seller: businessData.business.name, businessId: businessData.business._id || businessData.business.id });
                                   Swal.fire({ icon: 'success', text: translate('Added to cart', 'कार्टमा थपियो'), timer: 800, showConfirmButton: false });
                                 }}
                                 className="rounded-lg bg-amber-400 px-3 py-1 text-xs font-bold text-slate-950 hover:bg-amber-300"

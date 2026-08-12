@@ -1,24 +1,192 @@
 const express = require('express');
+const http = require('http');
+const { Server: SocketIOServer } = require('socket.io');
 const cors = require('cors');
 const multer = require('multer');
 const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
+
+// Prevent the server from crashing on unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('CRITICAL: Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Chat, Notification, Coupon, AuditLog, Category, SystemSetting } = require('./db');
 const { getRegistrationUserDefaults } = require('./authHelpers');
+const nodemailer = require('nodemailer');
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const app = express();
+const httpServer = http.createServer(app);
 const port = process.env.PORT || 3000;
+
+function getAvailablePort(startPort) {
+  return new Promise((resolve, reject) => {
+    const net = require('net');
+    const server = net.createServer();
+
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(getAvailablePort(startPort + 1));
+      } else {
+        reject(err);
+      }
+    });
+
+    server.once('listening', () => {
+      const address = server.address();
+      server.close(() => resolve(address.port));
+    });
+
+    server.listen(startPort);
+  });
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'udyogconnect_secret_key_123';
+const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || '';
+let stripe = null;
+if (STRIPE_SECRET && STRIPE_SECRET !== 'mock') {
+  try {
+    const Stripe = require('stripe');
+    stripe = Stripe(STRIPE_SECRET);
+  } catch (err) {
+    console.error('Failed to load stripe module', err);
+  }
+} else {
+  // Mock stripe for testing without a real key
+  stripe = {
+    checkout: {
+      sessions: {
+        create: async (data) => {
+          return { url: `${process.env.CLIENT_URL || 'http://localhost:5174'}/payment-success?session_id=mock_sess_123&orderId=${data.metadata.orderId}` };
+        },
+        retrieve: async (id) => {
+          return { payment_status: 'paid' };
+        }
+      }
+    }
+  };
+}
+
+// Cloudinary setup (optional)
+let cloudinary = null;
+let cloudinaryConfigured = false;
+
+const looksLikePlaceholder = (value) => {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return !normalized || normalized.includes('your_') || normalized.includes('placeholder') || normalized.includes('changeme');
+};
+
+try {
+  const cld = require('cloudinary').v2;
+  cloudinary = cld;
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  const cloudinaryUrl = process.env.CLOUDINARY_URL;
+
+  if (cloudinaryUrl || (!looksLikePlaceholder(cloudName) && !looksLikePlaceholder(apiKey) && !looksLikePlaceholder(apiSecret))) {
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true,
+    });
+    cloudinaryConfigured = true;
+  }
+} catch (e) {
+  console.warn('Cloudinary package not available. Falling back to base64 storage.');
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(__dirname));
 
-const upload = multer({ storage: multer.memoryStorage() });
+// ─── Email helper (Nodemailer) ───────────────────────────────────────────────
+let mailTransporter = null;
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  try {
+    mailTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true' || false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    // verify connection
+    mailTransporter.verify().then(() => console.log('SMTP transporter verified')).catch((e) => console.warn('SMTP verify failed', e.message));
+  } catch (e) {
+    console.warn('Failed to initialize SMTP transporter', e.message);
+    mailTransporter = null;
+  }
+} else {
+  console.warn('SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS in .env to enable email notifications.');
+}
+
+async function sendMail(options = {}) {
+  if (!mailTransporter) {
+    console.warn('Mail transporter not available — skipping email:', options.to, options.subject);
+    return false;
+  }
+  try {
+    const info = await mailTransporter.sendMail(options);
+    console.log('Email sent:', info.messageId);
+    return true;
+  } catch (err) {
+    console.error('Failed to send email:', err && err.message);
+    return false;
+  }
+}
+
+// ─── Socket.IO real-time setup ────────────────────────────────────────────────
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  transports: ['websocket', 'polling'],
+});
+
+// Middleware: authenticate socket connections via JWT token in handshake
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (!token) {
+    // Allow unauthenticated connections for broadcast-only rooms
+    socket.userId = null;
+    socket.userRole = null;
+    return next();
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    socket.userId = decoded.id;
+    socket.userRole = decoded.role;
+    next();
+  } catch {
+    socket.userId = null;
+    socket.userRole = null;
+    next();
+  }
+});
+
+io.on('connection', (socket) => {
+  // Each user joins their own private room (by userId) for targeted delivery
+  if (socket.userId) {
+    socket.join(`user:${socket.userId}`);
+    // Also join a role-based room for broadcast events (e.g. admin, seller)
+    if (socket.userRole) {
+      socket.join(`role:${socket.userRole}`);
+    }
+  }
+
+  socket.on('disconnect', () => {});
+});
+
+// Expose io instance so routes can emit events
+app.set('io', io);
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Middleware: Authenticate JWT Token
 const authenticateToken = async (req, res, next) => {
@@ -35,6 +203,36 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+const idempotencyStore = new Map();
+
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['Idempotency-Key'];
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) || !idempotencyKey) {
+    return next();
+  }
+
+  const cacheKey = `${method}:${req.path}:${req.user?.id || req.ip || 'anonymous'}:${idempotencyKey}`;
+  const cached = idempotencyStore.get(cacheKey);
+  if (cached) {
+    return res.status(cached.statusCode).json(cached.body);
+  }
+
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body });
+    return originalJson(body);
+  };
+
+  const originalSend = res.send.bind(res);
+  res.send = (body) => {
+    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body });
+    return originalSend(body);
+  };
+
+  return next();
+});
+
 // Middleware: Role-Based Access Control
 const requireRole = (roles) => {
   return (req, res, next) => {
@@ -45,11 +243,84 @@ const requireRole = (roles) => {
   };
 };
 
+// Expose simple config to client
+app.get('/api/config', (req, res) => {
+  res.json({
+    cloudinary: !!cloudinaryConfigured,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || null,
+    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || null,
+  });
+});
+
+// Provide a signing endpoint for client-side direct uploads
+app.post('/api/cloudinary/sign', authenticateToken, async (req, res) => {
+  try {
+    if (!cloudinaryConfigured || !cloudinary) return res.status(501).json({ message: 'Cloudinary not configured.' });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const params = { timestamp };
+    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
+    res.json({ signature, timestamp, api_key: process.env.CLOUDINARY_API_KEY, cloud_name: process.env.CLOUDINARY_CLOUD_NAME, upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || null });
+  } catch (err) {
+    console.error('Signing failed', err);
+    res.status(500).json({ message: 'Signing failed.' });
+  }
+});
+
+// Delete asset by public_id
+app.post('/api/cloudinary/delete', authenticateToken, requireRole(['seller','admin']), async (req, res) => {
+  try {
+    if (!cloudinaryConfigured || !cloudinary) return res.status(501).json({ message: 'Cloudinary not configured.' });
+    const { public_id } = req.body;
+    if (!public_id) return res.status(400).json({ message: 'public_id required.' });
+    const result = await cloudinary.uploader.destroy(public_id, { resource_type: 'auto' });
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('Cloudinary delete failed', err);
+    res.status(500).json({ message: 'Deletion failed.' });
+  }
+});
+
+// Serve client build if present (production multi-stage docker will copy client/dist)
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+} else {
+  app.use(express.static(__dirname));
+}
+
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Helper: Convert File to Base64 String if Cloudinary is offline
 const processImageUpload = (file) => {
   if (!file) return '';
+  // If Cloudinary is configured, upload the buffer and return the secure URL
+  if (cloudinaryConfigured && cloudinary) {
+    return uploadBufferToCloudinary(file.buffer, file.originalname).catch((err) => {
+      console.error('Cloudinary upload failed, falling back to base64', err);
+      const base64 = file.buffer.toString('base64');
+      return `data:${file.mimetype};base64,${base64}`;
+    });
+  }
   const base64 = file.buffer.toString('base64');
   return `data:${file.mimetype};base64,${base64}`;
+};
+
+// Upload helper using cloudinary uploader stream
+const uploadBufferToCloudinary = (buffer, filename = 'upload', folder = 'udyogconnect') => {
+  return new Promise((resolve, reject) => {
+    if (!cloudinary || !cloudinaryConfigured) return reject(new Error('Cloudinary not configured'));
+    const options = { folder, resource_type: 'auto' };
+    // sanitize public_id
+    if (filename) {
+      const safeName = filename.replace(/[^a-zA-Z0-9-_\.]/g, '_').slice(0, 120);
+      options.public_id = `${safeName}-${Date.now()}`;
+    }
+    const uploader = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error);
+      resolve(result.secure_url || result.url);
+    });
+    uploader.end(buffer);
+  });
 };
 
 // Geolocation distance helper (Haversine formula in km)
@@ -86,6 +357,11 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match.' });
     }
 
+    // Phone must contain only digits
+    if (phone && !/^\d{7,15}$/.test(phone.trim())) {
+      return res.status(400).json({ message: 'Phone number must contain only digits (7 to 15 numbers).' });
+    }
+
     const UserMDL = User();
     const existing = await UserMDL.findOne({ email });
     if (existing) {
@@ -101,8 +377,8 @@ app.post('/api/auth/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const userRole = role || 'customer';
-    const verificationOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const registrationDefaults = getRegistrationUserDefaults();
+    const verificationOtp = registrationDefaults.isVerified ? '' : Math.floor(100000 + Math.random() * 900000).toString();
 
     const newUser = await UserMDL.create({
       name,
@@ -117,30 +393,43 @@ app.post('/api/auth/register', async (req, res) => {
       wishlist: { products: [], services: [], businesses: [] },
       twoFactorEnabled: false,
       loginHistory: [],
-      isVerified: registrationDefaults.isVerified,
-      verificationOtp: registrationDefaults.verificationOtp,
+      isVerified: true,
+      verificationOtp: '',
       failedLoginAttempts: 0,
       lockUntil: null,
       resetOtp: '',
     });
 
-    const NotificationMDL = Notification();
-    await NotificationMDL.create({
-      userId: newUser._id,
-      title: 'Verification OTP',
-      message: `Welcome to UdyogConnect! Your activation OTP code is: ${verificationOtp}`,
-      type: 'general',
-    });
+    console.log('User registered:', newUser._id, newUser.email);
 
-    res.status(201).json({
+    // Create notification only when an OTP was generated
+    if (verificationOtp) {
+      const NotificationMDL = Notification();
+      await NotificationMDL.create({
+        userId: newUser._id,
+        title: 'Verification OTP',
+        message: `Welcome to UdyogConnect! Your activation OTP code is: ${verificationOtp}`,
+        type: 'general',
+      });
+    }
+
+    // For non-production/dev convenience, return OTP in response when present (do not expose in real prod)
+    const responsePayload = {
       success: true,
-      message: 'Registration completed. You can now sign in immediately.',
+      isVerified: !!newUser.isVerified,
+      message: registrationDefaults.isVerified ? 'Registration completed. You can now sign in immediately.' : 'Registration completed. Verification required.',
       email: newUser.email,
-      otp: registrationDefaults.verificationOtp
-    });
+    };
+    if (newUser.verificationOtp) responsePayload.otp = newUser.verificationOtp;
+    res.status(201).json(responsePayload);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Registration failed.' });
+    // Handle duplicate key error (unique constraint) gracefully
+    if (err && err.code === 11000) {
+      console.warn('Registration duplicate key error:', err.message);
+      return res.status(409).json({ message: 'A user with this email or phone already exists.' });
+    }
+    console.error('Registration error:', err && err.message);
+    res.status(500).json({ message: 'Registration failed due to server error.' });
   }
 });
 
@@ -165,6 +454,12 @@ app.post('/api/auth/login', async (req, res) => {
       console.log('Login failed: no matching user for', email);
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
+
+    // Account verification removed
+    // if (!user.isVerified) {
+    //   console.log('Login blocked: account not verified for', email);
+    //   return res.status(400).json({ requireVerification: true, otp: user.verificationOtp || '' });
+    // }
 
     // Check lockout status
     if (user.lockUntil && new Date(user.lockUntil) > new Date()) {
@@ -230,6 +525,7 @@ app.post('/api/auth/login', async (req, res) => {
     await AuditLogMDL.create({ userId: user._id, action: 'LOGIN', details: 'User logged in successfully' });
 
     const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    console.log('User logged in:', user._id, user.email);
     res.json({
       success: true,
       token,
@@ -463,29 +759,52 @@ app.get('/api/businesses/:id', async (req, res) => {
   }
 });
 
-app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }]), async (req, res) => {
+app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable } = req.body;
+    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm } = req.body;
     if (!name || !category || !location || !description) {
       return res.status(400).json({ message: 'All required fields are needed.' });
     }
 
+    // Phone must contain only digits and valid phone characters
+    if (phone && !/^[+\d\s\-()]{7,15}$/.test(String(phone).trim())) {
+      return res.status(400).json({ message: 'Phone number must contain only digits and valid characters (+, -, spaces).' });
+    }
+
+    // Business name must be unique across all businesses
     const BusinessMDL = Business();
+    const existingBiz = await BusinessMDL.findOne({
+      name: { $regex: `^${String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+    });
+    if (existingBiz) {
+      return res.status(409).json({ message: 'A business with this name already exists. Please choose a different name.' });
+    }
+
     let logoUrl = '';
     let coverUrl = '';
     let docUrl = '';
+    let qrUrl = '';
 
     if (req.files) {
       if (req.files.logo && req.files.logo[0]) {
-        logoUrl = processImageUpload(req.files.logo[0]);
+        logoUrl = await processImageUpload(req.files.logo[0]);
       }
       if (req.files.cover && req.files.cover[0]) {
-        coverUrl = processImageUpload(req.files.cover[0]);
+        coverUrl = await processImageUpload(req.files.cover[0]);
       }
       if (req.files.document && req.files.document[0]) {
-        docUrl = processImageUpload(req.files.document[0]);
+        docUrl = await processImageUpload(req.files.document[0]);
+      }
+      if (req.files.qr && req.files.qr[0]) {
+        qrUrl = await processImageUpload(req.files.qr[0]);
       }
     }
+
+    // Accept direct URLs from client-side uploads
+    if (!logoUrl && req.body.logoUrl) logoUrl = req.body.logoUrl;
+    if (!coverUrl && req.body.coverUrl) coverUrl = req.body.coverUrl;
+    if (!docUrl && req.body.documentUrl) docUrl = req.body.documentUrl;
+    if (!qrUrl && req.body.qrUrl) qrUrl = req.body.qrUrl;
 
     const newBusiness = await BusinessMDL.create({
       ownerId: req.user.id,
@@ -501,6 +820,7 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       hours: hours || '09:00 - 18:00',
       imageUrl: logoUrl,
       coverUrl: coverUrl,
+      qrUrl: qrUrl,
       latitude: latitude ? parseFloat(latitude) : 27.7007 + (Math.random() - 0.5) * 0.05,
       longitude: longitude ? parseFloat(longitude) : 85.3001 + (Math.random() - 0.5) * 0.05,
       verified: 'pending',
@@ -510,7 +830,10 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       registrationNumber: registrationNumber || '',
       panVatNumber: panVatNumber || '',
       deliveryAvailable: deliveryAvailable === 'true' || deliveryAvailable === true,
+      isOpen: isOpen === 'true' || isOpen === true,
+      deliveryRadiusKm: deliveryRadiusKm ? Number(deliveryRadiusKm) : 5,
       visitorsCount: 0,
+      offeringType: offeringType || 'both',
     });
 
     res.status(201).json({ success: true, business: newBusiness });
@@ -520,7 +843,7 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
   }
 });
 
-app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
+app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
     const BusinessMDL = Business();
     const biz = await BusinessMDL.findById(req.params.id);
@@ -530,9 +853,66 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       return res.status(403).json({ message: 'Unauthorized profile edit.' });
     }
 
-    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, req.body);
+    const removeLogo = req.body.removeLogo === 'true' || req.body.removeLogo === true;
+    let logoUrl = req.body.logoUrl || '';
+    let coverUrl = req.body.coverUrl || '';
+    let docUrl = req.body.documentUrl || '';
+    let qrUrl = req.body.qrUrl || '';
+
+    if (req.files) {
+      if (req.files.logo && req.files.logo[0]) {
+        logoUrl = await processImageUpload(req.files.logo[0]);
+      }
+      if (req.files.cover && req.files.cover[0]) {
+        coverUrl = await processImageUpload(req.files.cover[0]);
+      }
+      if (req.files.document && req.files.document[0]) {
+        docUrl = await processImageUpload(req.files.document[0]);
+      }
+      if (req.files.qr && req.files.qr[0]) {
+        qrUrl = await processImageUpload(req.files.qr[0]);
+      }
+    }
+
+    const updateData = { ...req.body };
+    if (typeof updateData.deliveryAvailable !== 'undefined') {
+      updateData.deliveryAvailable = updateData.deliveryAvailable === 'true' || updateData.deliveryAvailable === true;
+    }
+    if (typeof updateData.isOpen !== 'undefined') {
+      updateData.isOpen = updateData.isOpen === 'true' || updateData.isOpen === true;
+    }
+    if (typeof updateData.deliveryRadiusKm !== 'undefined') {
+      updateData.deliveryRadiusKm = Number(updateData.deliveryRadiusKm || 5);
+    }
+    delete updateData.removeLogo;
+    delete updateData.logoUrl;
+    delete updateData.coverUrl;
+    delete updateData.documentUrl;
+    delete updateData.qrUrl;
+
+    if (removeLogo) {
+      updateData.imageUrl = '';
+    } else if (logoUrl) {
+      updateData.imageUrl = logoUrl;
+    }
+    if (coverUrl) updateData.coverUrl = coverUrl;
+    if (docUrl) {
+      updateData.documents = [docUrl];
+    }
+    if (qrUrl) {
+      updateData.qrUrl = qrUrl;
+    }
+
+    if (req.user.role === 'seller') {
+      if (biz.verified === 'rejected' || biz.verified === 'suspended') {
+        updateData.verified = 'pending';
+      }
+    }
+
+    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData);
     res.json({ success: true, business: updated });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Failed to update business.' });
   }
 });
@@ -540,16 +920,139 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
 // Admin approves business & sets verification badge
 app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { status } = req.body; // 'verified', 'suspended', 'pending'
+    const { status } = req.body; // 'verified', 'suspended', 'pending', 'rejected'
     const BusinessMDL = Business();
+    const biz = await BusinessMDL.findById(req.params.id);
+    if (!biz) return res.status(404).json({ message: 'Business not found.' });
+
     const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, { verified: status });
+
+    // Send notification to business owner
+    try {
+      const NotificationMDL = Notification();
+      let notificationTitle = 'Business Status Updated';
+      let notificationMsg = `Your business "${biz.name}" status has been updated to ${status}.`;
+
+      if (status === 'verified') {
+        notificationTitle = 'Business Approved';
+        notificationMsg = `Congratulations! Your business "${biz.name}" has been verified and approved by the admin. You now have full access to the seller dashboard.`;
+      } else if (status === 'rejected') {
+        notificationTitle = 'Business Declined';
+        notificationMsg = `Your business "${biz.name}" registration was declined by the administrator. Please update your details and resubmit for approval.`;
+      } else if (status === 'suspended') {
+        notificationTitle = 'Business Suspended';
+        notificationMsg = `Your business "${biz.name}" has been suspended by the administrator. Please contact support.`;
+      }
+
+      await NotificationMDL.create({
+        userId: biz.ownerId,
+        title: notificationTitle,
+        message: notificationMsg,
+        type: 'admin'
+      });
+    } catch (notifErr) {
+      console.error('Failed to create notification', notifErr);
+    }
+
     res.json({ success: true, business: updated });
   } catch (err) {
     res.status(500).json({ message: 'Action failed.' });
   }
 });
 
+// Admin deletes business account and all associated data
+app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const BusinessMDL = Business();
+    const ProductMDL = Product();
+    const ServiceMDL = Service();
+    const ReviewMDL = Review();
+    const BookingMDL = Booking();
+
+    const bizId = req.params.id;
+    let biz;
+
+    try {
+      biz = await BusinessMDL.findById(bizId);
+    } catch (findErr) {
+      if (BusinessMDL.collection) {
+        biz = await BusinessMDL.collection.findOne({ _id: bizId });
+      } else {
+        throw findErr;
+      }
+    }
+
+    if (!biz) {
+      return res.status(404).json({ message: 'Business not found.' });
+    }
+
+    // Delete the business document
+    try {
+      await BusinessMDL.deleteOne({ _id: bizId });
+    } catch (delErr) {
+      if (BusinessMDL.collection) {
+        await BusinessMDL.collection.deleteOne({ _id: bizId });
+      } else {
+        throw delErr;
+      }
+    }
+
+    // Clean up associated products
+    try {
+      await ProductMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ProductMDL.collection) {
+        await ProductMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated services
+    try {
+      await ServiceMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ServiceMDL.collection) {
+        await ServiceMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated reviews
+    try {
+      await ReviewMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ReviewMDL.collection) {
+        await ReviewMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated bookings
+    try {
+      await BookingMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (BookingMDL.collection) {
+        await BookingMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    res.json({ success: true, message: 'Business and all associated records deleted successfully.' });
+  } catch (err) {
+    console.error('Failed to delete business', err);
+    res.status(500).json({ message: 'Failed to delete business account.', error: err.message });
+  }
+});
+
 // ==================== CATALOG MANAGEMENT ====================
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 app.get('/api/products', async (req, res) => {
   try {
@@ -567,9 +1070,38 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
     const ProductMDL = Product();
     let imgUrl = '';
 
-    if (req.file) {
-      imgUrl = processImageUpload(req.file);
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) {
+      return res.status(400).json({ message: 'Product name is required.' });
     }
+
+    // Validate no negative numbers
+    const parsedPrice = parseFloat(price);
+    const parsedDiscount = discount ? parseFloat(discount) : 0;
+    const parsedStock = stock ? parseInt(stock) : 0;
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      return res.status(400).json({ message: 'Product price cannot be negative.' });
+    }
+    if (parsedDiscount < 0 || parsedDiscount > 100) {
+      return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
+    }
+    if (parsedStock < 0) {
+      return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
+    }
+
+    const allProducts = await ProductMDL.find({ businessId });
+    const existingProduct = allProducts.find(p => p.name.toLowerCase() === normalizedName.toLowerCase());
+
+    if (existingProduct) {
+      return res.status(409).json({ message: 'A product with this name already exists for this business.' });
+    }
+
+    if (req.file) {
+      imgUrl = await processImageUpload(req.file);
+    }
+
+    // Accept direct image URLs from client
+    if (!imgUrl && req.body.imageUrl) imgUrl = req.body.imageUrl;
 
     const newProd = await ProductMDL.create({
       businessId,
@@ -577,9 +1109,9 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       category,
       subcategory: subcategory || '',
       description,
-      price: parseFloat(price),
-      discount: discount ? parseFloat(discount) : 0,
-      stock: stock ? parseInt(stock) : 0,
+      price: parsedPrice,
+      discount: parsedDiscount,
+      stock: parsedStock,
       sku: sku || `SKU-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
       brand: brand || 'Local',
       images: imgUrl ? [imgUrl] : [],
@@ -595,6 +1127,11 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
 
 app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
   try {
+    const { price, discount, stock } = req.body;
+    if (price !== undefined && parseFloat(price) < 0) return res.status(400).json({ message: 'Product price cannot be negative.' });
+    if (discount !== undefined && (parseFloat(discount) < 0 || parseFloat(discount) > 100)) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
+    if (stock !== undefined && parseInt(stock) < 0) return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
+
     const ProductMDL = Product();
     const updated = await ProductMDL.findByIdAndUpdate(req.params.id, req.body);
     res.json({ success: true, product: updated });
@@ -617,13 +1154,37 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
   try {
     const { businessId, name, description, price, duration, slots, staff, homeService } = req.body;
     const ServiceMDL = Service();
+    const normalizedName = String(name || '').trim();
+
+    if (!normalizedName) {
+      return res.status(400).json({ message: 'Service name is required.' });
+    }
+
+    // Validate no negative numbers
+    const parsedServicePrice = parseFloat(price);
+    const parsedDuration = duration ? parseInt(duration) : 60;
+    if (isNaN(parsedServicePrice) || parsedServicePrice < 0) {
+      return res.status(400).json({ message: 'Service price cannot be negative.' });
+    }
+    if (parsedDuration < 0) {
+      return res.status(400).json({ message: 'Service duration cannot be negative.' });
+    }
+
+    const existingService = await ServiceMDL.findOne({
+      businessId,
+      name: { $regex: `^${escapeRegExp(normalizedName)}$`, $options: 'i' },
+    });
+
+    if (existingService) {
+      return res.status(409).json({ message: 'A service with this name already exists for this business.' });
+    }
 
     const newServ = await ServiceMDL.create({
       businessId,
       name,
       description,
-      price: parseFloat(price),
-      duration: duration ? parseInt(duration) : 60,
+      price: parsedServicePrice,
+      duration: parsedDuration,
       slots: Array.isArray(slots) ? slots : ['09:00 - 10:00', '11:00 - 12:00', '14:00 - 15:00'],
       staff: Array.isArray(staff) ? staff : ['Regular Staff'],
       homeService: homeService === 'true' || homeService === true,
@@ -661,25 +1222,73 @@ app.delete('/api/services/:id', authenticateToken, requireRole(['seller', 'admin
 app.post('/api/checkout', authenticateToken, async (req, res) => {
   try {
     const { businessId, items, promoCode, paymentMethod, deliveryAddress } = req.body;
-    if (!businessId || !items || !Array.isArray(items) || items.length === 0 || !deliveryAddress) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'Missing order details.' });
     }
 
+    // Resolve businessId — try from request, then from cart items, then from the DB product record
+    let normalizedBusinessId = String(businessId || items[0]?.businessId || items[0]?.business?.id || items[0]?.sellerId || items[0]?.vendorId || '').trim();
+
+    // If still empty, look up the first product in DB and get its businessId
+    if (!normalizedBusinessId && items.length > 0) {
+      try {
+        const ProductMDL2 = Product();
+        const firstItemId = String(items[0]?.id || '');
+        if (firstItemId) {
+          const dbProduct = await ProductMDL2.findById(firstItemId);
+          if (dbProduct && dbProduct.businessId) {
+            normalizedBusinessId = String(dbProduct.businessId);
+          }
+        }
+      } catch (_) {}
+    }
+    const normalizedAddress = deliveryAddress || {
+      name: req.body.name || '',
+      email: req.body.email || '',
+      phone: req.body.phone || '',
+      address: req.body.address || '',
+      method: req.body.deliveryMethod || 'delivery',
+    };
+
+    if (!normalizedAddress.name || !normalizedAddress.phone || (!normalizedAddress.address && (normalizedAddress.method || 'delivery') === 'delivery')) {
+      return res.status(400).json({ message: 'Please complete your delivery information.' });
+    }
+
     const ProductMDL = Product();
+    const ServiceMDL = Service();
     const CouponMDL = Coupon();
     const OrderMDL = Order();
     const UserMDL = User();
 
-    // Verify stock and calculate subtotal
+    // Verify stock / availability and calculate subtotal
     let subtotal = 0;
     for (let item of items) {
-      const p = await ProductMDL.findById(item.id);
-      if (!p) return res.status(404).json({ message: `Product ${item.name} not found.` });
-      if (p.stock < item.quantity) {
-        return res.status(400).json({ message: `Insufficient stock for ${p.name}. Only ${p.stock} units available.` });
+      const itemId = String(item.id || '');
+      const isService = Boolean(item.type === 'service' || item.serviceId || item.kind === 'service');
+
+      if (isService) {
+        // Try DB lookup, fall back to cart price
+        let servicePrice = Number(item.price || 0);
+        try {
+          const service = await ServiceMDL.findById(itemId);
+          if (service) servicePrice = Number(service.price || servicePrice);
+        } catch (_) {}
+        subtotal += servicePrice * Number(item.quantity || 1);
+        continue;
       }
-      const unitPrice = p.price - (p.price * (p.discount || 0)) / 100;
-      subtotal += unitPrice * item.quantity;
+
+      // Try DB lookup for product stock check
+      let unitPrice = Number(item.price || 0);
+      try {
+        const product = await ProductMDL.findById(itemId);
+        if (product) {
+          if (product.stock < item.quantity) {
+            return res.status(400).json({ message: `Insufficient stock for "${product.name}". Only ${product.stock} units available.` });
+          }
+          unitPrice = product.price - (product.price * (product.discount || 0)) / 100;
+        }
+      } catch (_) {}
+      subtotal += unitPrice * Number(item.quantity || 1);
     }
 
     // Apply Coupon
@@ -696,10 +1305,16 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
     const tax = parseFloat((subtotal * 0.13).toFixed(2)); // 13% VAT
     const total = parseFloat((subtotal + deliveryFee + tax - discount).toFixed(2));
 
-    // Deduct Stock
+    // Deduct Stock for products only
     for (let item of items) {
-      const p = await ProductMDL.findById(item.id);
-      await ProductMDL.findByIdAndUpdate(item.id, { stock: p.stock - item.quantity });
+      const isService = Boolean(item.type === 'service' || item.serviceId || item.kind === 'service');
+      if (isService) continue;
+      try {
+        const product = await ProductMDL.findById(String(item.id || ''));
+        if (product && product.stock >= item.quantity) {
+          await ProductMDL.findByIdAndUpdate(item.id, { $inc: { stock: -item.quantity } });
+        }
+      } catch (_) {}
     }
 
     // Add Loyalty points (+10 for order)
@@ -709,17 +1324,21 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
     // Create Order
     const newOrder = await OrderMDL.create({
       customerId: req.user.id,
-      businessId,
-      items,
+      businessId: normalizedBusinessId,
+      items: items.map((item) => ({
+        ...item,
+        businessId: item.businessId || item.business?.id || item.sellerId || item.vendorId || normalizedBusinessId,
+      })),
       subtotal,
       deliveryFee,
       tax,
       discount,
       total,
       status: 'placed',
-      paymentMethod,
-      paymentStatus: paymentMethod === 'COD' ? 'pending' : 'paid',
-      deliveryAddress,
+      paymentMethod: paymentMethod || 'COD',
+      // Mark new orders as pending until payment confirmation.
+      paymentStatus: 'pending',
+      deliveryAddress: normalizedAddress,
       deliveryRiderId: '',
       deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString(), // 4-digit OTP
       deliveryProof: '',
@@ -727,6 +1346,23 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
     });
 
     res.status(201).json({ success: true, order: newOrder });
+
+    // ⚡ Real-time: notify the specific seller (business owner) and all admins
+    const socketIo = req.app.get('io');
+    if (socketIo) {
+      // Notify the owner of the business that received the order
+      if (normalizedBusinessId) {
+        try {
+          const BusinessMDL = Business();
+          const biz = await BusinessMDL.findById(normalizedBusinessId);
+          if (biz && biz.ownerId) {
+            socketIo.to(`user:${biz.ownerId}`).emit('new_order', newOrder);
+          }
+        } catch (_) {}
+      }
+      // Broadcast to all admin role connections too
+      socketIo.to(`role:admin`).emit('new_order', newOrder);
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Checkout transaction failed.' });
@@ -747,6 +1383,68 @@ app.post('/api/payment/confirm', authenticateToken, async (req, res) => {
   }
 });
 
+// Create Stripe Checkout Session (test mode). Returns session url to redirect client.
+app.post('/api/payment/create-session', authenticateToken, async (req, res) => {
+  try {
+    if (!stripe) return res.status(501).json({ message: 'Stripe not configured on server.' });
+    const { orderId } = req.body;
+    if (!orderId) return res.status(400).json({ message: 'orderId required.' });
+
+    const OrderMDL = Order();
+    const order = await OrderMDL.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+
+    // Convert NPR to USD for Stripe test payments (approx conversion)
+    const usdAmount = Math.max(1, Math.round((order.total / 130) * 100)); // in cents
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: { name: `UdyogConnect Order ${order._id}` },
+            unit_amount: usdAmount,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      metadata: { orderId: order._id },
+      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-success?session_id={CHECKOUT_SESSION_ID}&orderId=${order._id}`,
+      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/checkout?canceled=1`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Stripe session error', err);
+    res.status(500).json({ message: 'Failed to create Stripe session.' });
+  }
+});
+
+// Verify Stripe Checkout Session and update order payment status
+app.post('/api/payment/verify-session', authenticateToken, async (req, res) => {
+  try {
+    if (!stripe) return res.status(501).json({ message: 'Stripe not configured on server.' });
+    const { sessionId, orderId } = req.body;
+    if (!sessionId || !orderId) return res.status(400).json({ message: 'sessionId and orderId required.' });
+
+    const sess = await stripe.checkout.sessions.retrieve(sessionId);
+    if (!sess) return res.status(404).json({ message: 'Session not found.' });
+
+    const paid = sess.payment_status === 'paid' || sess.payment_status === 'complete';
+    if (paid) {
+      const OrderMDL = Order();
+      await OrderMDL.findByIdAndUpdate(orderId, { paymentStatus: 'paid' });
+      return res.json({ success: true, paid: true });
+    }
+    res.json({ success: false, paid: false, status: sess.payment_status });
+  } catch (err) {
+    console.error('Stripe verify error', err);
+    res.status(500).json({ message: 'Failed to verify Stripe session.' });
+  }
+});
+
 // ==================== BOOKINGS & ORDERS ====================
 
 app.get('/api/orders', authenticateToken, async (req, res) => {
@@ -759,18 +1457,31 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     } else if (req.user.role === 'seller') {
       const BusinessMDL = Business();
       const myBizs = await BusinessMDL.find({ ownerId: req.user.id });
-      const myBizIds = myBizs.map((b) => b._id);
-      orders = await OrderMDL.find({});
-      orders = orders.filter((o) => myBizIds.includes(o.businessId));
-    } else if (req.user.role === 'rider') {
-      orders = await OrderMDL.find({ deliveryRiderId: req.user.id });
+      // Convert ObjectIds to strings for reliable comparison
+      const myBizIds = myBizs.map((b) => String(b._id));
+      const allOrders = await OrderMDL.find({});
+      orders = allOrders.filter((o) => myBizIds.includes(String(o.businessId)));
     } else {
       orders = await OrderMDL.find({ customerId: req.user.id });
     }
 
+    // Sort newest first
+    orders = orders.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve orders.' });
+  }
+});
+
+// GET single order by ID
+app.get('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const OrderMDL = Order();
+    const order = await OrderMDL.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    res.json(order);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to retrieve order.' });
   }
 });
 
@@ -783,8 +1494,40 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
 
     const trackingHistory = [...(order.trackingHistory || []), { status, time: new Date().toISOString(), note: note || `Order updated to ${status}.` }];
 
-    const updated = await OrderMDL.findByIdAndUpdate(req.params.id, { status, trackingHistory });
+    const updated = await OrderMDL.findByIdAndUpdate(
+      req.params.id,
+      { status, trackingHistory },
+      { new: true }
+    );
     res.json({ success: true, order: updated });
+
+    // ⚡ Real-time: notify the customer that their order status changed
+    const socketIo = req.app.get('io');
+    if (socketIo && order.customerId) {
+      socketIo.to(`user:${order.customerId}`).emit('order_status_update', {
+        orderId: req.params.id,
+        status,
+        note: note || `Your order has been updated to: ${status}`,
+      });
+    }
+
+    // Send email notification to business owner when order is accepted by seller
+    try {
+      if (status === 'accepted' || status === 'preparing') {
+        const BusinessMDL = Business();
+        const biz = await BusinessMDL.findById(order.businessId);
+        if (biz && biz.contactEmail) {
+          const subject = `Order ${String(order._id).slice(-8).toUpperCase()} — ${status}`;
+          const html = `<p>Hi ${biz.name || 'Business'},</p>
+            <p>The order <strong>${order._id}</strong> has been updated to <strong>${status}</strong>.</p>
+            <p>Customer: ${order.deliveryAddress?.name || '—'} (${order.deliveryAddress?.phone || '—'})</p>
+            <p>Items: ${order.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}</p>
+            <p>Total: NPR ${order.total}</p>
+            <p>View orders in your dashboard to manage it.</p>`;
+          await sendMail({ to: biz.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+        }
+      }
+    } catch (err) { console.warn('Order status email failed', err && err.message); }
   } catch (err) {
     res.status(500).json({ message: 'Status update failed.' });
   }
@@ -826,9 +1569,10 @@ app.get('/api/bookings', authenticateToken, async (req, res) => {
     } else if (req.user.role === 'seller') {
       const BusinessMDL = Business();
       const myBizs = await BusinessMDL.find({ ownerId: req.user.id });
-      const myBizIds = myBizs.map((b) => b._id);
-      bookings = await BookingMDL.find({});
-      bookings = bookings.filter((bk) => myBizIds.includes(bk.businessId));
+    // Fix: string comparison for booking businessId
+    const myBizIds = myBizs.map((b) => String(b._id));
+    const allBookings = await BookingMDL.find({});
+    bookings = allBookings.filter((bk) => myBizIds.includes(String(bk.businessId)));
     } else {
       bookings = await BookingMDL.find({ customerId: req.user.id });
     }
@@ -850,6 +1594,23 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
 
     const updated = await BookingMDL.findByIdAndUpdate(req.params.id, updates);
     res.json({ success: true, booking: updated });
+
+    // Send email when booking is accepted/confirmed
+    try {
+      if (updates.status && (updates.status === 'confirmed' || updates.status === 'pending')) {
+        const booking = await BookingMDL.findById(req.params.id);
+        const BusinessMDL = Business();
+        const biz = await BusinessMDL.findById(booking.businessId);
+        if (biz && biz.contactEmail) {
+          const subject = `Booking ${String(booking._id).slice(-8).toUpperCase()} — ${booking.status}`;
+          const html = `<p>Hi ${biz.name || 'Business'},</p>
+            <p>The booking <strong>${booking._id}</strong> for service <strong>${booking.serviceId}</strong> has been updated to <strong>${booking.status}</strong>.</p>
+            <p>Customer: ${booking.customerId}</p>
+            <p>Date: ${booking.date} · Time: ${booking.timeSlot}</p>`;
+          await sendMail({ to: biz.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+        }
+      }
+    } catch (err) { console.warn('Booking email failed', err && err.message); }
   } catch (err) {
     res.status(500).json({ message: 'Booking update failed.' });
   }
@@ -857,7 +1618,7 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
 
 // ==================== DELIVERY MODULE APIS ====================
 
-app.get('/api/delivery/pending', authenticateToken, requireRole(['rider', 'admin']), async (req, res) => {
+app.get('/api/delivery/pending', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const OrderMDL = Order();
     // Orders prepared and ready to dispatch
@@ -868,51 +1629,102 @@ app.get('/api/delivery/pending', authenticateToken, requireRole(['rider', 'admin
   }
 });
 
-app.put('/api/delivery/:id/assign', authenticateToken, requireRole(['rider', 'admin']), async (req, res) => {
+// Delivery Module - assign rider (admin or seller can assign)
+app.put('/api/delivery/:id/assign', authenticateToken, requireRole(['admin', 'seller']), async (req, res) => {
   try {
+    const { riderId } = req.body;
     const OrderMDL = Order();
     const order = await OrderMDL.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
-    const trackingHistory = [...(order.trackingHistory || []), { status: 'dispatched', time: new Date().toISOString(), note: 'Delivery accepted by rider.' }];
-
-    await OrderMDL.findByIdAndUpdate(req.params.id, {
-      deliveryRiderId: req.user.id,
+    const assignedRider = riderId || req.user.id;
+    const trackingHistory = [...(order.trackingHistory || []), {
       status: 'dispatched',
-      trackingHistory,
-    });
-    res.json({ success: true });
+      time: new Date().toISOString(),
+      note: 'Order dispatched for delivery.',
+    }];
+
+    const updated = await OrderMDL.findByIdAndUpdate(
+      req.params.id,
+      { deliveryRiderId: assignedRider, status: 'dispatched', trackingHistory },
+      { new: true }
+    );
+    res.json({ success: true, order: updated });
+
+    // ⚡ Notify customer that order is on the way
+    const socketIo = req.app.get('io');
+    if (socketIo && order.customerId) {
+      socketIo.to(`user:${order.customerId}`).emit('order_status_update', {
+        orderId: req.params.id,
+        status: 'dispatched',
+        note: 'Your order is on the way! 🚴 Check your delivery OTP in Order Tracking.',
+      });
+    }
   } catch (err) {
     res.status(500).json({ message: 'Delivery assignment failed.' });
   }
 });
 
-app.put('/api/delivery/:id/complete', authenticateToken, requireRole(['rider', 'admin']), async (req, res) => {
+// Delivery Module - complete delivery with OTP (admin or seller)
+app.put('/api/delivery/:id/complete', authenticateToken, requireRole(['admin', 'seller']), async (req, res) => {
   try {
     const { otp, proof } = req.body;
     const OrderMDL = Order();
     const order = await OrderMDL.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
-    if (order.deliveryOtp !== otp) {
-      return res.status(400).json({ message: 'Invalid delivery verification OTP.' });
+    if (String(order.deliveryOtp) !== String(otp)) {
+      return res.status(400).json({ message: `Invalid OTP. Expected ${order.deliveryOtp}.` });
     }
 
-    const trackingHistory = [...(order.trackingHistory || []), { status: 'completed', time: new Date().toISOString(), note: 'Order delivered.' }];
-
-    await OrderMDL.findByIdAndUpdate(req.params.id, {
+    const trackingHistory = [...(order.trackingHistory || []), {
       status: 'completed',
-      paymentStatus: 'paid', // Completed order implies paid
-      deliveryProof: proof || 'OTP Confirmed',
-      trackingHistory,
-    });
-    res.json({ success: true });
+      time: new Date().toISOString(),
+      note: 'Order delivered and OTP verified.',
+    }];
+
+    const updated = await OrderMDL.findByIdAndUpdate(
+      req.params.id,
+      {
+        status: 'completed',
+        paymentStatus: 'paid',
+        deliveryProof: proof || 'OTP Confirmed',
+        trackingHistory,
+      },
+      { new: true }
+    );
+    res.json({ success: true, order: updated });
+
+    // ⚡ Notify customer that order is completed
+    const socketIo = req.app.get('io');
+    if (socketIo && order.customerId) {
+      socketIo.to(`user:${order.customerId}`).emit('order_status_update', {
+        orderId: req.params.id,
+        status: 'completed',
+        note: 'Your order has been delivered! Thank you for ordering. ✅',
+      });
+    }
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Delivery confirmation failed.' });
   }
 });
 
 // ==================== REVIEW SYSTEM ====================
+
+app.put('/api/admin/reviews/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { reported } = req.body;
+    const ReviewMDL = Review();
+    const review = await ReviewMDL.findById(req.params.id);
+    if (!review) return res.status(404).json({ message: 'Review not found.' });
+
+    const updated = await ReviewMDL.findByIdAndUpdate(req.params.id, { reported: Boolean(reported) }, { new: true });
+    res.json({ success: true, review: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update review moderation state.' });
+  }
+});
 
 app.post('/api/reviews', authenticateToken, upload.single('image'), async (req, res) => {
   try {
@@ -966,6 +1778,26 @@ app.put('/api/reviews/:id/report', authenticateToken, async (req, res) => {
 
 // ==================== CHAT & AI SUPPORT CHATBOT ====================
 
+// GET /api/users — list all users (for chat contact list); returns safe fields only
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    const UserMDL = User();
+    const users = await UserMDL.find({});
+    // Return only safe public fields
+    const safe = users.map((u) => ({
+      _id: u._id,
+      id: u._id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      profilePicture: u.profilePicture || '',
+    }));
+    res.json(safe);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch users.' });
+  }
+});
+
 app.get('/api/chat/:receiverId', authenticateToken, async (req, res) => {
   try {
     const ChatMDL = Chat();
@@ -991,7 +1823,7 @@ app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res
     const ChatMDL = Chat();
     let imgUrl = '';
     if (req.file) {
-      imgUrl = processImageUpload(req.file);
+      imgUrl = await processImageUpload(req.file);
     }
 
     const newMsg = await ChatMDL.create({
@@ -999,11 +1831,20 @@ app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res
       receiverId,
       message: message || '',
       type: imgUrl ? 'image' : 'text',
-      mediaUrl: imgUrl,
+      mediaUrl: imgUrl || (await Promise.resolve(imgUrl)),
     });
+
+    // ⚡ Emit the new message in real-time to the receiver's private room
+    const socketIo = req.app.get('io');
+    if (socketIo) {
+      socketIo.to(`user:${receiverId}`).emit('new_message', newMsg);
+      // Also notify the sender's own room so multi-tab/device sync works
+      socketIo.to(`user:${req.user.id}`).emit('new_message', newMsg);
+    }
 
     res.status(201).json(newMsg);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Send failed.' });
   }
 });
@@ -1164,7 +2005,7 @@ app.get('/api/admin/analytics', authenticateToken, requireRole(['admin']), async
 
     const usersCount = await UserMDL.countDocuments({});
     const sellersCount = await UserMDL.countDocuments({ role: 'seller' });
-    const ridersCount = await UserMDL.countDocuments({ role: 'rider' });
+    const ridersCount = 0;
     const customersCount = await UserMDL.countDocuments({ role: 'customer' });
 
     const businesses = await BusinessMDL.find({});
@@ -1273,6 +2114,28 @@ app.get('/api/admin/coupons', authenticateToken, async (req, res) => {
     res.json(coupons);
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve coupons.' });
+  }
+});
+
+// Admin requests more info from a business owner (attach message & send notification)
+app.post('/api/admin/businesses/:id/request-info', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { message } = req.body;
+    const BusinessMDL = Business();
+    const NotificationMDL = Notification();
+    const biz = await BusinessMDL.findById(req.params.id);
+    if (!biz) return res.status(404).json({ message: 'Business not found.' });
+
+    const ownerId = biz.ownerId;
+    await NotificationMDL.create({ userId: ownerId, title: 'Admin: Request for more info', message: message || 'Please provide additional documents or details for your business verification.', type: 'admin' });
+
+    // Ensure business stays in pending state and record audit
+    await BusinessMDL.findByIdAndUpdate(req.params.id, { verified: 'pending' });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Request info error', err);
+    res.status(500).json({ message: 'Failed to request information from business.' });
   }
 });
 
@@ -1440,9 +2303,49 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, isMongo: getIsMongo() });
 });
 
-// Initialize database and start server
-connectDb().then(() => {
-  app.listen(port, () => {
-    console.log(`UdyogConnect running on http://localhost:${port}`);
+// Serve client index.html fallback for SPA routing (must be defined last)
+if (fs.existsSync(clientDist)) {
+  app.get(/.*/, (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
   });
-});
+}
+
+// Initialize database and start server (use httpServer for Socket.IO support)
+// Export app and server start so tests can import without auto-listening
+module.exports = {
+  app,
+  httpServer,
+  startServer: async () => {
+    if (process.env.NODE_ENV === 'production') {
+      if (!process.env.JWT_SECRET) {
+        console.error('ERROR: JWT_SECRET must be set in production environment. Aborting startup.');
+        process.exit(1);
+      }
+      if (!process.env.MONGODB_URI) {
+        console.error('ERROR: MONGODB_URI must be set in production environment. Aborting startup.');
+        process.exit(1);
+      }
+    }
+    await connectDb();
+    const actualPort = await getAvailablePort(port);
+    return new Promise((resolve) => {
+      httpServer.listen(actualPort, () => {
+        console.log(`UdyogConnect running on http://localhost:${actualPort}`);
+        console.log(`isMongo: ${getIsMongo()}`);
+        resolve(actualPort);
+      });
+    });
+  }
+};
+
+// If run directly, start the server
+if (require.main === module) {
+  (async () => {
+    try {
+      await module.exports.startServer();
+    } catch (err) {
+      console.error('Failed to start server:', err && err.message);
+      process.exit(1);
+    }
+  })();
+}

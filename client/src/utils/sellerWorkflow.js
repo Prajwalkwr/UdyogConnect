@@ -27,7 +27,7 @@ export const SELLER_WORKFLOW_STEPS = [
 
 export const SELLER_DASHBOARD_SECTIONS = [
   {
-    key: 'overview',
+    key: 'dashboard',
     label: { en: 'Dashboard', ne: 'ड्यासबोर्ड' },
     description: {
       en: 'Monitor business metrics, orders, and stock health for your own shop only.',
@@ -44,7 +44,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'catalog',
-    label: { en: 'Product & Service Management', ne: 'उत्पादन र सेवा व्यवस्थापन' },
+    label: { en: 'Products / Services', ne: 'उत्पादन / सेवा' },
     description: {
       en: 'Add, edit, remove, and manage products or services for your shop.',
       ne: 'आफ्नो पसलका उत्पादन वा सेवाहरू थप, सम्पादन, हटाउने र व्यवस्थापन गर्नुहोस्।',
@@ -52,7 +52,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'orders',
-    label: { en: 'Order Management', ne: 'अर्डर व्यवस्थापन' },
+    label: { en: 'Orders', ne: 'अर्डर' },
     description: {
       en: 'Accept, reject, prepare, and track orders for your shop.',
       ne: 'आफ्नो पसलका अर्डर स्वीकार, अस्वीकार, तयारी र ट्र्याक गर्नुहोस्।',
@@ -60,7 +60,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'inventory',
-    label: { en: 'Inventory Management', ne: 'इन्वेन्टरी व्यवस्थापन' },
+    label: { en: 'Inventory', ne: 'इन्वेन्टरी' },
     description: {
       en: 'Watch stock levels and keep important products available.',
       ne: 'स्टक स्तर अनुगमन गरेर महत्त्वपूर्ण सामान उपलब्ध राख्नुहोस्।',
@@ -68,7 +68,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'customers',
-    label: { en: 'Customer Management', ne: 'ग्राहक व्यवस्थापन' },
+    label: { en: 'Customers', ne: 'ग्राहक' },
     description: {
       en: 'See customer activity and purchase history for your own business.',
       ne: 'आफ्नै व्यवसायका ग्राहक गतिविधि र खरिद इतिहास हेर्नुहोस्।',
@@ -84,7 +84,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'promotions',
-    label: { en: 'Promotions & Discounts', ne: 'प्रमोशन र छुट' },
+    label: { en: 'Promotions', ne: 'प्रमोशन' },
     description: {
       en: 'Create discount offers and feature products for the shop.',
       ne: 'पसलका लागि छुट प्रस्ताव र featured उत्पादन सिर्जना गर्नुहोस्।',
@@ -92,7 +92,7 @@ export const SELLER_DASHBOARD_SECTIONS = [
   },
   {
     key: 'analytics',
-    label: { en: 'Reports & Analytics', ne: 'रिपोर्ट र विश्लेषण' },
+    label: { en: 'Sales & Reports', ne: 'बिक्री र रिपोर्ट' },
     description: {
       en: 'Track daily, weekly, and monthly sales performance.',
       ne: 'दैनिक, साप्ताहिक र मासिक बिक्री प्रदर्शन ट्र्याक गर्नुहोस्।',
@@ -112,6 +112,22 @@ export const SELLER_DASHBOARD_SECTIONS = [
     description: {
       en: 'Manage your account settings, email, and notifications.',
       ne: 'आफ्नो खाता सेटिङ, इमेल र सूचनाहरू व्यवस्थापन गर्नुहोस्।',
+    },
+  },
+  {
+    key: 'help',
+    label: { en: 'Help & Support', ne: 'मद्दत र सहयोग' },
+    description: {
+      en: 'Get support for onboarding, orders, payments, and account issues.',
+      ne: 'दर्ता, अर्डर, भुगतान र खाता समस्याहरूका लागि सहयोग प्राप्त गर्नुहोस्।',
+    },
+  },
+  {
+    key: 'logout',
+    label: { en: 'Logout', ne: 'लगआउट' },
+    description: {
+      en: 'Sign out safely from your business account.',
+      ne: 'आफ्नो व्यवसाय खाताबाट सुरक्षित रूपमा साइन आउट गर्नुहोस्।',
     },
   },
 ];
@@ -141,5 +157,6 @@ export function buildSellerProfilePayload(formValues) {
     phone: formValues.phone,
     contactEmail: formValues.contactEmail,
     description: formValues.description,
+    offeringType: formValues.offeringType,
   };
 }

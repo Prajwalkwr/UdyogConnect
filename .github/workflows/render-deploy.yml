@@ -1,0 +1,77 @@
+name: Trigger Render Deploys
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploys and wait for completion
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_IDS: ${{ secrets.RENDER_SERVICE_IDS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RENDER_API_KEY" ]; then echo "ERROR: RENDER_API_KEY secret not set"; exit 1; fi
+          if [ -z "$RENDER_SERVICE_IDS" ]; then echo "ERROR: RENDER_SERVICE_IDS secret not set"; exit 1; fi
+
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+          IFS=',' read -ra IDS <<< "$RENDER_SERVICE_IDS"
+          for id in "${IDS[@]}"; do
+            id_trimmed=$(echo "$id" | xargs)
+            echo "Triggering deploy for Render service: $id_trimmed"
+
+            # Trigger deploy and capture response
+            resp_file=$(mktemp)
+            http_code=$(curl -s -w "%{http_code}" -o "$resp_file" -X POST "https://api.render.com/v1/services/$id_trimmed/deploys" \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              -d '{}')
+
+            if [ "$http_code" != "201" ] && [ "$http_code" != "200" ]; then
+              echo "Render API returned HTTP $http_code for service $id_trimmed"
+              cat "$resp_file" || true
+              exit 1
+            fi
+
+            deploy_id=$(jq -r '.id // empty' "$resp_file")
+            if [ -z "$deploy_id" ]; then
+              echo "Failed to obtain deploy id from Render response for service $id_trimmed"
+              cat "$resp_file" || true
+              exit 1
+            fi
+
+            echo "Deploy queued: $deploy_id. Polling for status..."
+
+            # Poll deploy status until succeeded/failed or timeout
+            max_attempts=60
+            attempt=0
+            sleep_seconds=5
+            while [ $attempt -lt $max_attempts ]; do
+              attempt=$((attempt+1))
+              status_resp=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" "https://api.render.com/v1/deploys/$deploy_id")
+              status=$(echo "$status_resp" | jq -r '.status // empty')
+              echo "Attempt $attempt: status=$status"
+              if [ "$status" = "succeeded" ]; then
+                echo "Deploy succeeded for $id_trimmed (deploy: $deploy_id)"
+                break
+              fi
+              if [ "$status" = "failed" ] || [ "$status" = "canceled" ]; then
+                echo "Deploy failed with status=$status for $id_trimmed"
+                echo "$status_resp"
+                exit 1
+              fi
+              sleep $sleep_seconds
+            done
+
+            if [ "$status" != "succeeded" ]; then
+              echo "Timed out waiting for deploy to succeed for $id_trimmed"
+              exit 1
+            fi
+          done

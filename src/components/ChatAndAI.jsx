@@ -1,32 +1,35 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FiMessageSquare, FiX, FiSend, FiPaperclip, FiImage, FiCpu, FiUser, FiTerminal } from 'react-icons/fi';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { FiMessageSquare, FiX, FiSend, FiImage, FiCpu, FiUser, FiTerminal, FiCircle } from 'react-icons/fi';
 import axios from 'axios';
 import Swal from 'sweetalert2';
+import { io as socketIO } from 'socket.io-client';
 
 export default function ChatAndAI({ user, lang }) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('ai'); // 'ai' | 'dm' | 'terminal'
-  
+
+  // Socket.IO ref — persists across renders without causing re-renders
+  const socketRef = useRef(null);
+
   // AI Chat State
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiHistory, setAiHistory] = useState([
     {
       sender: 'ai',
-      text: 'Namaste! I am your UdyogConnect Assistant. Ask me about local shops (e.g. "Bhoj Garden"), active discount coupons, or provide an Order ID to track delivery status.\n\n💻 **Developer CLI Shortcuts:**\n- Click or type `cd server` to check server connection.\n- Click or type `cd client` to open the website link.',
+      text: 'Namaste! I am your UdyogConnect Assistant. Ask me about local shops (e.g. "Bhoj Garden") or active discount coupons. You can also provide an Order ID to check its status.\n\n💻 **Developer CLI Shortcuts:**\n- Click or type `cd server` to check server connection.\n- Click or type `cd client` to open the website link.',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
 
   // DM Chat State
-  const [contacts, setContacts] = useState([
-    { id: 's1', name: 'Ram Seller (Bhoj Garden)', role: 'seller' },
-    { id: 'r1', name: 'Hari Rider (Courier)', role: 'rider' },
-    { id: 'a1', name: 'System Admin Support', role: 'admin' },
-  ]);
+  const [contacts, setContacts] = useState([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
   const [selectedContact, setSelectedContact] = useState(null);
+  const selectedContactRef = useRef(null); // keep ref for socket callback
   const [dmMessage, setDmMessage] = useState('');
   const [dmHistory, setDmHistory] = useState([]);
   const [dmImage, setDmImage] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
 
   // Terminal CLI State
   const [terminalInput, setTerminalInput] = useState('');
@@ -40,21 +43,85 @@ export default function ChatAndAI({ user, lang }) {
     return lang === 'en' ? enText : neText;
   };
 
-  // Scroll body container to bottom
+  // ── Socket.IO connection ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    // Connect to the server (same origin)
+    const socket = socketIO(window.location.origin, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+    });
+    socketRef.current = socket;
+
+    // When a new DM arrives, append it to the conversation if it matches
+    socket.on('new_message', (msg) => {
+      const currentContact = selectedContactRef.current;
+      if (
+        currentContact &&
+        (
+          (msg.senderId === currentContact.id) ||
+          (msg.senderId === (user._id || user.id) && msg.receiverId === currentContact.id)
+        )
+      ) {
+        setDmHistory((prev) => {
+          // Deduplicate by _id
+          if (prev.some((m) => m._id === msg._id)) return prev;
+          return [...prev, msg];
+        });
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [user]);
+
+  // Keep selectedContactRef in sync with selectedContact state
+  useEffect(() => {
+    selectedContactRef.current = selectedContact;
+  }, [selectedContact]);
+
+  // ── Load contacts (all other users from API) ──────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setContactsLoading(true);
+    axios
+      .get('/api/users', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        const userId = user._id || user.id;
+        const others = res.data
+          .filter((u) => u._id !== userId && u.id !== userId)
+          .map((u) => ({ id: u._id || u.id, name: u.name, role: u.role, email: u.email }));
+        setContacts(others);
+      })
+      .catch(() => {
+        // Fallback: show admin support contact
+        setContacts([{ id: 'admin-support', name: 'Admin Support', role: 'admin' }]);
+      })
+      .finally(() => setContactsLoading(false));
+  }, [user]);
+
+  // ── Scroll to bottom ──────────────────────────────────────────────────────
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [aiHistory, dmHistory, terminalHistory, isOpen, activeTab]);
 
-  // Fetch DM history when contact changes
+  // ── Load history when contact is selected ─────────────────────────────────
   useEffect(() => {
     if (selectedContact && user) {
       fetchDmHistory(selectedContact.id);
-      const interval = setInterval(() => {
-        fetchDmHistory(selectedContact.id);
-      }, 5000); // Poll DMs every 5s for real-time feel
-      return () => clearInterval(interval);
+    } else {
+      setDmHistory([]);
     }
   }, [selectedContact, user]);
 
@@ -64,7 +131,7 @@ export default function ChatAndAI({ user, lang }) {
     axios
       .get(`/api/chat/${contactId}`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => setDmHistory(res.data))
-      .catch((err) => console.log('Chat logs offline'));
+      .catch(() => {});
   };
 
   // Interactive inline CLI renderer helper
@@ -404,31 +471,48 @@ export default function ChatAndAI({ user, lang }) {
               <div className="h-full flex flex-col justify-between">
                 {!selectedContact ? (
                   /* Contacts list */
-                  <div className="space-y-2 py-4">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">{translate('Select Active Chat', 'कुराकानी चयन गर्नुहोस्')}</span>
-                    {contacts.map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedContact(c)}
-                        className="flex items-center gap-3 rounded-2xl border border-slate-850 bg-slate-900/40 p-3 hover:bg-slate-900/80 cursor-pointer transition"
-                      >
-                        <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-slate-200">
-                          {c.name.charAt(0)}
-                        </div>
-                        <div className="text-left">
-                          <h5 className="text-xs font-bold text-slate-200">{c.name}</h5>
-                          <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">{c.role}</span>
-                        </div>
+                  <div className="space-y-2 py-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">
+                      {translate('People you can message', 'सन्देश पठाउन सक्नुहुने')}
+                    </span>
+                    {contactsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="h-5 w-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
                       </div>
-                    ))}
+                    ) : contacts.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-6 text-center">No contacts found.</p>
+                    ) : (
+                      contacts.map((c) => {
+                        const roleColor = c.role === 'admin' ? 'text-rose-400' : c.role === 'seller' ? 'text-emerald-400' : c.role === 'rider' ? 'text-purple-400' : 'text-cyan-400';
+                        const avatarBg = c.role === 'admin' ? 'bg-rose-500/20' : c.role === 'seller' ? 'bg-emerald-500/20' : c.role === 'rider' ? 'bg-purple-500/20' : 'bg-cyan-500/20';
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => setSelectedContact(c)}
+                            className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 hover:bg-slate-900/80 cursor-pointer transition hover:border-amber-400/30"
+                          >
+                            <div className={`relative h-8 w-8 rounded-full ${avatarBg} flex items-center justify-center font-bold text-xs text-white shrink-0`}>
+                              {(c.name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="text-left min-w-0">
+                              <h5 className="text-xs font-bold text-slate-200 truncate">{c.name}</h5>
+                              <span className={`text-[9px] font-semibold uppercase tracking-wider ${roleColor}`}>{c.role}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 ) : (
                   /* Active message history thread */
                   <div className="flex flex-col h-full justify-between">
                     {/* Header back button */}
                     <div className="flex items-center gap-2 border-b border-slate-900 pb-2 mb-2">
-                      <button onClick={() => setSelectedContact(null)} className="text-xs text-amber-400">← Back</button>
-                      <span className="text-xs font-extrabold text-white truncate max-w-[200px]">{selectedContact.name}</span>
+                      <button onClick={() => setSelectedContact(null)} className="text-xs text-amber-400 shrink-0">← Back</button>
+                      <span className="text-xs font-extrabold text-white truncate">{selectedContact.name}</span>
+                      <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-400 font-semibold shrink-0">
+                        <FiCircle className="h-1.5 w-1.5 fill-emerald-400" /> Live
+                      </span>
                     </div>
 
                     {/* Messages thread */}

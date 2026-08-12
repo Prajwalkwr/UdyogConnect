@@ -1,0 +1,23 @@
+# Render deployment manifest (example). Connect this repo in Render and adjust service settings in the dashboard.
+
+services:
+  - type: web
+    name: udyogconnect-server
+    env: node
+    plan: free
+    repo: https://github.com/Prajwalkwr/UdyogConnect
+    branch: main
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    autoDeploy: true
+    # Add sensitive env vars (MONGODB_URI, JWT_SECRET, etc.) in the Render dashboard, not here.
+
+  - type: static
+    name: udyogconnect-client
+    env: static
+    plan: free
+    repo: https://github.com/Prajwalkwr/UdyogConnect
+    branch: main
+    buildCommand: cd client && npm install && npm run build
+    staticPublishPath: client/dist
+    autoDeploy: true

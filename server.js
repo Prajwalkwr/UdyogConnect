@@ -2,11 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const dotenv = require('dotenv');
+const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Chat, Notification, Coupon, AuditLog } = require('./db');
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -274,7 +275,7 @@ app.get('/api/businesses/:id', async (req, res) => {
 
 app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'document', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude } = req.body;
+    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, offeringType } = req.body;
     if (!name || !category || !location || !description) {
       return res.status(400).json({ message: 'All required fields are needed.' });
     }
@@ -311,6 +312,7 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       documents: docUrl ? [docUrl] : [],
       rating: 5.0,
       reviewCount: 0,
+      offeringType: offeringType || 'both',
     });
 
     res.status(201).json({ success: true, business: newBusiness });
@@ -346,6 +348,94 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
     res.json({ success: true, business: updated });
   } catch (err) {
     res.status(500).json({ message: 'Action failed.' });
+  }
+});
+
+// Admin deletes business account and all associated data
+app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const BusinessMDL = Business();
+    const ProductMDL = Product();
+    const ServiceMDL = Service();
+    const ReviewMDL = Review();
+    const BookingMDL = Booking();
+
+    const bizId = req.params.id;
+    let biz;
+
+    try {
+      biz = await BusinessMDL.findById(bizId);
+    } catch (findErr) {
+      if (BusinessMDL.collection) {
+        biz = await BusinessMDL.collection.findOne({ _id: bizId });
+      } else {
+        throw findErr;
+      }
+    }
+
+    if (!biz) {
+      return res.status(404).json({ message: 'Business not found.' });
+    }
+
+    // Delete the business document
+    try {
+      await BusinessMDL.deleteOne({ _id: bizId });
+    } catch (delErr) {
+      if (BusinessMDL.collection) {
+        await BusinessMDL.collection.deleteOne({ _id: bizId });
+      } else {
+        throw delErr;
+      }
+    }
+
+    // Clean up associated products
+    try {
+      await ProductMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ProductMDL.collection) {
+        await ProductMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated services
+    try {
+      await ServiceMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ServiceMDL.collection) {
+        await ServiceMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated reviews
+    try {
+      await ReviewMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (ReviewMDL.collection) {
+        await ReviewMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    // Clean up associated bookings
+    try {
+      await BookingMDL.deleteMany({ businessId: bizId });
+    } catch (err) {
+      if (BookingMDL.collection) {
+        await BookingMDL.collection.deleteMany({ businessId: bizId });
+      } else {
+        throw err;
+      }
+    }
+
+    res.json({ success: true, message: 'Business and all associated records deleted successfully.' });
+  } catch (err) {
+    console.error('Failed to delete business', err);
+    res.status(500).json({ message: 'Failed to delete business account.', error: err.message });
   }
 });
 

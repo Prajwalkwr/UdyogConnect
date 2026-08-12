@@ -18,4 +18,19 @@ describe('appReducer', () => {
 
     expect(afterSecondAdd.cart[0].quantity).toBe(2);
   });
+
+  it('keeps one cart entry for the same product id even when added again from another view', () => {
+    const firstAdd = appReducer(initialState, {
+      type: 'ADD_TO_CART',
+      payload: { id: 'prod-1', name: 'Same item', price: 400, seller: 'Shop A' },
+    });
+
+    const secondAdd = appReducer(firstAdd, {
+      type: 'ADD_TO_CART',
+      payload: { id: 'prod-1', name: 'Same item', price: 400, seller: 'Shop A' },
+    });
+
+    expect(secondAdd.cart).toHaveLength(1);
+    expect(secondAdd.cart[0].quantity).toBe(2);
+  });
 });

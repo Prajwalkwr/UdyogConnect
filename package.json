@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-    "dev:server": "cd server && node server.js",
+    "dev:server": "node server/server.js",
     "dev:client": "cd client && vite",
     "build": "cd client && vite build",
     "preview": "cd client && vite preview",
@@ -38,6 +38,7 @@
     "react-router-dom": "^7.18.1",
     "redux": "^5.0.1",
     "resend": "^6.16.0",
+    "socket.io-client": "^4.8.3",
     "stripe": "^22.3.0",
     "sweetalert2": "^11.26.25",
     "tailwindcss": "^4.3.2",
@@ -47,6 +48,8 @@
     "@tailwindcss/postcss": "^4.3.2",
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^9.2.3",
-    "vitest": "^2.1.4"
+    "vitest": "^2.1.4",
+    "supertest": "^6.4.0",
+    "mongodb-memory-server": "^8.12.1"
   }
 }
