@@ -14,8 +14,6 @@ COPY package.json package-lock.json ./
 RUN npm ci --production
 COPY server/ ./server/
 COPY --from=client-builder /app/client/dist ./client/dist
-COPY db.js .
-COPY migrate.js .
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "server/server.js"]
