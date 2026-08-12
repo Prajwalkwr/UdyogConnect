@@ -2299,8 +2299,14 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
 });
 
 // Health Endpoint
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, isMongo: getIsMongo() });
+app.get('/api/health', (req, res) => {
+  const isDbConnected = getIsMongo() && mongoose.connection.readyState === 1;
+  res.json({
+    success: true,
+    server: 'ok',
+    database: isDbConnected ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Serve client index.html fallback for SPA routing (must be defined last)
@@ -2309,6 +2315,25 @@ if (fs.existsSync(clientDist)) {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled Error:', err.message || err);
+  
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  // Determine standard error properties
+  const statusCode = err.status || err.statusCode || 500;
+  const errorCode = err.code || 'SERVER_ERROR';
+  
+  res.status(statusCode).json({
+    success: false,
+    message: err.message || 'Server is temporarily unavailable. Please try again.',
+    errorCode: errorCode
+  });
+});
 
 // Initialize database and start server (use httpServer for Socket.IO support)
 // Export app and server start so tests can import without auto-listening

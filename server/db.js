@@ -653,6 +653,8 @@ const initMockModels = () => {
   db.SystemSetting = new MockModel('SystemSetting', defaultSettings);
 };
 
+let dbConnectionPromise = null;
+
 async function connectDb() {
   // If running in production, require MONGODB_URI to ensure persistent storage
   if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
@@ -661,34 +663,50 @@ async function connectDb() {
   }
 
   if (process.env.MONGODB_URI) {
-    try {
-      console.log('Attempting to connect to MongoDB...');
-      await mongoose.connect(process.env.MONGODB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-      });
-
-      isMongo = true;
-
-      mongoose.connection.on('connected', () => console.log('Mongoose connected to MongoDB'));
-      mongoose.connection.on('error', (err) => console.error('Mongoose connection error:', err && err.message));
-      mongoose.connection.on('disconnected', () => console.warn('Mongoose disconnected.'));
-      mongoose.connection.on('reconnected', () => console.log('Mongoose reconnected to MongoDB'));
-
-      await initMongooseModels();
-      console.log('Database initialized: Connected to MongoDB.');
+    if (mongoose.connection.readyState === 1) {
+      console.log('MongoDB connection already established. Reusing existing connection.');
       return true;
-    } catch (err) {
-      console.warn('MongoDB connection failed.');
-      console.warn(err && err.message);
-      if (process.env.NODE_ENV === 'production') {
-        console.error('ERROR: Failed to connect to MongoDB in production. Aborting startup.');
-        process.exit(1);
-      }
-      console.warn('Falling back to local JSON file DB for development only.');
     }
+    
+    if (dbConnectionPromise) {
+      console.log('MongoDB connection is already in progress. Waiting for it to resolve...');
+      return dbConnectionPromise;
+    }
+
+    dbConnectionPromise = (async () => {
+      try {
+        console.log('Attempting to connect to MongoDB...');
+        await mongoose.connect(process.env.MONGODB_URI, {
+          serverSelectionTimeoutMS: 5000,
+          socketTimeoutMS: 45000,
+        });
+
+        isMongo = true;
+
+        mongoose.connection.on('connected', () => console.log('Mongoose connected to MongoDB'));
+        mongoose.connection.on('error', (err) => console.error('Mongoose connection error:', err && err.message));
+        mongoose.connection.on('disconnected', () => console.warn('Mongoose disconnected.'));
+        mongoose.connection.on('reconnected', () => console.log('Mongoose reconnected to MongoDB'));
+
+        await initMongooseModels();
+        console.log('Database initialized: Connected to MongoDB.');
+        return true;
+      } catch (err) {
+        console.warn('MongoDB connection failed.');
+        console.warn(err && err.message);
+        dbConnectionPromise = null;
+        if (process.env.NODE_ENV === 'production') {
+          console.error('ERROR: Failed to connect to MongoDB in production. Throwing error to prevent partial startup.');
+          throw err;
+        }
+        console.warn('Falling back to local JSON file DB for development only.');
+        isMongo = false;
+        initMockModels();
+        return false;
+      }
+    })();
+    
+    return dbConnectionPromise;
   } else {
     console.log('MONGODB_URI not provided; using local JSON DB for development/testing.');
   }
