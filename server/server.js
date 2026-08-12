@@ -680,12 +680,38 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+const authProfileUpload = upload.single('profilePhoto');
+app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, res) => {
   try {
     const UserMDL = User();
-    const updated = await UserMDL.findByIdAndUpdate(req.user.id, req.body);
-    res.json({ success: true, user: updated });
+    const user = await UserMDL.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'Profile not found.' });
+
+    if (req.body.name) user.name = req.body.name;
+    if (req.body.phone) user.phone = req.body.phone;
+    if (req.body.twoFactorEnabled !== undefined) {
+      user.twoFactorEnabled = req.body.twoFactorEnabled === 'true' || req.body.twoFactorEnabled === true;
+    }
+    if (req.body.addresses) {
+      try {
+        user.addresses = JSON.parse(req.body.addresses);
+      } catch (err) {
+        user.addresses = [];
+      }
+    }
+
+    if (req.file) {
+      const photoUrl = await processImageUpload(req.file);
+      if (photoUrl) {
+        user.profilePicture = photoUrl;
+      }
+    }
+
+    await user.save();
+    const { password, ...safeUser } = user.toObject();
+    res.json({ success: true, user: safeUser });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Error updating profile.' });
   }
 });

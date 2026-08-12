@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useDispatch } from 'react-redux';
 import { FiUser, FiSettings, FiShoppingBag, FiStar, FiCalendar, FiMapPin, FiAward, FiShare2, FiClock, FiCheckCircle } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+import { normalizeUser } from '../utils/authFlow';
 
 export default function CustomerDashboard({ user, lang, onOpenProduct }) {
+  const dispatch = useDispatch();
   const [profileData, setProfileData] = useState(null);
   const [orders, setOrders] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -14,6 +17,7 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
   // Edit fields
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState(null);
   const [addressInput, setAddressInput] = useState('');
   const [twoFactor, setTwoFactor] = useState(false);
 
@@ -29,6 +33,7 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
     if (user) {
       setName(user.name || '');
       setPhone(user.phone || '');
+      setProfilePhoto(null);
       setTwoFactor(user.twoFactorEnabled || false);
       fetchDashboardData();
     }
@@ -66,13 +71,25 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
     setIsSubmitting(true);
     try {
       const addrs = addressInput ? [{ _id: 'a_' + Date.now(), address: addressInput }] : user.addresses;
-      
-      await api.put(
-        '/api/auth/profile',
-        { name, phone, twoFactorEnabled: twoFactor, addresses: addrs },
-        { headers: { ...createIdempotencyHeader('customer-profile') } }
-      );
-      
+      const formData = new FormData();
+      formData.append('name', name);
+      formData.append('phone', phone);
+      formData.append('twoFactorEnabled', twoFactor ? 'true' : 'false');
+      formData.append('addresses', JSON.stringify(addrs));
+      if (profilePhoto) {
+        formData.append('profilePhoto', profilePhoto);
+      }
+      const response = await api.put('/api/auth/profile', formData, {
+        headers: {
+          ...createIdempotencyHeader('customer-profile'),
+        },
+      });
+      const updatedUser = response.data?.user || response.data;
+      if (updatedUser) {
+        const normalized = normalizeUser(updatedUser);
+        dispatch({ type: 'SET_USER', payload: normalized });
+        localStorage.setItem('user', JSON.stringify(normalized));
+      }
       Swal.fire({ icon: 'success', title: translate('Profile Updated', 'प्रोफाइल अद्यावधिक भयो') });
       fetchDashboardData();
     } catch (err) {
@@ -231,6 +248,15 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
                     />
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Profile Photo</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setProfilePhoto(e.target.files?.[0] || null)}
+                    className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none file:cursor-pointer file:rounded-full file:border-0 file:bg-cyan-500/20 file:px-3 file:py-1 file:text-cyan-200"
+                  />
+                </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Saved Home Address</label>
@@ -240,6 +266,15 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
                     onChange={(e) => setAddressInput(e.target.value)}
                     placeholder={user?.addresses?.[0]?.address || 'No saved address.'}
                     className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Profile Photo</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setProfilePhoto(e.target.files?.[0] || null)}
+                    className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none file:cursor-pointer file:rounded-full file:border-0 file:bg-cyan-500/20 file:px-3 file:py-1 file:text-cyan-200"
                   />
                 </div>
 
