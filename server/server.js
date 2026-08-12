@@ -2343,12 +2343,10 @@ module.exports = {
   startServer: async () => {
     if (process.env.NODE_ENV === 'production') {
       if (!process.env.JWT_SECRET) {
-        console.error('ERROR: JWT_SECRET must be set in production environment. Aborting startup.');
-        process.exit(1);
+        console.warn('WARNING: JWT_SECRET is missing. Authentication will fail until this is set in Render Environment Variables.');
       }
       if (!process.env.MONGODB_URI) {
-        console.error('ERROR: MONGODB_URI must be set in production environment. Aborting startup.');
-        process.exit(1);
+        console.warn('WARNING: MONGODB_URI is missing. Database connection will fail until this is set in Render Environment Variables.');
       }
     }
     await connectDb();

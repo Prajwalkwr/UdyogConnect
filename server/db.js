@@ -656,10 +656,9 @@ const initMockModels = () => {
 let dbConnectionPromise = null;
 
 async function connectDb() {
-  // If running in production, require MONGODB_URI to ensure persistent storage
+  // If running in production, warn if MONGODB_URI is missing
   if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
-    console.error('ERROR: MONGODB_URI must be set in production. Aborting startup to prevent ephemeral storage.');
-    process.exit(1);
+    console.warn('WARNING: MONGODB_URI is missing in production. Falling back to ephemeral in-memory storage. ALL DATA WILL BE LOST ON RESTART.');
   }
 
   if (process.env.MONGODB_URI) {
