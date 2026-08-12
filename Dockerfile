@@ -11,7 +11,7 @@ RUN npm run build
 FROM node:22-alpine AS server
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --production
+RUN npm install --omit=dev
 COPY server/ ./server/
 COPY --from=client-builder /app/client/dist ./client/dist
 ENV NODE_ENV=production
