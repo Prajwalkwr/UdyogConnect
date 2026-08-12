@@ -20,6 +20,7 @@ export function getApiUrl(path) {
 }
 
 const api = axios.create({
+  baseURL: getApiBaseUrl() || 'https://udyogconnect.onrender.com', // Fallback to live render backend
   timeout: 15000, // 15-second timeout for all API requests
 });
 
