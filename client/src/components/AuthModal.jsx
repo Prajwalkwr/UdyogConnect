@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
-import { DEMO_ACCOUNTS } from '../utils/demoAccounts';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+import { isValidNepalPhone } from '../utils/authFlow';
 
 const getAuthErrorMessage = (err, fallback = 'Authentication operation failed.') => {
   return err?.response?.data?.message || err?.response?.statusText || err?.message || fallback;
@@ -55,29 +55,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
     }
   };
 
-  const handleQuickLogin = async (quickEmail, quickPassword, label) => {
-    if (!submitGuard.begin()) return;
-    setError('');
-    setLoading(true);
-    try {
-      const response = await api.post('/api/auth/login', { email: quickEmail, password: quickPassword, otp: undefined });
-      Swal.fire({
-        icon: 'success',
-        title: translate('Welcome Back!', 'स्वागत छ!'),
-        text: translate(`${label} login successful.`, `${label} लगइन सफल भयो।`),
-        timer: 1500,
-        showConfirmButton: false,
-      });
-      onAuthSuccess(response.data);
-      onClose();
-    } catch (err) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-      submitGuard.finish();
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
@@ -120,6 +97,14 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
           submitGuard.finish();
           return;
         }
+
+        if (phone && !isValidNepalPhone(phone)) {
+          setError(translate('Phone number must start with 9 and contain only digits.', 'फोन नम्बर 9 बाट सुरु हुनुपर्छ र अंक मात्र हुनुपर्छ।'));
+          setLoading(false);
+          submitGuard.finish();
+          return;
+        }
+
         await api.post('/api/auth/register', { name, email, password, confirmPassword, phone, role }, { headers: createIdempotencyHeader('auth-register') });
         Swal.fire({
           icon: 'success',
@@ -310,35 +295,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
               >
                 {translate('Forgot Password?', 'पासवर्ड बिर्सनुभयो?')}
               </button>
-            </div>
-          )}
-
-          {mode === 'login' && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                {translate('Quick demo logins', 'द्रुत डेमो लगइन')}
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin(DEMO_ACCOUNTS.admin.email, DEMO_ACCOUNTS.admin.password, DEMO_ACCOUNTS.admin.label)}
-                  disabled={loading}
-                  className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
-                >
-                  {translate('Admin Demo', 'एडमिन डेमो')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin(DEMO_ACCOUNTS.seller.email, DEMO_ACCOUNTS.seller.password, DEMO_ACCOUNTS.seller.label)}
-                  disabled={loading}
-                  className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-                >
-                  {translate('Business Demo', 'व्यवसाय डेमो')}
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500">
-                {translate('Use password: password', 'पासवर्ड: password')}
-              </p>
             </div>
           )}
 

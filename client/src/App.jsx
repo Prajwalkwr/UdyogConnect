@@ -80,10 +80,15 @@ function App() {
       // Receive a notification pushed by the server in real-time
       socket.on('new_notification', () => {
         fetchNotifications();
+        setLiveOrderTick((t) => t + 1);
       });
 
       // Receive a new_order event — trigger seller/admin dashboard refresh
       socket.on('new_order', () => {
+        setLiveOrderTick((t) => t + 1);
+      });
+
+      socket.on('support_ticket_update', () => {
         setLiveOrderTick((t) => t + 1);
       });
 
@@ -92,7 +97,7 @@ function App() {
         socketRef.current = null;
       };
     }
-  }, [dispatch]);
+  }, [dispatch, user?._id]);
 
   // Load Marketplace Catalogs
   const fetchMarketplaceData = () => {
@@ -122,6 +127,11 @@ function App() {
   }, [dispatch]);
 
   const fetchNotifications = () => {
+    if (!localStorage.getItem('token')) {
+      setNotifications([]);
+      return;
+    }
+
     api
       .get('/api/notifications')
       .then((res) => {

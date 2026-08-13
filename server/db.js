@@ -4,7 +4,7 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_PATTERN = /^[+\d\s\-()]{7,20}$/;
+const PHONE_PATTERN = /^9[\d\s\-()]{8,18}$/;
 const URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -448,6 +448,7 @@ const initMongooseModels = async () => {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true, match: [EMAIL_PATTERN, 'Invalid email address'] },
     phone: { type: String, required: true, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
+    location: { type: String, default: '', trim: true },
     address: { type: String, required: true, trim: true },
     method: { type: String, enum: ['delivery', 'pickup'], required: true },
   }, { _id: false });
@@ -549,6 +550,20 @@ const initMongooseModels = async () => {
   db.Category = mongoose.model('Category', categorySchema);
   db.SystemSetting = mongoose.model('SystemSetting', systemSettingSchema);
 
+  const supportTicketSchema = new mongoose.Schema({
+    userId: { type: String, required: true, trim: true },
+    userName: { type: String, default: '' },
+    email: { type: String, default: '', trim: true },
+    category: { type: String, default: 'general', trim: true },
+    subject: { type: String, required: true, trim: true },
+    message: { type: String, required: true, trim: true },
+    status: { type: String, enum: ['open', 'in-progress', 'resolved'], default: 'open' },
+    priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+    resolution: { type: String, default: '' },
+  }, { timestamps: true });
+
+  db.SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
+
   await seedDemoUsers();
   // Ensure indexes (unique constraints) are created
   try {
@@ -629,9 +644,42 @@ const initMockModels = () => {
       read: false,
       createdAt: new Date().toISOString(),
     },
+    {
+      _id: 'n2',
+      userId: 's1',
+      title: 'Seller Dashboard Access',
+      message: 'Your seller profile is active. Check out your new orders!',
+      type: 'general',
+      read: false,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      _id: 'n3',
+      userId: 'a1',
+      title: 'Admin Action Required',
+      message: 'There are new business profiles pending your review.',
+      type: 'admin',
+      read: false,
+      createdAt: new Date().toISOString(),
+    }
   ]);
   db.Coupon = new MockModel('Coupon', defaultCoupons);
   db.AuditLog = new MockModel('AuditLog', []);
+  db.SupportTicket = new MockModel('SupportTicket', [
+    {
+      _id: 'st1',
+      userId: 'u1',
+      userName: 'Prajwal Customer',
+      email: 'customer@udyog.np',
+      category: 'checkout',
+      subject: 'Payment issue during checkout',
+      message: 'I was unable to complete the payment, but the cart was not reset properly.',
+      status: 'open',
+      priority: 'high',
+      resolution: '',
+      createdAt: new Date().toISOString(),
+    },
+  ]);
 
   const defaultCategories = [
     { _id: 'cat1', name: 'Grocery', description: 'Daily grocery and essential needs' },
@@ -733,4 +781,5 @@ module.exports = {
   AuditLog: () => db.AuditLog,
   Category: () => db.Category,
   SystemSetting: () => db.SystemSetting,
+  SupportTicket: () => db.SupportTicket,
 };

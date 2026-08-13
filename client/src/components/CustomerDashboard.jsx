@@ -23,6 +23,7 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
 
   // Live order tracking simulation removed
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reviewForm, setReviewForm] = useState({});
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   const translate = (enText, neText) => {
@@ -151,6 +152,38 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
       } catch (e) {
         Swal.fire('Error', 'Action failed.', 'error');
       }
+    }
+  };
+
+  const handleOrderReview = async (order) => {
+    const businessId = order?.businessId || order?.items?.[0]?.businessId || order?.items?.[0]?.business?.id;
+    if (!businessId) {
+      Swal.fire({ icon: 'error', text: 'This purchase cannot be reviewed right now.' });
+      return;
+    }
+
+    const form = reviewForm[order._id] || {};
+    const rating = Number(form.rating || 5);
+    const comment = String(form.comment || '').trim();
+
+    if (!comment) {
+      Swal.fire({ icon: 'warning', text: 'Please add a short review before submitting.' });
+      return;
+    }
+
+    try {
+      await api.post('/api/reviews', {
+        businessId,
+        targetId: businessId,
+        targetType: 'business',
+        rating,
+        comment,
+      });
+
+      setReviewForm((prev) => ({ ...prev, [order._id]: { rating: 5, comment: '' } }));
+      Swal.fire({ icon: 'success', title: 'Review Submitted', text: 'Thank you for sharing your feedback.' });
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Unable to submit review.' });
     }
   };
 
@@ -346,7 +379,33 @@ export default function CustomerDashboard({ user, lang, onOpenProduct }) {
                         <span className="text-sm font-black text-amber-300">
                           Rs. {o.total}
                         </span>
-                        {/* Live tracking action hidden */}
+                        {o.status === 'completed' && (
+                          <div className="w-full min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-left">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Leave a review</span>
+                              <select
+                                value={reviewForm[o._id]?.rating ?? 5}
+                                onChange={(e) => setReviewForm((prev) => ({ ...prev, [o._id]: { ...(prev[o._id] || {}), rating: Number(e.target.value) } }))}
+                                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] text-white"
+                              >
+                                {[5,4,3,2,1].map((value) => <option key={value} value={value}>{value} star{value > 1 ? 's' : ''}</option>)}
+                              </select>
+                            </div>
+                            <textarea
+                              rows="2"
+                              value={reviewForm[o._id]?.comment ?? ''}
+                              onChange={(e) => setReviewForm((prev) => ({ ...prev, [o._id]: { ...(prev[o._id] || {}), comment: e.target.value } }))}
+                              placeholder="Tell us about your purchase..."
+                              className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[10px] text-white placeholder-slate-500 outline-none focus:border-cyan-400"
+                            />
+                            <button
+                              onClick={() => handleOrderReview(o)}
+                              className="mt-2 w-full rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 hover:bg-cyan-400"
+                            >
+                              Submit Review
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

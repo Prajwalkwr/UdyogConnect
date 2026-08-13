@@ -5,13 +5,16 @@ import api from '../utils/api';
 import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 
-export default function AdminDashboard({ user, lang }) {
+export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
   const [analytics, setAnalytics] = useState(null);
   const [businesses, setBusinesses] = useState([]);
   const [users, setUsers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [orders, setOrders] = useState([]);
   const [coupons, setCoupons] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [services, setServices] = useState([]);
+  const [supportTickets, setSupportTickets] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,7 @@ export default function AdminDashboard({ user, lang }) {
     if (user) {
       fetchAdminData();
     }
-  }, [user]);
+  }, [user, liveOrderTick]);
 
   const fetchAdminData = async () => {
     setLoading(true);
@@ -61,6 +64,15 @@ export default function AdminDashboard({ user, lang }) {
 
       const coupRes = await api.get('/api/admin/coupons');
       setCoupons(coupRes.data);
+
+      const productRes = await api.get('/api/products');
+      setProducts(Array.isArray(productRes.data) ? productRes.data : []);
+
+      const serviceRes = await api.get('/api/services');
+      setServices(Array.isArray(serviceRes.data) ? serviceRes.data : []);
+
+      const supportRes = await api.get('/api/admin/support-tickets');
+      setSupportTickets(Array.isArray(supportRes.data) ? supportRes.data : []);
 
       const settingsRes = await api.get('/api/admin/settings');
       const normalizedSettings = normalizeAdminSettings(settingsRes.data);
@@ -157,7 +169,6 @@ export default function AdminDashboard({ user, lang }) {
   };
 
   const handleDownloadReport = (reportType) => {
-    // Direct link to download report CSV
     const url = `/api/admin/reports?type=${reportType}`;
     
     api.get(url, { responseType: 'blob' })
@@ -174,6 +185,22 @@ export default function AdminDashboard({ user, lang }) {
       .catch((e) => {
         Swal.fire({ icon: 'error', text: 'Failed to export reports.' });
       });
+  };
+
+  const handleResolveTicket = async (ticketId, status = 'resolved') => {
+    try {
+      const ticket = supportTickets.find((item) => item._id === ticketId);
+      const response = await api.put(`/api/admin/support-tickets/${ticketId}`, {
+        status,
+        resolution: ticket?.resolution || 'Resolution recorded by the admin team.',
+      });
+      if (response.data?.ticket) {
+        setSupportTickets((prev) => prev.map((item) => item._id === ticketId ? response.data.ticket : item));
+      }
+      Swal.fire({ icon: 'success', text: translate('Support ticket updated.', 'समर्थन टिकट अद्यावधिक भयो।') });
+    } catch (e) {
+      Swal.fire({ icon: 'error', text: 'Failed to update support ticket.' });
+    }
   };
 
   const handleDismissReportedReview = async (reviewId) => {
@@ -431,6 +458,9 @@ export default function AdminDashboard({ user, lang }) {
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 mt-1">{biz.category} • {biz.location} • {biz.hours}</p>
+                      <p className="text-[10px] text-amber-400 mt-1 uppercase font-bold tracking-wider">
+                        Catalog: {biz.offeringType || 'both'}
+                      </p>
                       {biz.documents && biz.documents[0] && (
                         <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-1">
                           <FiFileText />
@@ -578,11 +608,17 @@ export default function AdminDashboard({ user, lang }) {
                 {translate('Admin can review all listed products and services across the marketplace and keep catalog quality high.', 'प्रशासकले बजारमा सूचीबद्ध सबै उत्पादन र सेवाहरू जाँच गर्न सक्छ र सूची गुणस्तर कायम राख्न सक्छ।')}
               </div>
               <div className="space-y-3">
-                {businesses.flatMap((biz) => (
-                  biz.products || []
-                )).slice(0, 8).map((item, index) => (
-                  <div key={index} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-3 text-sm text-slate-300">
-                    {item?.name || 'Catalog item'}
+                {[...products.map((item) => ({ ...item, type: 'product' })), ...services.map((item) => ({ ...item, type: 'service' }))].map((item) => (
+                  <div key={`${item.type}-${item._id}`} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-3 text-sm text-slate-300">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-white">{item.name}</div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wider">{item.type} • {item.businessId}</div>
+                      </div>
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">{item.type}</span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-400">{item.description || 'No description provided.'}</div>
+                    <div className="mt-2 text-[11px] text-cyan-300">NPR {item.price || 0}</div>
                   </div>
                 ))}
               </div>
@@ -691,6 +727,29 @@ export default function AdminDashboard({ user, lang }) {
               <h3 className="text-lg font-extrabold text-white">{translate('Complaints & Support', 'समस्या र सहयोग')}</h3>
               <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
                 {translate('Review support requests, complaints, and escalation tickets submitted by users and sellers.', 'प्रयोगकर्ता र विक्रेता tərəfindən पेश गरिएका सहयोग निवेदन, शिकायत र उन्नयन टिकटहरू समीक्षा गर्नुहोस्।')}
+              </div>
+              <div className="space-y-3">
+                {supportTickets.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">No support tickets have been submitted yet.</div>
+                ) : (
+                  supportTickets.map((ticket) => (
+                    <div key={ticket._id} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-white text-sm">{ticket.subject}</div>
+                          <div className="text-[10px] text-slate-400">{ticket.userName || 'Customer'} • {ticket.email || 'No email'} • {ticket.category}</div>
+                        </div>
+                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">{ticket.status}</span>
+                      </div>
+                      <p className="text-xs text-slate-300">{ticket.message}</p>
+                      {ticket.resolution && <p className="text-[10px] text-emerald-300">Resolution: {ticket.resolution}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={() => handleResolveTicket(ticket._id, 'in-progress')} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-slate-200">Mark In Progress</button>
+                        <button onClick={() => handleResolveTicket(ticket._id, 'resolved')} className="rounded-lg bg-emerald-500 px-2 py-1 text-[10px] font-bold text-slate-950">Resolve</button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FiShoppingCart, FiBell, FiMessageSquare, FiUser, FiLogOut, FiSettings, FiGlobe, FiDollarSign } from 'react-icons/fi';
+import { getDashboardLabel } from '../utils/authFlow';
 
 export default function Navbar({
   user,
@@ -18,6 +19,9 @@ export default function Navbar({
 
   const safeNotifications = Array.isArray(notifications) ? notifications : [];
   const unreadNotifs = safeNotifications.filter((n) => !n.read);
+  const displayName = user?.name || user?.fullName || user?.email || 'User';
+  const displayFirstName = String(displayName).split(' ')[0] || 'User';
+  const roleLabel = getDashboardLabel(user?.role, lang);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -140,10 +144,10 @@ export default function Navbar({
                 className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/50 p-1 pr-3 hover:bg-slate-800"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-amber-600 font-bold text-slate-950">
-                  {user.name.charAt(0).toUpperCase()}
+                  {displayName.charAt(0).toUpperCase()}
                 </div>
                 <span className="hidden text-xs font-semibold text-slate-350 sm:inline">
-                  {user.name.split(' ')[0]}
+                  {displayFirstName}
                 </span>
               </button>
 
@@ -151,9 +155,10 @@ export default function Navbar({
                 <div className="absolute right-0 mt-3 w-56 origin-top-right rounded-2xl border border-slate-800 bg-slate-900 p-1.5 shadow-2xl ring-1 ring-black/5 z-55">
                   <div className="border-b border-slate-850 px-3 py-2 text-left">
                     <p className="text-xs text-slate-400 font-medium">{translate('Signed in as', 'लगइन गरिएको')}</p>
-                    <p className="truncate text-sm font-bold text-slate-200">{user.email}</p>
+                    <p className="truncate text-sm font-bold text-slate-200">{displayName}</p>
+                    <p className="truncate text-[11px] text-slate-400">{user.email}</p>
                     <span className="mt-1 inline-block rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-550/20">
-                      {user.role}
+                      {roleLabel}
                     </span>
                   </div>
                   <div className="py-1">
@@ -165,7 +170,7 @@ export default function Navbar({
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
                     >
                       <FiSettings className="text-slate-400" />
-                      <span>{translate('User Dashboard', 'प्रयोगकर्ता ड्यासबोर्ड')}</span>
+                      <span>{getDashboardLabel(user?.role, lang)}</span>
                     </button>
                     <button
                       onClick={() => {

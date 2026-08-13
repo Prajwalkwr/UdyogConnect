@@ -100,7 +100,6 @@ export default function SellerDashboard({ user, lang }) {
 
   // Onboarding form
   const [bizForm, setBizForm] = useState({
-    name: '', description: '', location: '', category: 'Grocery',
     hours: '09:00 - 18:00', contactEmail: '', phone: '',
     registrationNumber: '', panVatNumber: '', qrUrl: '',
     isOpen: true, deliveryAvailable: true, deliveryRadiusKm: '5',
@@ -504,6 +503,15 @@ export default function SellerDashboard({ user, lang }) {
               <InputField label="Business Hours" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} />
             </div>
 
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">Catalog Type (What do you offer?)</label>
+              <select value={bizForm.offeringType} onChange={e => setBizForm({...bizForm, offeringType: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
+                <option value="both">Products & Services</option>
+                <option value="products">Products Only</option>
+                <option value="services">Services Only</option>
+              </select>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <InputField label="Contact Email" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} />
               <InputField label="Phone Number" type="tel" placeholder="+977-98XXXXXXXX" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value})} />
@@ -825,12 +833,16 @@ export default function SellerDashboard({ user, lang }) {
         <div className="space-y-6">
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => { setShowAddProd(!showAddProd); setShowAddServ(false); setEditingProduct(null); setProdForm({ name: '', brand: '', price: '', discount: '0', stock: '10', description: '', category: '' }); }} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition">
-              <FiPlus /> {t('Add Product', 'उत्पादन थप्नुहोस्')}
-            </button>
-            <button onClick={() => { setShowAddServ(!showAddServ); setShowAddProd(false); setEditingService(null); setServForm({ name: '', price: '', duration: '60', description: '', homeService: false }); }} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-bold text-slate-200 hover:border-amber-400 hover:text-amber-400 transition">
-              <FiPlus /> {t('Add Service', 'सेवा थप्नुहोस्')}
-            </button>
+            {myBusiness?.offeringType !== 'services' && (
+              <button onClick={() => { setShowAddProd(!showAddProd); setShowAddServ(false); setEditingProduct(null); setProdForm({ name: '', brand: '', price: '', discount: '0', stock: '10', description: '', category: '' }); }} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition">
+                <FiPlus /> {t('Add Product', 'उत्पादन थप्नुहोस्')}
+              </button>
+            )}
+            {myBusiness?.offeringType !== 'products' && (
+              <button onClick={() => { setShowAddServ(!showAddServ); setShowAddProd(false); setEditingService(null); setServForm({ name: '', price: '', duration: '60', description: '', homeService: false }); }} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-bold text-slate-200 hover:border-amber-400 hover:text-amber-400 transition">
+                <FiPlus /> {t('Add Service', 'सेवा थप्नुहोस्')}
+              </button>
+            )}
           </div>
 
           {/* Add / Edit Product Form */}
@@ -920,36 +932,38 @@ export default function SellerDashboard({ user, lang }) {
           </div>
 
           {/* Services List */}
-          <div>
-            <h4 className="text-sm font-bold text-white mb-3">{t('Services', 'सेवाहरू')} ({services.length})</h4>
-            {services.length === 0 ? (
-              <EmptyState icon={<FiCalendar />} msg={t('No services added yet.', 'अझैसम्म कुनै सेवा थपिएको छैन।')} />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {services.map(s => (
-                  <div key={s._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex justify-between items-start hover:border-slate-600 transition">
-                    <div>
-                      <h5 className="text-sm font-bold text-slate-200">{s.name}</h5>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{s.description}</p>
-                      <div className="mt-2 flex items-center gap-3">
-                        <span className="text-xs font-bold text-amber-300">{fmt(s.price)}</span>
-                        <span className="text-[10px] text-slate-500">{s.duration} min</span>
-                        {s.homeService && <span className="text-[10px] text-purple-400">🏠 Home</span>}
+          {myBusiness?.offeringType !== 'products' && (
+            <div>
+              <h4 className="text-sm font-bold text-white mb-3">{t('Services', 'सेवाहरू')} ({services.length})</h4>
+              {services.length === 0 ? (
+                <EmptyState icon={<FiCalendar />} msg={t('No services added yet.', 'अझैसम्म कुनै सेवा थपिएको छैन।')} />
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {services.map(s => (
+                    <div key={s._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex justify-between items-start hover:border-slate-600 transition">
+                      <div>
+                        <h5 className="text-sm font-bold text-slate-200">{s.name}</h5>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{s.description}</p>
+                        <div className="mt-2 flex items-center gap-3">
+                          <span className="text-xs font-bold text-amber-300">{fmt(s.price)}</span>
+                          <span className="text-[10px] text-slate-500">{s.duration} min</span>
+                          {s.homeService && <span className="text-[10px] text-purple-400">🏠 Home</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => { setEditingService(s); setServForm({ name: s.name, price: s.price, duration: s.duration || '60', description: s.description, homeService: s.homeService }); setShowAddServ(true); setShowAddProd(false); }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-amber-400 transition">
+                          <FiEdit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => handleDeleteService(s._id)} className="p-1.5 rounded-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition">
+                          <FiTrash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-1.5">
-                      <button onClick={() => { setEditingService(s); setServForm({ name: s.name, price: s.price, duration: s.duration || '60', description: s.description, homeService: s.homeService }); setShowAddServ(true); setShowAddProd(false); }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-amber-400 transition">
-                        <FiEdit3 className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => handleDeleteService(s._id)} className="p-1.5 rounded-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition">
-                        <FiTrash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1061,7 +1075,7 @@ export default function SellerDashboard({ user, lang }) {
       {activeTab === 'profile' && (
         <div className="space-y-5">
           <SectionHeader title={t('Business Profile', 'व्यवसाय प्रोफाइल')}>
-            <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm({ name: myBusiness.name, description: myBusiness.description, location: myBusiness.location, hours: myBusiness.hours, contactEmail: myBusiness.contactEmail, phone: myBusiness.phone || '', website: myBusiness.website || '', qrUrl: myBusiness.qrUrl || '', isOpen: myBusiness.isOpen !== false, deliveryAvailable: myBusiness.deliveryAvailable !== false, deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5 }); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">
+            <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm({ name: myBusiness.name, description: myBusiness.description, location: myBusiness.location, hours: myBusiness.hours, contactEmail: myBusiness.contactEmail, phone: myBusiness.phone || '', website: myBusiness.website || '', qrUrl: myBusiness.qrUrl || '', isOpen: myBusiness.isOpen !== false, deliveryAvailable: myBusiness.deliveryAvailable !== false, deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5, offeringType: myBusiness.offeringType || 'both' }); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">
               <FiEdit3 /> {showEditProfile ? t('Cancel Edit', 'सम्पादन रद्द') : t('Edit Profile', 'प्रोफाइल सम्पादन')}
             </button>
           </SectionHeader>
@@ -1153,6 +1167,36 @@ export default function SellerDashboard({ user, lang }) {
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">Delivery radius (km)</label>
                   <input type="number" min="1" max="50" value={profileForm.deliveryRadiusKm ?? myBusiness?.deliveryRadiusKm ?? 5} onChange={(e) => setProfileForm({ ...profileForm, deliveryRadiusKm: e.target.value })} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20" />
                 </div>
+              </div>
+              <div className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <p className="font-semibold text-white text-sm">Catalog Type Settings</p>
+                  <p className="mt-1 text-xs text-slate-400">Choose what your business offers. You must have at least one enabled.</p>
+                </div>
+                <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+                  <span className="font-semibold">Products: ON/OFF</span>
+                  <input type="checkbox" checked={profileForm.offeringType !== 'services'} onChange={(e) => {
+                    const isProductsOn = e.target.checked;
+                    const isServicesOn = profileForm.offeringType !== 'products';
+                    if (!isProductsOn && !isServicesOn) {
+                      Swal.fire({ icon: 'warning', title: 'Invalid Selection', text: 'You must have at least one catalog type enabled.' });
+                      return;
+                    }
+                    setProfileForm({ ...profileForm, offeringType: isProductsOn ? (isServicesOn ? 'both' : 'products') : 'services' });
+                  }} className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-amber-500 accent-amber-400" />
+                </label>
+                <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+                  <span className="font-semibold">Services: ON/OFF</span>
+                  <input type="checkbox" checked={profileForm.offeringType !== 'products'} onChange={(e) => {
+                    const isServicesOn = e.target.checked;
+                    const isProductsOn = profileForm.offeringType !== 'services';
+                    if (!isServicesOn && !isProductsOn) {
+                      Swal.fire({ icon: 'warning', title: 'Invalid Selection', text: 'You must have at least one catalog type enabled.' });
+                      return;
+                    }
+                    setProfileForm({ ...profileForm, offeringType: isServicesOn ? (isProductsOn ? 'both' : 'services') : 'products' });
+                  }} className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-amber-500 accent-amber-400" />
+                </label>
               </div>
               <div className="flex gap-2">
                 <button type="submit" disabled={isSubmitting} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition disabled:opacity-60">

@@ -52,4 +52,32 @@ describe('Auth: register and login', () => {
     expect(login.body).toHaveProperty('user');
     expect(login.body.user).toHaveProperty('email', email);
   });
+
+  it('exposes live admin catalog and support data endpoints', async () => {
+    const uniqueEmail = `adminlive+${Date.now()}@example.com`;
+    const password = 'Adminpass123';
+
+    await request(app)
+      .post('/api/auth/register')
+      .send({ name: 'Admin Live', email: uniqueEmail, password, confirmPassword: password, role: 'admin' })
+      .expect(201);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: uniqueEmail, password })
+      .expect(200);
+
+    const supportRes = await request(app)
+      .get('/api/admin/support-tickets')
+      .set('Authorization', `Bearer ${login.body.token}`)
+      .expect(200);
+
+    expect(Array.isArray(supportRes.body)).toBe(true);
+
+    const servicesRes = await request(app)
+      .get('/api/services')
+      .expect(200);
+
+    expect(Array.isArray(servicesRes.body)).toBe(true);
+  });
 });

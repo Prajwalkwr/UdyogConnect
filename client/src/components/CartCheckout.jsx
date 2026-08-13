@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+import { isValidNepalPhone } from '../utils/authFlow';
 
 export default function CartCheckout({
   cart,
@@ -24,6 +25,7 @@ export default function CartCheckout({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [location, setLocation] = useState('');
   const [address, setAddress] = useState('');
 
   // Card fields
@@ -48,7 +50,8 @@ export default function CartCheckout({
       setEmail(user.email || '');
       setPhone(user.phone || '');
       if (user.addresses && user.addresses.length > 0) {
-        setAddress(user.addresses[0].address);
+        setLocation(user.addresses[0].location || '');
+        setAddress(user.addresses[0].address || '');
       }
     }
   }, [user]);
@@ -126,8 +129,14 @@ export default function CartCheckout({
     if (e) e.preventDefault();
     if (cart.length === 0) return;
     if (!submitGuard.begin()) return;
-    if (!name || !email || !phone || (!address && deliveryMethod === 'delivery')) {
-      Swal.fire({ icon: 'error', text: translate('Please fill all delivery contact fields.', 'कृपया सबै डेलिभरी विवरणहरू भर्नुहोस्।') });
+    if (!name || !email || !phone || !location || (!address && deliveryMethod === 'delivery')) {
+      Swal.fire({ icon: 'error', text: translate('Please fill all delivery contact fields, including your location.', 'कृपया सबै डेलिभरी विवरणहरू, साथै तपाईंको स्थान भर्नुहोस्।') });
+      submitGuard.finish();
+      return;
+    }
+
+    if (!isValidNepalPhone(phone)) {
+      Swal.fire({ icon: 'error', text: translate('Phone number must start with 9 and contain only digits.', 'फोन नम्बर 9 बाट सुरु हुनुपर्छ र अंक मात्र हुनुपर्छ।') });
       submitGuard.finish();
       return;
     }
@@ -157,7 +166,7 @@ export default function CartCheckout({
           })),
           promoCode: couponData ? couponData.code : undefined,
           paymentMethod,
-          deliveryAddress: { name, email, phone, address, method: deliveryMethod },
+          deliveryAddress: { name, email, phone, location, address, method: deliveryMethod },
         },
         { headers: { ...createIdempotencyHeader('checkout-order') } }
       );
@@ -316,17 +325,26 @@ export default function CartCheckout({
                   className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
                   required
                 />
-                {deliveryMethod === 'delivery' && (
-                  <input
-                    type="text"
-                    placeholder={translate('Address (e.g. Kathmandu)', 'ठेगाना (उदा: काठमाडौं)')}
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
-                    required
-                  />
-                )}
+                <input
+                  type="text"
+                  placeholder={translate('Location / City', 'स्थान / शहर')}
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
+                  required
+                />
               </div>
+
+              {deliveryMethod === 'delivery' && (
+                <input
+                  type="text"
+                  placeholder={translate('Street Address / Landmark', 'सडक ठेगाना / स्थलचिन्ह')}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
+                  required
+                />
+              )}
             </div>
           </div>
 

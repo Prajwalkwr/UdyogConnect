@@ -144,11 +144,18 @@ export default function Marketplace({
     return () => clearInterval(timer);
   }, []);
 
-  // Retrieve AI Recommendations if token exists
+  // Retrieve AI Recommendations only for authenticated users
   useEffect(() => {
+    if (!user) {
+      setAiRecs({ businesses: [], products: [] });
+      return;
+    }
+
     api.get('/api/ai/recommendations')
       .then(res => setAiRecs(res.data))
-      .catch(err => console.log('AI recs offline'));
+      .catch(() => {
+        setAiRecs({ businesses: [], products: [] });
+      });
   }, [user]);
 
   const safeString = (value) => (typeof value === 'string' ? value : '');

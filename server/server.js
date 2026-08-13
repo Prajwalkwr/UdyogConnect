@@ -109,6 +109,18 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+const ensureDbReady = async (req, res, next) => {
+  try {
+    if (!db.User || !db.Business) {
+      await connectDb();
+    }
+  } catch (err) {
+    console.warn('DB bootstrap warning:', err && err.message);
+  }
+  next();
+};
+app.use(ensureDbReady);
+
 // ─── Email helper (Nodemailer) ───────────────────────────────────────────────
 let mailTransporter = null;
 if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -323,6 +335,27 @@ const uploadBufferToCloudinary = (buffer, filename = 'upload', folder = 'udyogco
   });
 };
 
+// Helper: Extract Cloudinary public_id from secure_url
+const extractPublicIdFromUrl = (url) => {
+  if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return null;
+  try {
+    const parts = url.split('/upload/');
+    if (parts.length < 2) return null;
+    const pathParts = parts[1].split('/');
+    if (pathParts[0].match(/^v\d+$/)) {
+      pathParts.shift(); // remove version
+    }
+    const fullPath = pathParts.join('/');
+    const dotIndex = fullPath.lastIndexOf('.');
+    if (dotIndex !== -1) {
+      return fullPath.substring(0, dotIndex);
+    }
+    return fullPath;
+  } catch (err) {
+    return null;
+  }
+};
+
 // Geolocation distance helper (Haversine formula in km)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
@@ -357,9 +390,8 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ message: 'Passwords do not match.' });
     }
 
-    // Phone must contain only digits
-    if (phone && !/^\d{7,15}$/.test(phone.trim())) {
-      return res.status(400).json({ message: 'Phone number must contain only digits (7 to 15 numbers).' });
+    if (phone && !/^9\d{8,10}$/.test(phone.trim())) {
+      return res.status(400).json({ message: 'Phone number must start with 9 and contain only digits.' });
     }
 
     const UserMDL = User();
@@ -703,6 +735,12 @@ app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, r
     if (req.file) {
       const photoUrl = await processImageUpload(req.file);
       if (photoUrl) {
+        if (user.profilePicture && user.profilePicture.includes('cloudinary.com')) {
+          const publicId = extractPublicIdFromUrl(user.profilePicture);
+          if (publicId && cloudinary) {
+            await cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
+          }
+        }
         user.profilePicture = photoUrl;
       }
     }
@@ -916,16 +954,46 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     delete updateData.documentUrl;
     delete updateData.qrUrl;
 
+    if (removeLogo || logoUrl) {
+      if (biz.imageUrl && biz.imageUrl.includes('cloudinary.com')) {
+        const publicId = extractPublicIdFromUrl(biz.imageUrl);
+        if (publicId && cloudinary) {
+          cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
+        }
+      }
+    }
+
     if (removeLogo) {
       updateData.imageUrl = '';
     } else if (logoUrl) {
       updateData.imageUrl = logoUrl;
     }
-    if (coverUrl) updateData.coverUrl = coverUrl;
+    
+    if (coverUrl) {
+      if (biz.coverUrl && biz.coverUrl.includes('cloudinary.com')) {
+        const publicId = extractPublicIdFromUrl(biz.coverUrl);
+        if (publicId && cloudinary) {
+          cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
+        }
+      }
+      updateData.coverUrl = coverUrl;
+    }
     if (docUrl) {
+      if (biz.documents && biz.documents[0] && biz.documents[0].includes('cloudinary.com')) {
+        const publicId = extractPublicIdFromUrl(biz.documents[0]);
+        if (publicId && cloudinary) {
+          cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
+        }
+      }
       updateData.documents = [docUrl];
     }
     if (qrUrl) {
+      if (biz.qrUrl && biz.qrUrl.includes('cloudinary.com')) {
+        const publicId = extractPublicIdFromUrl(biz.qrUrl);
+        if (publicId && cloudinary) {
+          cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
+        }
+      }
       updateData.qrUrl = qrUrl;
     }
 
@@ -935,7 +1003,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       }
     }
 
-    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData);
+    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData, { new: true });
     res.json({ success: true, business: updated });
   } catch (err) {
     console.error(err);
@@ -1090,6 +1158,16 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+app.get('/api/services', async (req, res) => {
+  try {
+    const ServiceMDL = Service();
+    const services = await ServiceMDL.find({});
+    res.json(services);
+  } catch (err) {
+    res.status(500).json({ message: 'Error retrieving services.' });
+  }
+});
+
 app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
   try {
     const { businessId, name, category, subcategory, description, price, discount, stock, sku, brand } = req.body;
@@ -1099,6 +1177,15 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
     const normalizedName = String(name || '').trim();
     if (!normalizedName) {
       return res.status(400).json({ message: 'Product name is required.' });
+    }
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ message: 'Business not found.' });
+    }
+    if (business.offeringType === 'services') {
+      return res.status(400).json({ message: 'This business is configured to offer services only. Products cannot be added.' });
     }
 
     // Validate no negative numbers
@@ -1184,6 +1271,15 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
 
     if (!normalizedName) {
       return res.status(400).json({ message: 'Service name is required.' });
+    }
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ message: 'Business not found.' });
+    }
+    if (business.offeringType === 'products') {
+      return res.status(400).json({ message: 'This business is configured to offer products only. Services cannot be added.' });
     }
 
     // Validate no negative numbers
@@ -1272,12 +1368,17 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
       name: req.body.name || '',
       email: req.body.email || '',
       phone: req.body.phone || '',
+      location: req.body.location || '',
       address: req.body.address || '',
       method: req.body.deliveryMethod || 'delivery',
     };
 
     if (!normalizedAddress.name || !normalizedAddress.phone || (!normalizedAddress.address && (normalizedAddress.method || 'delivery') === 'delivery')) {
       return res.status(400).json({ message: 'Please complete your delivery information.' });
+    }
+
+    if (!/^9\d{8,10}$/.test(String(normalizedAddress.phone).trim())) {
+      return res.status(400).json({ message: 'Phone number must start with 9 and contain only digits.' });
     }
 
     const ProductMDL = Product();
@@ -1322,8 +1423,12 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
     if (promoCode) {
       const coupon = await CouponMDL.findOne({ code: promoCode.toUpperCase(), active: true });
       if (coupon) {
-        discount = (subtotal * coupon.discountPercent) / 100;
-        if (discount > coupon.maxDiscount) discount = coupon.maxDiscount;
+        const expiry = coupon.expiryDate ? new Date(`${coupon.expiryDate}T23:59:59`) : null;
+        const isExpired = expiry && expiry < new Date();
+        if (!isExpired) {
+          discount = (subtotal * coupon.discountPercent) / 100;
+          if (discount > coupon.maxDiscount) discount = coupon.maxDiscount;
+        }
       }
     }
 
@@ -1364,7 +1469,10 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
       paymentMethod: paymentMethod || 'COD',
       // Mark new orders as pending until payment confirmation.
       paymentStatus: 'pending',
-      deliveryAddress: normalizedAddress,
+      deliveryAddress: {
+        ...normalizedAddress,
+        location: normalizedAddress.location || '',
+      },
       deliveryRiderId: '',
       deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString(), // 4-digit OTP
       deliveryProof: '',
@@ -1749,6 +1857,68 @@ app.put('/api/admin/reviews/:id', authenticateToken, requireRole(['admin']), asy
     res.json({ success: true, review: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update review moderation state.' });
+  }
+});
+
+app.get('/api/admin/support-tickets', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const SupportTicketMDL = db.SupportTicket || require('./db').SupportTicket();
+    const tickets = await SupportTicketMDL.find({});
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to load support tickets.' });
+  }
+});
+
+app.post('/api/support-tickets', authenticateToken, async (req, res) => {
+  try {
+    const { category = 'general', subject, message, priority = 'medium' } = req.body;
+    if (!subject || !message) {
+      return res.status(400).json({ message: 'Subject and message are required.' });
+    }
+
+    const SupportTicketMDL = db.SupportTicket || require('./db').SupportTicket();
+    const UserMDL = User();
+    const user = await UserMDL.findById(req.user.id);
+
+    const ticket = await SupportTicketMDL.create({
+      userId: req.user.id,
+      userName: user?.name || 'Customer',
+      email: user?.email || '',
+      category,
+      subject,
+      message,
+      status: 'open',
+      priority,
+      resolution: '',
+    });
+
+    const socketIo = req.app.get('io');
+    if (socketIo) {
+      socketIo.to('role:admin').emit('new_notification', { type: 'support_ticket', ticket });
+    }
+
+    res.status(201).json({ success: true, ticket });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to submit support ticket.' });
+  }
+});
+
+app.put('/api/admin/support-tickets/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { status, resolution } = req.body;
+    const SupportTicketMDL = db.SupportTicket || require('./db').SupportTicket();
+    const updated = await SupportTicketMDL.findByIdAndUpdate(req.params.id, { status, resolution: resolution || '' }, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Support ticket not found.' });
+
+    const socketIo = req.app.get('io');
+    if (socketIo && updated.userId) {
+      socketIo.to(`user:${updated.userId}`).emit('support_ticket_update', updated);
+    }
+
+    res.json({ success: true, ticket: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update support ticket.' });
   }
 });
 
@@ -2137,7 +2307,14 @@ app.get('/api/admin/coupons', authenticateToken, async (req, res) => {
   try {
     const CouponMDL = Coupon();
     const coupons = await CouponMDL.find({});
-    res.json(coupons);
+    const now = new Date();
+    const activeCoupons = coupons.filter((coupon) => {
+      if (!coupon.active) return false;
+      if (!coupon.expiryDate) return true;
+      const expiry = new Date(`${coupon.expiryDate}T23:59:59`);
+      return expiry >= now;
+    });
+    res.json(activeCoupons);
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve coupons.' });
   }
@@ -2166,6 +2343,37 @@ app.post('/api/admin/businesses/:id/request-info', authenticateToken, requireRol
 });
 
 // Notifications API
+app.post('/api/notifications', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admins can send announcements.' });
+    }
+    const { title, message } = req.body;
+    const NotificationMDL = Notification();
+    const UserMDL = User;
+    
+    // Broadcast to all active demo users or all users in DB
+    const users = await UserMDL.find({});
+    for (const u of users) {
+      await NotificationMDL.create({
+        userId: u._id,
+        title: title || 'Admin Announcement',
+        message,
+        type: 'admin',
+        read: false
+      });
+    }
+    
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('new_notification');
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to send announcement.' });
+  }
+});
 app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {
     const NotificationMDL = Notification();
