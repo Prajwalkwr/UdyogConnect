@@ -127,7 +127,7 @@ export default function Navbar({
   if (!isDashboardRoute || !user) {
     return (
       <header className="sticky top-0 z-40 bg-[#0B1A30] text-white shadow-md border-b border-[#0B1A30]">
-        <div className="mx-auto flex h-[76px] max-w-[1480px] items-center justify-between gap-3 px-3 sm:px-4 lg:px-6">
+        <div className="public-nav-row mx-auto flex h-[76px] max-w-[1480px] items-center justify-between gap-3 px-3 sm:px-4 lg:px-6">
           <button
             onClick={() => onOpenDashboard('home')}
             className="flex items-center gap-3 rounded-full bg-transparent p-0 text-left cursor-pointer"
@@ -136,7 +136,7 @@ export default function Navbar({
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#F2B71D] to-[#E0A615] text-[#0B1A30] shadow-md shadow-[#F2B71D]/10">
               <FiHome className="h-5 w-5" />
             </div>
-            <div className="leading-none">
+            <div className="public-nav-brand leading-none">
               <div className="text-[1.15rem] font-black tracking-[-0.02em] text-[#F2B71D]">UdyogConnect</div>
               <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em] text-[#A0A3BD]">Shop Local • Support Local</div>
             </div>
@@ -153,7 +153,7 @@ export default function Navbar({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="public-nav-actions flex items-center gap-3 sm:gap-4">
             <button
               onClick={() => setLang(lang === 'en' ? 'ne' : 'en')}
               className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#101E35] px-3 py-2 text-xs font-semibold text-[#F2B71D] transition hover:bg-[#1E293B] cursor-pointer"
@@ -193,7 +193,7 @@ export default function Navbar({
               </button>
 
               {showNotifMenu && (
-                <div className="absolute right-0 top-full mt-3 w-80 rounded-xl border border-[#F0EAD6] bg-white text-[#0B1A30] shadow-xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-full mt-3 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border border-[#F0EAD6] bg-white text-[#0B1A30] shadow-xl z-50 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-[#FFFBF0]">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
                       {translate('Notifications', 'सूचनाहरू')}
@@ -436,7 +436,7 @@ export default function Navbar({
       <div className="content-header" style={{ marginLeft: 'var(--sidebar-width)' }}>
         {/* Mobile hamburger */}
         <button
-          className="md:hidden"
+          className="lg:hidden"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6B7280' }}
         >
@@ -444,7 +444,7 @@ export default function Navbar({
         </button>
 
         {/* Search */}
-        <div style={{ flex: 1, maxWidth: 480 }} className="hidden md:block">
+        <div style={{ flex: 1, maxWidth: 480 }} className="hidden lg:block">
           <div style={{ position: 'relative' }}>
             <FiSearch style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
             <input

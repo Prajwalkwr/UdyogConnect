@@ -318,7 +318,7 @@ export default function ChatAndAI({ user, lang }) {
     <div className="fixed bottom-6 right-6 z-45 flex flex-col items-end">
       {/* 1. Chat Dialog Window */}
       {isOpen && (
-        <div className="mb-4 h-[480px] w-[350px] sm:w-[380px] flex flex-col rounded-[28px] border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-md animate-slide-up">
+        <div className="mb-4 h-[min(480px,calc(100vh-1.5rem))] w-[min(350px,calc(100vw-1rem))] sm:w-[380px] flex flex-col rounded-[28px] border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-md animate-slide-up">
           {/* Header Panel */}
           <div className="flex items-center justify-between border-b border-slate-850 px-4 py-3 bg-slate-900 rounded-t-[28px]">
             <div className="flex items-center gap-2">
