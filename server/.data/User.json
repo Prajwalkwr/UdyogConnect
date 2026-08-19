@@ -224,11 +224,20 @@
       "businesses": []
     },
     "twoFactorEnabled": false,
-    "loginHistory": [],
+    "loginHistory": [
+      {
+        "timestamp": "2026-08-15T09:33:05.105Z",
+        "ip": "::1"
+      },
+      {
+        "timestamp": "2026-08-15T09:33:59.443Z",
+        "ip": "::1"
+      }
+    ],
     "isVerified": true,
-    "failedLoginAttempts": 1,
+    "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-08-11T16:50:05.577Z"
+    "updatedAt": "2026-08-15T09:33:59.445Z"
   },
   {
     "_id": "s1",
@@ -257,12 +266,20 @@
         "timestamp": "2026-08-11T17:58:09.349Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-08-15T09:33:05.248Z",
+        "ip": "::1"
+      },
+      {
+        "timestamp": "2026-08-15T09:33:59.582Z",
+        "ip": "::1"
       }
     ],
     "isVerified": true,
     "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-08-11T17:58:09.351Z"
+    "updatedAt": "2026-08-15T09:33:59.585Z"
   },
   {
     "_id": "r1",
@@ -346,11 +363,19 @@
         "timestamp": "2026-08-11T17:54:39.320Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-08-15T09:33:05.383Z",
+        "ip": "::1"
+      },
+      {
+        "timestamp": "2026-08-15T09:33:59.726Z",
+        "ip": "::1"
       }
     ],
     "isVerified": true,
     "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-08-11T17:54:39.322Z"
+    "updatedAt": "2026-08-15T09:33:59.730Z"
   }
 ]

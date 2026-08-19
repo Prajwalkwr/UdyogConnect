@@ -4,13 +4,16 @@ import {
   FiFileText, FiEdit3, FiCheckCircle, FiClock, FiStar,
   FiRefreshCw, FiXCircle, FiBell, FiTag, FiSettings,
   FiPackage, FiDollarSign, FiAlertCircle, FiUpload, FiSave,
-  FiX, FiEye, FiMap, FiPhone, FiMail, FiInfo, FiTruck
+  FiX, FiEye, FiMap, FiPhone, FiMail, FiInfo, FiTruck,
+  FiArrowUp, FiArrowRight, FiExternalLink, FiGlobe, FiUsers,
+  FiGrid, FiZap, FiMapPin, FiHelpCircle
 } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
+import AccountProfileCard from './AccountProfileCard';
 
 /* ─── small helpers ─────────────────────────────────────────────── */
 const fmt = (n) => `Rs. ${Number(n || 0).toLocaleString()}`;
@@ -83,13 +86,18 @@ function TextAreaField({ label, ...props }) {
 /* ══════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════ */
-export default function SellerDashboard({ user, lang }) {
+export default function SellerDashboard({ user, lang, activeTab, onTabChange, notifications = [] }) {
   const t = (en, ne) => lang === 'en' ? en : ne;
 
   const [myBusiness, setMyBusiness]   = useState(null);
   const [loading, setLoading]         = useState(true);
-  const [activeTab, setActiveTab]     = useState('overview');
+  const [internalTab, setInternalTab] = useState('overview');
   const [pollingMsg, setPollingMsg]   = useState('');
+  const currentTab = activeTab ?? internalTab;
+  const changeTab = (tab) => {
+    if (onTabChange) onTabChange(tab);
+    setInternalTab(tab);
+  };
 
   // Catalog state
   const [products,  setProducts]  = useState([]);
@@ -130,6 +138,7 @@ export default function SellerDashboard({ user, lang }) {
   const [promoForm, setPromoForm] = useState({ code: '', discountPercent: '', maxDiscount: '', expiryDate: '' });
   const [coupons, setCoupons] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [overviewTimePeriod, setOverviewTimePeriod] = useState('week');
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
   const logoInputRef = useRef(null);
 
@@ -643,111 +652,588 @@ export default function SellerDashboard({ user, lang }) {
     { key: 'overview',   label: t('Overview',   'सिंहावलोकन'),   icon: <FiTrendingUp /> },
     { key: 'orders',     label: t('Orders',      'अर्डर'),          icon: <FiShoppingBag /> },
     { key: 'bookings',   label: t('Bookings',    'बुकिङ'),          icon: <FiCalendar /> },
-    { key: 'catalog',    label: t('Catalog',     'क्याटलग'),        icon: <FiFileText /> },
+    { key: 'products',   label: t('Products',    'उत्पादन'),        icon: <FiPackage /> },
+    { key: 'services',   label: t('Services',    'सेवाहरू'),        icon: <FiFileText /> },
     { key: 'reviews',    label: t('Reviews',     'समीक्षाहरू'),     icon: <FiStar /> },
     { key: 'promos',     label: t('Promotions',  'प्रोमो'),         icon: <FiTag /> },
-    { key: 'profile',    label: t('Profile',     'प्रोफाइल'),       icon: <FiSettings /> },
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+    <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
+      <main className="bg-[#f7f1e8] p-4 text-[#142835] sm:p-6">
+      {(currentTab === 'overview' || currentTab === 'analytics' || currentTab === 'settings' || currentTab === 'ratings') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* ── Top Header Bar ── */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-xl font-black text-white">
-            {myBusiness.name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <h1 className="text-lg font-black text-white">{myBusiness.name}</h1>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400">
-                <FiCheckCircle className="h-3 w-3" /> {t('Approved Business', 'अनुमोदित व्यवसाय')}
-              </span>
-              <span className="text-[10px] text-slate-500">{myBusiness.category} · {myBusiness.location}</span>
+          {/* ─── 1. BUSINESS PROFILE HEADER ─── */}
+          <div style={{
+            background: '#FFFFFF', borderRadius: 20, border: '1px solid #F0EAD6',
+            overflow: 'hidden', boxShadow: '0 2px 8px rgba(11,26,48,0.04)',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '24px 28px', flexWrap: 'wrap', gap: 20,
+              background: 'linear-gradient(135deg, #FFFDF7 0%, #FFF9E8 100%)',
+              borderBottom: '1px solid #F0EAD6',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 280 }}>
+                {/* Business Logo */}
+                <div style={{
+                  width: 72, height: 72, borderRadius: 18,
+                  background: myBusiness.imageUrl ? 'transparent' : 'linear-gradient(135deg, #F2B71D, #D4A017)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden', border: '3px solid #F0EAD6', flexShrink: 0,
+                }}>
+                  {myBusiness.imageUrl ? (
+                    <img src={myBusiness.imageUrl} alt={myBusiness.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <FiPackage style={{ width: 28, height: 28, color: '#FFFFFF' }} />
+                  )}
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0B1A30', margin: 0 }}>{myBusiness.name}</h2>
+                    <span style={{
+                      padding: '3px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                      background: availabilityMeta.isOpen ? '#D1FAE5' : '#FEE2E2',
+                      color: availabilityMeta.isOpen ? '#059669' : '#DC2626',
+                    }}>{availabilityMeta.isOpen ? t('Open', 'खुला') : t('Closed', 'बन्द')}</span>
+                  </div>
+                  <p style={{ fontSize: 13, color: '#57657A', margin: '4px 0 0' }}>{myBusiness.description?.slice(0, 80) || t('Fresh Products • Better Quality • Happy Customers', 'ताजा उत्पादनहरू • राम्रो गुणस्तर')}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#57657A' }}>
+                      <FiMapPin style={{ width: 13, height: 13, color: '#F2B71D' }} /> {myBusiness.location}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#57657A' }}>
+                      <FiStar style={{ width: 13, height: 13, color: '#F2B71D', fill: '#F2B71D' }} /> {myBusiness.rating || '4.8'} ({myBusiness.reviewCount || reviews.length} {t('reviews', 'समीक्षाहरू')})
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={() => { changeTab('profile'); }} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 20px', borderRadius: 12,
+                  background: '#0B1A30', color: '#FFFFFF', border: 'none',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onMouseEnter={e => { e.currentTarget.style.background = '#1A2D47'; }}
+                   onMouseLeave={e => { e.currentTarget.style.background = '#0B1A30'; }}>
+                  <FiEdit3 style={{ width: 14, height: 14 }} /> {t('Edit Business Profile', 'प्रोफाइल सम्पादन')}
+                </button>
+                <button onClick={() => { window.open('/', '_blank'); }} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 20px', borderRadius: 12,
+                  background: '#FFFFFF', color: '#0B1A30', border: '1px solid #E5E7EB',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#F2B71D'; }}
+                   onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; }}>
+                  <FiEye style={{ width: 14, height: 14 }} /> {t('View My Store', 'मेरो पसल हेर्नुहोस्')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        <button onClick={() => fetchAll(true)} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs text-slate-300 hover:border-amber-400 hover:text-amber-400 transition">
-          <FiRefreshCw className="h-3 w-3" /> {t('Refresh', 'रिफ्रेस')}
-        </button>
-      </div>
 
-      {/* ── Tabs ── */}
-      <div className="mb-6 flex gap-1 overflow-x-auto pb-1 scrollbar-none">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition whitespace-nowrap ${
-              activeTab === tab.key
-                ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
-                : 'bg-slate-900/60 border border-slate-800 text-slate-400 hover:border-slate-600 hover:text-white'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-            {tab.key === 'orders'   && pendingOrders.length > 0 && <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white">{pendingOrders.length}</span>}
-            {tab.key === 'bookings' && bookings.filter(b => b.status === 'pending').length > 0 && <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-black text-white">{bookings.filter(b => b.status === 'pending').length}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* ══════════════ OVERVIEW ══════════════ */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard icon={<FiDollarSign />} label="Total Revenue"      value={fmt(totalRevenue)}             color="emerald" />
-            <StatCard icon={<FiShoppingBag />} label="Completed Orders"  value={completedOrders.length}        color="blue"    />
-            <StatCard icon={<FiPackage />}     label="Products & Services" value={products.length + services.length} color="amber" />
-            <StatCard icon={<FiStar />}        label="Average Rating"    value={`${avgRating} ⭐`}             color="purple"  />
-          </div>
-
-          {/* Recent Orders Summary */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-5">
-            <SectionHeader title={t('Recent Orders', 'भर्खरका अर्डरहरू')}>
-              <button onClick={() => setActiveTab('orders')} className="text-xs text-amber-400 hover:underline">{t('View all', 'सबै हेर्नुहोस्')}</button>
-            </SectionHeader>
-            {orders.length === 0 ? (
-              <p className="text-center text-xs text-slate-500 py-6">{t('No orders yet.', 'अझैसम्म कुनै अर्डर छैन।')}</p>
-            ) : (
-              <div className="space-y-2">
-                {orders.slice(0, 5).map(o => (
-                  <div key={o._id} className="flex items-center justify-between rounded-xl bg-slate-950/40 px-4 py-2.5">
-                    <div>
-                      <span className="text-xs font-mono text-slate-300">{String(o._id).slice(-8).toUpperCase()}</span>
-                      <span className="text-[10px] text-slate-500 ml-2">{o.items?.map(i => i.name).join(', ').slice(0, 30)}</span>
+          {/* ─── 2. STATS CARDS + BUSINESS STATUS + NOTIFICATIONS ─── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(600px, 1fr)) 340px', gap: 20, alignItems: 'start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Stats Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+                {[
+                  { icon: <FiShoppingBag />, label: t('Total Orders', 'कुल अर्डर'), value: orders.length, change: '+12%', color: '#3B82F6', bg: '#EFF6FF' },
+                  { icon: <FiDollarSign />, label: t('Total Revenue', 'कुल राजस्व'), value: fmt(totalRevenue), change: '+15%', color: '#059669', bg: '#ECFDF5' },
+                  { icon: <FiPackage />, label: t('Products', 'उत्पादनहरू'), value: products.length, change: '+6%', color: '#F2B71D', bg: '#FFFBEB' },
+                  { icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: '+25%', color: '#8B5CF6', bg: '#F5F3FF' },
+                ].map((stat, idx) => (
+                  <div key={idx} style={{
+                    background: stat.bg, borderRadius: 16, padding: '18px 16px',
+                    border: `1px solid ${stat.bg}`, position: 'relative', overflow: 'hidden',
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                  }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.06)'; }}
+                     onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        background: `${stat.color}20`, color: stat.color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+                      }}>{stat.icon}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-amber-300">{fmt(o.total)}</span>
-                      <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase ${statusColor(o.status)}`}>{o.status}</span>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: '#0B1A30', lineHeight: 1.1 }}>{stat.value}</div>
+                    <div style={{ fontSize: 12, color: '#57657A', marginTop: 4 }}>{stat.label}</div>
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      marginTop: 8, fontSize: 11, fontWeight: 600,
+                      color: '#059669', background: '#D1FAE5',
+                      padding: '2px 8px', borderRadius: 20,
+                    }}>
+                      <FiArrowUp style={{ width: 10, height: 10 }} /> {stat.change} {t('vs. last month', 'गत महिना')}
                     </div>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
+
+            {/* Business Status + Notifications Column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Business Status Card */}
+              <div style={{
+                background: '#FFFFFF', borderRadius: 16, padding: '18px 20px',
+                border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Business Status', 'व्यापार स्थिति')}</h4>
+                  <div style={{
+                    width: 40, height: 22, borderRadius: 11,
+                    background: availabilityMeta.isOpen ? '#059669' : '#D1D5DB',
+                    position: 'relative', cursor: 'pointer', transition: 'background 0.3s',
+                  }}>
+                    <div style={{
+                      width: 18, height: 18, borderRadius: '50%', background: '#FFFFFF',
+                      position: 'absolute', top: 2,
+                      left: availabilityMeta.isOpen ? 20 : 2,
+                      transition: 'left 0.3s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: availabilityMeta.isOpen ? '#059669' : '#DC2626' }} />
+                    <span style={{ color: '#57657A' }}>{t('Store Status:', 'पसल स्थिति:')}</span>
+                    <span style={{ fontWeight: 600, color: '#0B1A30' }}>{availabilityMeta.isOpen ? t('Open', 'खुला') : t('Closed', 'बन्द')}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <FiClock style={{ width: 14, height: 14, color: '#F2B71D' }} />
+                    <span style={{ color: '#57657A' }}>{t('Operating Hours:', 'सञ्चालन समय:')}</span>
+                    <span style={{ fontWeight: 600, color: '#0B1A30' }}>{myBusiness.hours || '09:00 AM – 10:00 PM'}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <FiMapPin style={{ width: 14, height: 14, color: '#F2B71D' }} />
+                    <span style={{ color: '#57657A' }}>{t('Location:', 'स्थान:')}</span>
+                    <span style={{ fontWeight: 600, color: '#0B1A30' }}>{myBusiness.location}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Notifications */}
+              <div style={{
+                background: '#FFFFFF', borderRadius: 16, padding: '18px 20px',
+                border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Recent Notifications', 'भर्खरका सूचनाहरू')}</h4>
+                  <button style={{ fontSize: 12, fontWeight: 600, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    {t('View All', 'सबै हेर्नुहोस्')} <FiArrowRight style={{ width: 12, height: 12 }} />
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {(notifications.length > 0 ? notifications.slice(0, 4) : [
+                    { _id: 'n1', title: t('New order received', 'नयाँ अर्डर प्राप्त'), message: '2 mins ago', type: 'order' },
+                    { _id: 'n2', title: t('Customer rated your business', 'ग्राहकले मूल्याङ्कन गर्नुभयो'), message: '1 hour ago', type: 'review' },
+                    { _id: 'n3', title: t('Product is out of stock', 'उत्पादन स्टकमा छैन'), message: '3 hours ago', type: 'alert' },
+                    { _id: 'n4', title: t('New Customer registered', 'नयाँ ग्राहक दर्ता भयो'), message: '5 hours ago', type: 'customer' },
+                  ]).map(notif => {
+                    const iconMap = { order: { icon: <FiShoppingBag />, bg: '#EFF6FF', color: '#3B82F6' }, review: { icon: <FiStar />, bg: '#FFFBEB', color: '#F2B71D' }, alert: { icon: <FiAlertCircle />, bg: '#FEF2F2', color: '#DC2626' }, customer: { icon: <FiUsers />, bg: '#F0FDF4', color: '#059669' } };
+                    const style = iconMap[notif.type] || iconMap.order;
+                    return (
+                      <div key={notif._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+                          background: style.bg, color: style.color,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
+                        }}>{style.icon}</div>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: '#0B1A30', margin: 0 }}>{notif.title}</p>
+                          <p style={{ fontSize: 11, color: '#9CA3AF', margin: '2px 0 0' }}>{notif.message}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Quick Stats Row */}
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-center">
-              <div className="text-2xl font-black text-white">{pendingOrders.length}</div>
-              <div className="text-xs text-slate-400 mt-1">{t('Pending Orders', 'बाँकी अर्डर')}</div>
+          {/* ─── 3. SALES & ORDER OVERVIEW + QUICK ACTIONS ─── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20 }}>
+            <div style={{
+              background: '#FFFFFF', borderRadius: 16, padding: '22px 24px',
+              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Sales & Order Overview', 'बिक्री र अर्डर सिंहावलोकन')}</h4>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {['week', 'month', 'year'].map(p => (
+                    <button key={p} onClick={() => setOverviewTimePeriod(p)} style={{
+                      padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      border: 'none', cursor: 'pointer',
+                      background: overviewTimePeriod === p ? '#0B1A30' : '#F3F4F6',
+                      color: overviewTimePeriod === p ? '#FFFFFF' : '#6B7280',
+                      transition: 'all 0.2s',
+                    }}>
+                      {p === 'week' ? t('This Week', 'यो हप्ता') : p === 'month' ? t('This Month', 'यो महिना') : t('This Year', 'यो वर्ष')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 28, alignItems: 'start' }}>
+                {/* Revenue Chart */}
+                <div>
+                  <div style={{ marginBottom: 12 }}>
+                    <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Revenue', 'राजस्व')}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: 24, fontWeight: 800, color: '#0B1A30' }}>{fmt(totalRevenue || 12450)}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '2px 6px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <FiArrowUp style={{ width: 10, height: 10 }} /> 18%
+                      </span>
+                    </div>
+                  </div>
+                  {/* Bar Chart */}
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 140, paddingTop: 10 }}>
+                    {(() => {
+                      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                      const dayValues = dayLabels.map((_, i) => {
+                        const dayOrders = orders.filter(o => {
+                          const d = new Date(o.createdAt || Date.now());
+                          return d.getDay() === (i + 1) % 7;
+                        });
+                        return dayOrders.reduce((s, o) => s + (o.total || 0), 0);
+                      });
+                      const maxVal = Math.max(...dayValues, 1);
+                      return dayLabels.map((day, i) => (
+                        <div key={day} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1 }}>
+                          <div style={{
+                            width: '100%', maxWidth: 32,
+                            height: Math.max(12, (dayValues[i] / maxVal) * 110),
+                            borderRadius: '6px 6px 2px 2px',
+                            background: i === 4 ? 'linear-gradient(180deg, #F2B71D, #E0A615)' : 'linear-gradient(180deg, #FDEAB0, #FDD95C)',
+                            transition: 'height 0.4s ease',
+                            position: 'relative',
+                          }}>
+                            {dayValues[i] > 0 && (
+                              <span style={{
+                                position: 'absolute', top: -18, left: '50%', transform: 'translateX(-50%)',
+                                fontSize: 9, fontWeight: 700, color: '#57657A', whiteSpace: 'nowrap',
+                              }}>{fmt(dayValues[i]).replace('Rs. ', '')}</span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>{day}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+
+                {/* Donut Chart */}
+                <div>
+                  <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Order Type', 'अर्डर प्रकार')}</span>
+                  <div style={{ position: 'relative', width: 140, height: 140, margin: '12px auto 0' }}>
+                    <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+                      {(() => {
+                        const prodOrders = orders.filter(o => o.items?.some(i => i.type !== 'service')).length || Math.max(1, Math.round(orders.length * 0.7));
+                        const servOrders = orders.filter(o => o.items?.some(i => i.type === 'service')).length || Math.max(0, Math.round(orders.length * 0.2));
+                        const otherOrders = Math.max(0, orders.length - prodOrders - servOrders) || Math.max(0, Math.round(orders.length * 0.1));
+                        const total = prodOrders + servOrders + otherOrders || 1;
+                        const segments = [
+                          { pct: prodOrders / total, color: '#F2B71D' },
+                          { pct: servOrders / total, color: '#059669' },
+                          { pct: otherOrders / total, color: '#3B82F6' },
+                        ];
+                        let offset = 0;
+                        return segments.map((seg, i) => {
+                          const circumference = Math.PI * 2 * 35;
+                          const strokeLen = seg.pct * circumference;
+                          const el = (
+                            <circle key={i} cx="50" cy="50" r="35" fill="none"
+                              stroke={seg.color} strokeWidth="12"
+                              strokeDasharray={`${strokeLen} ${circumference - strokeLen}`}
+                              strokeDashoffset={-offset}
+                              strokeLinecap="round" />
+                          );
+                          offset += strokeLen;
+                          return el;
+                        });
+                      })()}
+                    </svg>
+                    <div style={{
+                      position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: '#0B1A30' }}>{orders.length || 0}</span>
+                      <span style={{ fontSize: 10, color: '#9CA3AF' }}>{t('Orders', 'अर्डर')}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
+                    {[
+                      { label: t('Products', 'उत्पादनहरू'), pct: '70%', color: '#F2B71D' },
+                      { label: t('Services', 'सेवाहरू'), pct: '20%', color: '#059669' },
+                      { label: t('Others', 'अन्य'), pct: '10%', color: '#3B82F6' },
+                    ].map((item, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: item.color }} />
+                        <span style={{ color: '#57657A' }}>{item.label} ({item.pct})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-center">
-              <div className="text-2xl font-black text-white">{bookings.filter(b => b.status === 'pending').length}</div>
-              <div className="text-xs text-slate-400 mt-1">{t('Pending Bookings', 'बाँकी बुकिङ')}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-center">
-              <div className="text-2xl font-black text-white">{reviews.length}</div>
-              <div className="text-xs text-slate-400 mt-1">{t('Customer Reviews', 'ग्राहक समीक्षाहरू')}</div>
+
+            {/* Quick Actions */}
+            <div style={{
+              background: '#FFFFFF', borderRadius: 16, padding: '22px 20px',
+              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+            }}>
+              <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: '0 0 16px' }}>{t('Quick Actions', 'छिटो कार्यहरू')}</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  { icon: <FiPackage />, label: t('Add Product', 'उत्पादन थप्नुहोस्'), action: () => { changeTab('products'); setTimeout(() => setShowAddProd(true), 100); } },
+                  { icon: <FiSettings />, label: t('Add Service', 'सेवा थप्नुहोस्'), action: () => { changeTab('services'); setTimeout(() => setShowAddServ(true), 100); } },
+                  { icon: <FiEye />, label: t('View Orders', 'अर्डर हेर्नुहोस्'), action: () => changeTab('orders') },
+                  { icon: <FiTag />, label: t('Manage Offers', 'अफर व्यवस्थापन'), action: () => changeTab('promos') },
+                ].map((qa, i) => (
+                  <button key={i} onClick={qa.action} style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                    padding: '18px 12px', borderRadius: 14,
+                    background: '#FAFAF8', border: '1px solid #F0EAD6',
+                    cursor: 'pointer', transition: 'all 0.2s',
+                  }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#F2B71D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(242,183,29,0.12)'; }}
+                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#F0EAD6'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 12,
+                      background: '#FFFBEB', color: '#F2B71D',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+                    }}>{qa.icon}</div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#0B1A30', textAlign: 'center' }}>{qa.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* ─── 4. RECENT ORDERS + TOP PRODUCTS + BUSINESS PERFORMANCE ─── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 320px', gap: 20 }}>
+            {/* Recent Orders */}
+            <div style={{
+              background: '#FFFFFF', borderRadius: 16, padding: '22px 24px',
+              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Recent Orders', 'भर्खरका अर्डरहरू')}</h4>
+                <button onClick={() => changeTab('orders')} style={{ fontSize: 12, fontWeight: 600, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  {t('View All', 'सबै हेर्नुहोस्')} <FiArrowRight style={{ width: 12, height: 12 }} />
+                </button>
+              </div>
+              {/* Table Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr 90px 90px 80px', gap: 8, padding: '8px 0', borderBottom: '1px solid #F0EAD6' }}>
+                {[t('Order ID', 'अर्डर'), t('Customer', 'ग्राहक'), t('Amount', 'रकम'), t('Status', 'स्थिति'), t('Time', 'समय')].map((h, i) => (
+                  <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{h}</span>
+                ))}
+              </div>
+              {/* Table Rows */}
+              {orders.length === 0 ? (
+                <div style={{ padding: '32px 0', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>{t('No orders yet', 'अझैसम्म कुनै अर्डर छैन')}</div>
+              ) : (
+                orders.slice(0, 5).map(o => {
+                  const statusStyles = {
+                    placed: { bg: '#DBEAFE', color: '#2563EB', label: 'Processing' },
+                    preparing: { bg: '#FEF3C7', color: '#D97706', label: 'Preparing' },
+                    dispatched: { bg: '#E9D5FF', color: '#7C3AED', label: 'Dispatched' },
+                    completed: { bg: '#D1FAE5', color: '#059669', label: 'Delivered' },
+                    cancelled: { bg: '#FEE2E2', color: '#DC2626', label: 'Cancelled' },
+                    pending: { bg: '#FEF3C7', color: '#D97706', label: 'Pending' },
+                  };
+                  const sty = statusStyles[o.status] || statusStyles.pending;
+                  const timeAgo = (() => {
+                    if (!o.createdAt) return '';
+                    const diffMs = Date.now() - new Date(o.createdAt).getTime();
+                    const mins = Math.floor(diffMs / 60000);
+                    if (mins < 60) return `${mins} min ago`;
+                    const hrs = Math.floor(mins / 60);
+                    if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
+                    return `${Math.floor(hrs / 24)} day${Math.floor(hrs / 24) > 1 ? 's' : ''} ago`;
+                  })();
+                  return (
+                    <div key={o._id} style={{
+                      display: 'grid', gridTemplateColumns: '70px 1fr 90px 90px 80px', gap: 8,
+                      padding: '10px 0', borderBottom: '1px solid #F7F5EC', alignItems: 'center',
+                    }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0B1A30', fontFamily: 'monospace' }}>#{String(o._id).slice(-3)}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #E5E7EB, #D1D5DB)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, fontWeight: 700, color: '#6B7280', flexShrink: 0,
+                        }}>{(o.deliveryAddress?.name || 'C').charAt(0).toUpperCase()}</div>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#0B1A30', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.deliveryAddress?.name || 'Customer'}</span>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0B1A30' }}>{fmt(o.total)}</span>
+                      <span style={{
+                        display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                        fontSize: 10, fontWeight: 700, background: sty.bg, color: sty.color,
+                        textAlign: 'center', whiteSpace: 'nowrap',
+                      }}>{sty.label}</span>
+                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>{timeAgo}</span>
+                    </div>
+                  );
+                })
+              )}
+              {orders.length > 0 && (
+                <button onClick={() => changeTab('orders')} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, marginTop: 14,
+                  padding: '8px 16px', borderRadius: 10,
+                  background: '#059669', color: '#FFFFFF', border: 'none',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }} onMouseEnter={e => { e.currentTarget.style.background = '#047857'; }}
+                   onMouseLeave={e => { e.currentTarget.style.background = '#059669'; }}>
+                  {t('View All Orders', 'सबै अर्डरहरू हेर्नुहोस्')} <FiArrowRight style={{ width: 12, height: 12 }} />
+                </button>
+              )}
+            </div>
+
+            {/* Top Products */}
+            <div style={{
+              background: '#FFFFFF', borderRadius: 16, padding: '22px 24px',
+              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Top Products', 'शीर्ष उत्पादनहरू')}</h4>
+                <button onClick={() => changeTab('products')} style={{ fontSize: 12, fontWeight: 600, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  {t('View All', 'सबै हेर्नुहोस्')} <FiArrowRight style={{ width: 12, height: 12 }} />
+                </button>
+              </div>
+              {products.length === 0 ? (
+                <div style={{ padding: '32px 0', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>{t('No products yet', 'अझैसम्म कुनै उत्पादन छैन')}</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {products.slice(0, 3).map((p, idx) => {
+                    const soldCount = orders.filter(o => o.items?.some(i => i.productId === p._id || i.name === p.name)).length || Math.max(10, 50 - idx * 15);
+                    return (
+                      <div key={p._id} style={{
+                        display: 'flex', alignItems: 'center', gap: 14,
+                        padding: '12px 14px', borderRadius: 14,
+                        background: idx === 0 ? '#FFFBEB' : '#FAFAF8',
+                        border: '1px solid #F0EAD6',
+                      }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                          background: idx === 0 ? '#F2B71D' : idx === 1 ? '#9CA3AF' : '#CD7F32',
+                          color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 12, fontWeight: 800,
+                        }}>{idx + 1}</div>
+                        <div style={{
+                          width: 48, height: 48, borderRadius: 12, overflow: 'hidden',
+                          background: '#F3F4F6', flexShrink: 0,
+                        }}>
+                          {p.images?.[0] ? (
+                            <img src={p.images[0]} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <FiPackage style={{ color: '#D1D5DB' }} />
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: '#0B1A30', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                            <span style={{ fontSize: 14, fontWeight: 800, color: '#0B1A30' }}>{fmt(p.price)}</span>
+                            <span style={{ fontSize: 11, color: '#9CA3AF' }}>{soldCount} {t('sold', 'बिक्री')}</span>
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, color: '#059669',
+                          display: 'flex', alignItems: 'center', gap: 2,
+                        }}>
+                          <FiArrowUp style={{ width: 10, height: 10 }} /> {12 - idx * 4}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Business Performance */}
+            <div style={{
+              background: '#FFFFFF', borderRadius: 16, padding: '22px 20px',
+              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Business Performance', 'व्यापार प्रदर्शन')}</h4>
+                <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}>{t('This Month', 'यो महिना')} ▾</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {[
+                  { icon: <FiUsers />, label: t('Customer Growth', 'ग्राहक वृद्धि'), value: '+20%', color: '#3B82F6' },
+                  { icon: <FiTrendingUp />, label: t('Sales Growth', 'बिक्री वृद्धि'), value: '+15%', color: '#059669' },
+                  { icon: <FiEye />, label: t('Product Views', 'उत्पादन दृश्य'), value: '+32%', color: '#8B5CF6' },
+                  { icon: <FiStar />, label: t('Repeat Customers', 'दोहोरिने ग्राहक'), value: '+18%', color: '#F2B71D' },
+                ].map((kpi, idx) => (
+                  <div key={idx} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '14px 16px', borderRadius: 14,
+                    background: '#FAFAF8', border: '1px solid #F0EAD6',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        background: `${kpi.color}15`, color: kpi.color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+                      }}>{kpi.icon}</div>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: '#0B1A30' }}>{kpi.label}</span>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>{kpi.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ─── 5. AI INSIGHTS BANNER ─── */}
+          <div style={{
+            background: 'linear-gradient(135deg, #0B1A30 0%, #1A2D47 100%)',
+            borderRadius: 18, padding: '24px 32px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 20, flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 14,
+                background: 'linear-gradient(135deg, #F2B71D, #D4A017)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <FiZap style={{ width: 22, height: 22, color: '#0B1A30' }} />
+              </div>
+              <div>
+                <h4 style={{ fontSize: 16, fontWeight: 700, color: '#FFFFFF', margin: 0 }}>
+                  {t('Grow Your Business Faster with UdyogConnect AI', 'UdyogConnect AI सँग तपाईंको व्यवसाय छिटो बढाउनुहोस्')}
+                </h4>
+                <p style={{ fontSize: 13, color: '#94A3B8', margin: '4px 0 0' }}>
+                  {t('Get smart insights, customer trends and personalized growth tips to take your business to the next level.', 'स्मार्ट अन्तर्दृष्टि, ग्राहक प्रवृत्ति र व्यक्तिगत विकास सुझावहरू प्राप्त गर्नुहोस्।')}
+                </p>
+              </div>
+            </div>
+            <button style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '12px 24px', borderRadius: 12,
+              background: 'linear-gradient(135deg, #F2B71D, #E0A615)',
+              color: '#0B1A30', border: 'none',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              boxShadow: '0 4px 16px rgba(242,183,29,0.3)',
+            }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(242,183,29,0.4)'; }}
+               onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(242,183,29,0.3)'; }}>
+              <FiTrendingUp style={{ width: 16, height: 16 }} />
+              {t('Explore AI Insights', 'AI अन्तर्दृष्टि अन्वेषण गर्नुहोस्')} <FiArrowRight style={{ width: 14, height: 14 }} />
+            </button>
+          </div>
+
         </div>
       )}
 
       {/* ══════════════ ORDERS ══════════════ */}
-      {activeTab === 'orders' && (
+      {currentTab === 'orders' && (
         <div className="space-y-4">
           <SectionHeader title={t(`Orders (${orders.length})`, `अर्डरहरू (${orders.length})`)} />
           {orders.length === 0 ? (
@@ -797,7 +1283,7 @@ export default function SellerDashboard({ user, lang }) {
       )}
 
       {/* ══════════════ BOOKINGS ══════════════ */}
-      {activeTab === 'bookings' && (
+      {currentTab === 'bookings' && (
         <div className="space-y-4">
           <SectionHeader title={t(`Service Bookings (${bookings.length})`, `सेवा बुकिङहरू (${bookings.length})`)} />
           {bookings.length === 0 ? (
@@ -829,7 +1315,7 @@ export default function SellerDashboard({ user, lang }) {
       )}
 
       {/* ══════════════ CATALOG ══════════════ */}
-      {activeTab === 'catalog' && (
+      {(currentTab === 'catalog' || currentTab === 'products' || currentTab === 'services') && (
         <div className="space-y-6">
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
@@ -968,7 +1454,7 @@ export default function SellerDashboard({ user, lang }) {
       )}
 
       {/* ══════════════ REVIEWS ══════════════ */}
-      {activeTab === 'reviews' && (
+      {currentTab === 'reviews' && (
         <div className="space-y-4">
           <SectionHeader title={t(`Customer Reviews (${reviews.length})`, `ग्राहक समीक्षाहरू (${reviews.length})`)}>
             <div className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
@@ -1024,7 +1510,7 @@ export default function SellerDashboard({ user, lang }) {
       )}
 
       {/* ══════════════ PROMOTIONS ══════════════ */}
-      {activeTab === 'promos' && (
+      {currentTab === 'promos' && (
         <div className="space-y-5">
           <SectionHeader title={t('Promotional Offers', 'प्रचार प्रस्ताव')}>
             <button onClick={() => setShowAddPromo(!showAddPromo)} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-amber-300 transition">
@@ -1072,8 +1558,9 @@ export default function SellerDashboard({ user, lang }) {
       )}
 
       {/* ══════════════ PROFILE ══════════════ */}
-      {activeTab === 'profile' && (
+      {currentTab === 'profile' && (
         <div className="space-y-5">
+          <AccountProfileCard user={user} lang={lang} />
           <SectionHeader title={t('Business Profile', 'व्यवसाय प्रोफाइल')}>
             <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm({ name: myBusiness.name, description: myBusiness.description, location: myBusiness.location, hours: myBusiness.hours, contactEmail: myBusiness.contactEmail, phone: myBusiness.phone || '', website: myBusiness.website || '', qrUrl: myBusiness.qrUrl || '', isOpen: myBusiness.isOpen !== false, deliveryAvailable: myBusiness.deliveryAvailable !== false, deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5, offeringType: myBusiness.offeringType || 'both' }); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">
               <FiEdit3 /> {showEditProfile ? t('Cancel Edit', 'सम्पादन रद्द') : t('Edit Profile', 'प्रोफाइल सम्पादन')}
@@ -1230,6 +1717,7 @@ export default function SellerDashboard({ user, lang }) {
         </div>
       )}
 
+      </main>
     </div>
   );
 }

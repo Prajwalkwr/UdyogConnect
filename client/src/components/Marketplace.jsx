@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent } from 'react-icons/fi';
+import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent, FiZap, FiAward, FiCheckCircle, FiBriefcase, FiTrendingUp, FiHeart, FiHome } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { matchesSearchQuery } from '../utils/search';
@@ -271,409 +271,531 @@ export default function Marketplace({
     return 0;
   });
 
-  const safeProductsFiltered = safeProducts.filter((p) => {
-    if (!activeSearchQuery) return true;
-    return matchesSearchQuery(p, activeSearchQuery, ['name', 'description', 'brand', 'category']);
-  });
+  const [hr, min, sec] = (timeLeft || '05:40:04').split(':');
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      {/* 1. Flash Sale / Event Promo Banner */}
-      <section className="relative mb-8 overflow-hidden rounded-4xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-slate-900 to-emerald-500/5 p-6 sm:p-8">
-        <div className="relative z-10 flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
-          <div>
-            <div className="flex items-center gap-2 text-amber-400">
-              <FiPercent className="h-5 w-5 animate-pulse" />
-              <span className="text-xs font-bold uppercase tracking-[0.25em]">{translate('Limited Time Flash Deal', 'सीमित समयको धमाका अफर')}</span>
+    <div className="min-h-screen bg-[#FDFBF7] py-6">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+        
+        {/* Banner Section */}
+        <section className="relative mb-6 overflow-hidden rounded-[24px] bg-gradient-to-r from-[#0C121F] via-[#4A3B18] to-[#F2B71D] px-6 py-8 shadow-md text-white sm:px-8 sm:py-10">
+          {/* Nepal Stupa SVG Backdrop */}
+          <div className="absolute right-[10%] bottom-0 h-44 w-64 opacity-25 pointer-events-none hidden md:block">
+            <svg viewBox="0 0 200 200" fill="none" className="w-full h-full text-[#F2B71D]" stroke="currentColor" strokeWidth="1.5">
+              {/* Stupa Spire */}
+              <path d="M100,10 L100,50 M95,45 L105,45 M90,40 L110,40 M85,35 L115,35 M80,30 L120,30 M75,25 L125,25 M70,20 L130,20" />
+              {/* Spire Base */}
+              <rect x="85" y="50" width="30" height="25" fill="#F2B71D" opacity="0.3" />
+              {/* Wisdom Eyes */}
+              <circle cx="94" cy="62" r="2.5" fill="currentColor" />
+              <circle cx="106" cy="62" r="2.5" fill="currentColor" />
+              <path d="M97,68 Q100,72 103,68" strokeWidth="2" />
+              {/* Stupa Dome */}
+              <path d="M50,135 C50,75 150,75 150,135 Z" fill="#F2B71D" opacity="0.2" />
+              {/* Plinth */}
+              <rect x="35" y="135" width="130" height="15" fill="#F2B71D" opacity="0.5" rx="3" />
+              <rect x="25" y="150" width="150" height="10" fill="#F2B71D" opacity="0.6" rx="2" />
+            </svg>
+          </div>
+
+          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-[720px]">
+              <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-black/30 border border-white/20 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#F2B71D]">
+                <FiZap className="h-3.5 w-3.5 fill-[#F2B71D]" />
+                <span>{translate('LIMITED TIME FLASH DEAL', 'सीमित समयको धमाका अफर')}</span>
+              </div>
+
+              <h2 className="text-[2.2rem] font-black leading-[1.0] tracking-[-0.04em] text-white sm:text-[3.2rem] lg:text-[4.2rem]">
+                Local Business <span className="text-[#F2B71D]">Carnival</span>
+              </h2>
+
+              <p className="mt-4 max-w-[620px] text-xs sm:text-sm md:text-base text-[#F4F4F5] font-medium leading-relaxed">
+                {translate('Earn double loyalty reward points (+20) and receive up to 15% discount on all handicraft products.', 'दोब्बर लोयल्टी पोइन्ट र हस्तकला सामग्रीहरूमा १५% सम्मको विशेष छुट पाउनुहोस्।')}
+              </p>
             </div>
-            <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl md:text-4xl">
-              {translate('Local Business Carnival', 'स्थानीय व्यवसाय उत्सव')}
-            </h2>
-            <p className="mt-2 max-w-lg text-sm text-slate-300">
-              {translate('Earn double loyalty reward points (+20) and receive up to 15% discount on all handicraft products.', 'दोब्बर लोयल्टी पोइन्ट र हस्तकला सामग्रीहरूमा १५% सम्मको विशेष छुट पाउनुहोस्।')}
-            </p>
-          </div>
-          <div className="flex flex-col items-center rounded-2xl border border-slate-800 bg-slate-950/90 px-6 py-4 shadow-xl">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{translate('Ends in', 'बाँकी समय')}</span>
-            <span className="mt-1 font-mono text-3xl font-black text-amber-400 tracking-wider">
-              {timeLeft || '00:00:00'}
-            </span>
-          </div>
-        </div>
-        <div className="absolute top-0 right-0 -z-10 h-32 w-32 bg-amber-400/5 blur-3xl"></div>
-      </section>
 
-      {/* 2. Interactive Search Area */}
-      <div className="flex flex-col gap-4 md:flex-row">
-        <div className="relative flex-1">
-          <FiSearch className="absolute top-4 left-4 text-lg text-slate-400" />
-          <input
-            type="text"
-            placeholder={translate('Search stores, products, services...', 'पसल, उत्पादन, वा सेवा खोज्नुहोस्...')}
-            value={searchQuery}
-            onChange={(e) => {
-              const nextValue = e.target.value;
-              setSearchQuery(nextValue);
-              setSearchTrigger(nextValue);
-              setShowSuggestions(Boolean(nextValue.trim()));
-            }}
-            onFocus={() => setShowSuggestions(Boolean(searchQuery.trim()))}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                triggerSearch(searchQuery);
-              }
-            }}
-            className="w-full rounded-2xl border border-slate-800/90 bg-slate-900/60 py-3.5 pl-12 pr-32 text-sm text-white placeholder-slate-500 outline-none ring-amber-400/20 transition focus:border-amber-400 focus:bg-slate-900 focus:ring-4"
-          />
-          {showSuggestions && searchSuggestions.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-2xl border border-slate-800 bg-slate-900/95 p-2 shadow-2xl">
-              {searchSuggestions.map((suggestion) => (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    suggestion.onSelect();
-                    setShowSuggestions(false);
-                  }}
-                  className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800"
-                >
-                  <span>
-                    <span className="block font-semibold text-white">{suggestion.label}</span>
-                    <span className="text-xs text-slate-500">{suggestion.subtitle}</span>
-                  </span>
-                  <span className="text-[10px] uppercase tracking-wide text-amber-400">{suggestion.type}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="absolute top-2 right-2 flex items-center gap-1">
-            <button
-              onClick={() => triggerSearch(searchQuery)}
-              className="rounded-xl bg-amber-400/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
-              title="Search"
-            >
-              {translate('Search', 'खोज्नुहोस्')}
-            </button>
-            <button
-              onClick={handleVoiceSearch}
-              className={`rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white ${isListening ? 'text-amber-400 animate-pulse bg-amber-500/10' : ''}`}
-              title="Voice Search"
-            >
-              <FiMic className="h-5 w-5" />
-            </button>
-            <button
-              onClick={handleImageSearch}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
-              title="Image Product Recognition Search"
-            >
-              <FiGift className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
-            showFilters ? 'border-amber-400 bg-amber-400/10 text-amber-300' : 'border-slate-800 bg-slate-900/60 text-slate-350 hover:bg-slate-800'
-          }`}
-        >
-          <FiSliders />
-          <span>{translate('Filters', 'फिल्टरहरू')}</span>
-        </button>
-      </div>
-
-      {/* Filters Side panel drawer */}
-      {showFilters && (
-        <div className="mt-4 grid gap-4 rounded-3xl border border-slate-800 bg-slate-900/40 p-5 md:grid-cols-4 animate-slide-down">
-          {/* Distance Filter */}
-          <div className="space-y-2">
-            <label className="flex justify-between text-xs font-bold text-slate-400 uppercase tracking-wide">
-              <span>{translate('Distance limit', 'दुरीको सीमा')}</span>
-              <span className="text-amber-400">{distanceFilter} km</span>
-            </label>
-            <input
-              type="range"
-              min="1"
-              max="50"
-              value={distanceFilter}
-              onChange={(e) => setDistanceFilter(parseInt(e.target.value))}
-              className="w-full accent-amber-400 bg-slate-950 h-1.5 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
-
-          {/* Rating */}
-          <div className="space-y-2">
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-wide">{translate('Minimum Rating', 'न्यूनतम रेटिङ')}</span>
-            <div className="flex gap-1.5">
-              {[0, 3, 4, 4.5].map((val) => (
-                <button
-                  key={val}
-                  onClick={() => setMinRating(val)}
-                  className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
-                    minRating === val
-                      ? 'border-amber-400 bg-amber-400/10 text-amber-300'
-                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  {val === 0 ? 'All' : `${val} ⭐`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Availability Switches */}
-          <div className="flex flex-col gap-2 justify-center">
-            <label className="flex items-center gap-2.5 text-xs text-slate-300 font-semibold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={openNow}
-                onChange={(e) => setOpenNow(e.target.checked)}
-                className="h-4.5 w-4.5 rounded border-slate-800 bg-slate-950 text-amber-500 accent-amber-400 focus:ring-0"
-              />
-              <span className="flex items-center gap-1"><FiClock className="text-emerald-400" /> {translate('Open Now', 'अहिले खुल्ला')}</span>
-            </label>
-            <label className="flex items-center gap-2.5 text-xs text-slate-300 font-semibold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={deliveryOnly}
-                onChange={(e) => setDeliveryOnly(e.target.checked)}
-                className="h-4.5 w-4.5 rounded border-slate-800 bg-slate-950 text-amber-500 accent-amber-400 focus:ring-0"
-              />
-              <span className="flex items-center gap-1"><FiTruck className="text-cyan-400" /> {translate('Delivery Available', 'डेलिभरी उपलब्ध')}</span>
-            </label>
-          </div>
-
-          {/* Sort By */}
-          <div className="space-y-2">
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-wide">{translate('Sort results by', 'क्रमबद्ध गर्नुहोस्')}</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs text-slate-300 outline-none focus:border-amber-400"
-            >
-              <option value="popular">{translate('Top Rated (Popular)', 'लोकप्रियता')}</option>
-              <option value="distance">{translate('Proximity (Distance)', 'दुरी')}</option>
-              <option value="newest">{translate('Recency (New)', 'नयाँ प्रविष्टि')}</option>
-            </select>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Categories Horizontal Bar */}
-      <div className="mt-8 overflow-x-auto pb-3 scrollbar-hide">
-        <div className="flex gap-3">
-          {categories.map((cat) => (
-            <button
-              key={cat.name}
-              onClick={() => setSelectedCategory(cat.name)}
-              className={`flex items-center gap-2 rounded-2xl px-5 py-2.5 text-xs font-bold whitespace-nowrap transition border ${
-                selectedCategory === cat.name
-                  ? 'border-amber-400 bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/10'
-                  : 'border-slate-800 bg-slate-900/60 text-slate-350 hover:bg-slate-800'
-              }`}
-            >
-              <span className="text-sm">{cat.icon}</span>
-              <span>{translate(cat.name, cat.name)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 4. AI recommendations (Authenticated Customer Shelf) */}
-      {user && (aiRecs.businesses.length > 0 || aiRecs.products.length > 0) && (
-        <section className="mt-8 rounded-3xl border border-indigo-500/15 bg-indigo-500/5 p-5 sm:p-6">
-          <div className="flex items-center gap-2 text-indigo-400">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500/20 text-xs">✨</span>
-            <h3 className="text-sm font-bold uppercase tracking-widest">{translate('AI recommendations for you', 'तपाईंका लागि एआई सुझावहरू')}</h3>
-          </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {aiRecs.businesses.map(b => (
-              <div
-                key={b._id}
-                onClick={() => onOpenBusiness(b._id)}
-                className="flex items-center gap-3 rounded-2xl border border-slate-850 bg-slate-950/60 p-3 hover:border-indigo-550/30 cursor-pointer transition hover:-translate-y-px"
-              >
-                <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg font-bold">
-                  {safeName(b).charAt(0)}
+            {/* Countdown Box */}
+            <div className="flex items-center justify-center lg:justify-end">
+              <div className="relative w-full max-w-[280px] overflow-hidden rounded-[20px] bg-black/45 px-5 py-4 text-center border border-white/10 backdrop-blur-md">
+                <div className="mb-3 flex items-center justify-center gap-1.5 text-center text-[#F2B71D]">
+                  <FiClock className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em]">{translate('ENDS IN', 'बाँकी समय')}</span>
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-200 truncate max-w-[150px]">{b.name}</h4>
-                  <p className="text-[10px] text-slate-450">{b.category} • {b.location}</p>
+
+                <div className="mb-2 flex items-center justify-center gap-3 font-mono text-[2.2rem] font-extrabold tracking-tight text-white">
+                  <span>{hr || '05'}</span>
+                  <span className="text-[#F2B71D] animate-pulse">:</span>
+                  <span>{min || '40'}</span>
+                  <span className="text-[#F2B71D] animate-pulse">:</span>
+                  <span>{sec || '04'}</span>
                 </div>
-                <div className="ml-auto text-right">
-                  <span className="text-[10px] font-bold text-amber-400">★ {b.rating}</span>
+
+                <div className="mt-3 flex justify-between px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-gray-400">
+                  <span>Hours</span>
+                  <span>Min</span>
+                  <span>Sec</span>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
         </section>
-      )}
 
-      {/* 5. Marketplace Grids */}
-      <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_320px]">
-        {/* Left Column: Businesses grid */}
-        <section className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-extrabold text-white sm:text-2xl">{translate('Featured Businesses', 'प्रमुख पसलहरू')}</h3>
-            <span className="text-xs text-slate-400">{filteredBizs.length} {translate('shops found', 'पसलहरू फेला परे')}</span>
+        {/* Search & Filters Controls */}
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1 flex items-center bg-white border border-[#F0EAD6] rounded-full px-3 py-1.5 shadow-sm">
+            <FiSearch className="text-gray-400 h-5 w-5 ml-2 mr-2" />
+            <input
+              type="text"
+              placeholder={translate('Search stores, products, services...', 'पसल, उत्पादन, वा सेवा खोज्नुहोस्...')}
+              value={searchQuery}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setSearchQuery(nextValue);
+                setSearchTrigger(nextValue);
+                setShowSuggestions(Boolean(nextValue.trim()));
+              }}
+              onFocus={() => setShowSuggestions(Boolean(searchQuery.trim()))}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  triggerSearch(searchQuery);
+                }
+              }}
+              className="w-full bg-transparent py-2 text-sm text-[#0B1A30] placeholder:text-gray-400 outline-none pr-10"
+            />
+            {showSuggestions && searchSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-[18px] border border-[#F0EAD6] bg-white p-2 shadow-xl max-h-64 overflow-y-auto">
+                {searchSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      suggestion.onSelect();
+                      setShowSuggestions(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-gray-600 hover:bg-[#FDFBF7] transition cursor-pointer"
+                  >
+                    <span>
+                      <span className="block font-semibold text-[#0B1A30]">{suggestion.label}</span>
+                      <span className="text-xs text-gray-500">{suggestion.subtitle}</span>
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-[#E0A615] shrink-0">{suggestion.type}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={() => triggerSearch(searchQuery)}
+                className="bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] font-bold px-5 py-2 rounded-full flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm transition duration-200"
+              >
+                <FiSearch className="h-4 w-4" />
+                <span>Search</span>
+              </button>
+              <button
+                onClick={handleVoiceSearch}
+                className={`p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-800 transition cursor-pointer ${isListening ? 'animate-pulse bg-[#FFF5D6] text-[#E0A615]' : ''}`}
+                title="Voice Search"
+              >
+                <FiMic className="h-5 w-5" />
+              </button>
+              <button
+                onClick={handleImageSearch}
+                className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-800 transition cursor-pointer"
+                title="Gift Search"
+              >
+                <FiGift className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
-          {filteredBizs.length === 0 ? (
-            <div className="rounded-3xl border border-slate-850 bg-slate-900/20 py-16 text-center text-slate-400">
-              <FiClock className="mx-auto h-8 w-8 text-slate-600" />
-              <p className="mt-3 text-sm">{translate('No businesses match your active filter settings right now.', 'हालका फिल्टरमा कुनै पसल मेल खाँदैन।')}</p>
-              <p className="mt-2 text-xs text-slate-500">{translate('Try a broader search or reset the filters to browse the market.', 'थोरै ठूलो खोज वा फिल्टर रीसेट गरेर बजार हेर्नुहोस्।')}</p>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center justify-center gap-2 rounded-full border border-[#F0EAD6] px-5 py-3 text-sm font-semibold transition cursor-pointer shrink-0 ${
+              showFilters ? 'bg-[#FFF5D6] text-[#0B1A30] border-[#F2B71D]' : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FiSliders className="h-4 w-4 text-gray-600" />
+            <span>{translate('Filters', 'फिल्टरहरू')}</span>
+          </button>
+        </div>
+
+        {showFilters && (
+          <div className="mb-6 grid gap-4 rounded-[20px] border border-[#F0EAD6] bg-white p-4 shadow-sm sm:grid-cols-2 md:grid-cols-4">
+            <div className="space-y-2">
+              <label className="flex justify-between text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                <span>{translate('Distance limit', 'दुरीको सीमा')}</span>
+                <span className="text-[#E0A615]">{distanceFilter} km</span>
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={distanceFilter}
+                onChange={(e) => setDistanceFilter(parseInt(e.target.value))}
+                className="h-1.5 w-full cursor-pointer accent-[#F2B71D]"
+              />
             </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {filteredBizs.map((biz) => (
-                <article
-                  key={biz._id}
-                  onClick={() => onOpenBusiness(biz._id)}
-                  className="group relative flex flex-col justify-between overflow-hidden rounded-[24px] border border-slate-800/80 bg-slate-900/40 p-4 transition hover:border-slate-700/80 hover:bg-slate-900/80 cursor-pointer"
+
+            <div className="space-y-2">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-600">{translate('Minimum Rating', 'न्यूनतम रेटिङ')}</span>
+              <div className="flex flex-wrap gap-1">
+                {[0, 3, 4, 4.5].map((val) => (
+                  <button
+                    key={val}
+                    onClick={() => setMinRating(val)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition border cursor-pointer ${
+                      minRating === val
+                        ? 'border-[#F2B71D] bg-[#FFF5D6] text-[#0B1A30]'
+                        : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {val === 0 ? 'All' : `${val} ⭐`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col justify-center gap-2">
+              <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={openNow}
+                  onChange={(e) => setOpenNow(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-[#F2B71D] accent-[#F2B71D]"
+                />
+                <span className="flex items-center gap-1"><FiClock className="h-3.5 w-3.5 text-emerald-500" /> {translate('Open Now', 'अहिले खुल्ला')}</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deliveryOnly}
+                  onChange={(e) => setDeliveryOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-[#F2B71D] accent-[#F2B71D]"
+                />
+                <span className="flex items-center gap-1"><FiTruck className="h-3.5 w-3.5 text-[#F2B71D]" /> {translate('Delivery Available', 'होम डेलिभरी')}</span>
+              </label>
+            </div>
+
+            <div className="space-y-2">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-600">{translate('Sort By', 'क्रमबद्ध गर्नुहोस्')}</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white p-2 text-xs font-medium outline-none"
+              >
+                <option value="popular">{translate('Most Popular', 'लोकप्रिय')}</option>
+                <option value="distance">{translate('Nearest Distance', 'नजिकको दुरी')}</option>
+                <option value="newest">{translate('Newest Listings', 'नयाँ थपिएको')}</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Categories Horizontal Row */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between gap-4 overflow-x-auto pb-3 scrollbar-thin">
+            <div className="flex gap-2">
+              {categories.map((cat) => {
+                const isActive = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+                return (
+                  <button
+                    key={cat.name}
+                    onClick={() => setSelectedCategory(cat.name)}
+                    className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-xs font-bold transition whitespace-nowrap cursor-pointer border ${
+                      isActive
+                        ? 'bg-[#F2B71D] text-[#0B1A30] border-[#F2B71D] shadow-sm'
+                        : 'bg-white text-[#0B1A30] border-[#F0EAD6] hover:bg-gray-50'
+                    }`}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{translate(cat.name, cat.name)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* AI Recommendations Card Header + Grid */}
+        {user && (aiRecs.businesses.length > 0 || aiRecs.products.length > 0) && (
+          <section className="mb-8 overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm">
+            <div className="bg-[#0B1A30] px-5 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🤖</span>
+                <div>
+                  <h3 className="text-base font-bold tracking-tight text-white">{translate('AI Business Recommendations', 'एआई व्यवसाय सुझावहरू')}</h3>
+                  <p className="text-[11px] text-[#94A3B8]">{translate('Discover the best local businesses near you, based on your interests and location', 'तपाईंको रुचि र स्थानमा आधारित उत्तम स्थानीय व्यवसायहरू पत्ता लगाउनुहोस्।')}</p>
+                </div>
+              </div>
+              <button className="rounded-full bg-[#F2B71D] hover:bg-[#E0A615] px-4 py-1.5 text-xs font-bold text-[#0B1A30] transition cursor-pointer">
+                {translate('View All', 'सबै हेर्नुहोस्')} &rarr;
+              </button>
+            </div>
+
+            <div className="p-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {aiRecs.businesses.slice(0, 3).map((b) => (
+                <div
+                  key={b._id}
+                  onClick={() => onOpenBusiness(b._id)}
+                  className="group cursor-pointer overflow-hidden rounded-[16px] border border-gray-100 bg-white shadow-sm hover:shadow-md transition duration-200"
                 >
-                  <div>
-                    {/* Visual Banner */}
-                    <div className="relative mb-3 h-28 w-full overflow-hidden rounded-xl bg-slate-950">
+                  <div className="relative h-40 bg-gray-50">
+                    {b.imageUrl ? (
+                      <img src={b.imageUrl} alt={b.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">{safeName(b).charAt(0)}</div>
+                    )}
+                    {b.verified === 'verified' && (
+                      <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-[#F2B71D] px-2 py-0.5 text-[9px] font-bold uppercase text-[#0B1A30]">
+                        Verified
+                      </span>
+                    )}
+                    <button className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition">
+                      <FiHeart className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-bold text-[#0B1A30]">{b.name}</h4>
+                        <div className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+                          <FiStar className="h-3 w-3 fill-[#F2B71D] text-[#F2B71D]" />
+                          <span className="font-bold text-[#0B1A30]">{b.rating || '4.8'}</span>
+                          <span>({b.reviewCount || 120} reviews)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
+                      <span className="font-semibold text-[#E0A615] bg-[#FFF5D6] px-2 py-0.5 rounded-md">{b.category}</span>
+                      <span className="flex items-center gap-1"><FiMapPin className="h-3 w-3 text-[#F2B71D]" /> {b.distance || '0.5 km'}</span>
+                    </div>
+
+                    <p className="mt-2 text-xs text-gray-600 line-clamp-1">{b.description || 'Fresh products, best quality'}</p>
+
+                    <button className="mt-3.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] py-2 text-xs font-bold text-[#0B1A30] transition">
+                      <FiHome className="h-3.5 w-3.5" />
+                      <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Main Content Columns: Featured Businesses + Hot Deals */}
+        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+          
+          {/* Featured Businesses */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-lg font-bold tracking-tight text-[#0B1A30]">{translate('Featured Businesses', 'प्रमुख पसलहरू')}</h3>
+              <span className="text-xs text-gray-500">{filteredBizs.length} {translate('shops found', 'पसलहरू फेला परे')}</span>
+            </div>
+
+            {filteredBizs.length === 0 ? (
+              <div className="rounded-[20px] border border-[#F0EAD6] bg-white py-12 text-center text-gray-600 shadow-sm">
+                <FiClock className="mx-auto h-8 w-8 text-gray-400" />
+                <p className="mt-3 text-sm">{translate('No businesses match your active filter settings right now.', 'हालका फिल्टरमा कुनै पसल मेल खाँदैन।')}</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {filteredBizs.map((biz) => (
+                  <article
+                    key={biz._id}
+                    onClick={() => onOpenBusiness(biz._id)}
+                    className="group cursor-pointer overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm hover:shadow-md transition duration-200"
+                  >
+                    <div className="relative h-40 bg-gray-50">
                       {biz.imageUrl ? (
-                        <img src={biz.imageUrl} alt={biz.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                        <img src={biz.imageUrl} alt={biz.name} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="h-full w-full bg-gradient-to-br from-amber-400/20 to-emerald-500/20 flex items-center justify-center text-slate-500 text-3xl font-black">
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">
                           {safeName(biz).charAt(0)}
                         </div>
                       )}
                       {biz.verified === 'verified' && (
-                        <span className="absolute top-2 left-2 rounded-full bg-cyan-500/10 border border-cyan-400/30 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300 backdrop-blur-md">
-                          ✓ Verified
+                        <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-[#F2B71D] px-2 py-0.5 text-[9px] font-bold uppercase text-[#0B1A30]">
+                          Verified
                         </span>
                       )}
-                      <div className="absolute top-2 right-2 flex flex-col gap-1">
-                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${getBusinessAvailabilityMeta(biz).isOpen ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' : 'border-rose-400/30 bg-rose-500/10 text-rose-300'}`}>
+                      <button className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition">
+                        <FiHeart className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="truncate text-sm font-bold text-[#0B1A30]">{biz.name}</h4>
+                          <span className="inline-block mt-1 text-[10px] font-semibold text-[#E0A615] bg-[#FFF5D6] px-2 py-0.5 rounded-md">{biz.category}</span>
+                        </div>
+                        <div className="inline-flex items-center gap-1 rounded-full bg-[#FFF5D6] px-2 py-0.5 text-xs font-bold text-[#E0A615]">
+                          <FiStar className="h-3.5 w-3.5 fill-[#F2B71D] text-[#F2B71D]" /> 
+                          <span>{biz.rating || '4.6'}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 flex items-center justify-between text-[11px] text-gray-500">
+                        <span className="flex items-center gap-1"><FiMapPin className="h-3.5 w-3.5 text-[#F2B71D]" /> {biz.location}</span>
+                        <span>{biz.distance || '0.5 km'}</span>
+                      </div>
+
+                      <p className="mt-2 text-xs text-gray-600 line-clamp-1">{biz.description || 'Delicious food, great ambiance'}</p>
+
+                      <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${getBusinessAvailabilityMeta(biz).isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {getBusinessAvailabilityMeta(biz).isOpen ? 'Open' : 'Closed'}
                         </span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${getBusinessAvailabilityMeta(biz).deliveryAvailable ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-300' : 'border-slate-500/30 bg-slate-700/50 text-slate-300'}`}>
-                          {getBusinessAvailabilityMeta(biz).deliveryAvailable ? `Delivery ${getBusinessAvailabilityMeta(biz).deliveryRadiusKm}km` : 'No Delivery'}
-                        </span>
-                      </div>
-                      <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-350">
-                        {biz.hours}
-                      </span>
-                    </div>
-
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-bold text-white group-hover:text-amber-400 transition">{biz.name}</h4>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">{biz.category}</p>
-                      </div>
-                      <div className="flex items-center gap-1 rounded-lg bg-slate-950/50 px-2 py-1 text-xs font-semibold text-amber-400">
-                        <FiStar className="fill-amber-400 text-amber-400" />
-                        <span>{biz.rating}</span>
+                        <button className="inline-flex items-center gap-1 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] px-3.5 py-1.5 text-xs font-bold text-[#0B1A30] transition">
+                          <FiHome className="h-3.5 w-3.5" />
+                          <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
+                        </button>
                       </div>
                     </div>
-
-                    <p className="mt-2 line-clamp-2 text-xs text-slate-400 leading-relaxed">{biz.description}</p>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between border-t border-slate-850 pt-3">
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
-                      <FiMapPin className="text-emerald-400" />
-                      {biz.location}
-                    </span>
-                    <span className="text-[11px] font-semibold text-slate-400 bg-slate-950/40 px-2.5 py-1 rounded-lg">
-                      {biz.distance || 'Nearby'}
-                    </span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Right Column: Trending / Discounted Products */}
-        <aside className="space-y-6">
-          <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-            <FiShoppingBag className="text-amber-400" />
-            <span>{translate('Hot Deals', 'लोकप्रिय सामान')}</span>
-          </h3>
-
-          <div className="space-y-3">
-            {safeProducts.length === 0 ? (
-              <div className="rounded-2xl border border-slate-800/80 bg-slate-900/30 p-4 text-sm text-slate-400">
-                {translate('Product listings will appear here as soon as sellers add them.', 'बिक्रेताहरूले सामान थप गरेपछि यहाँ सूची देखिनेछ।')}
+                  </article>
+                ))}
               </div>
-            ) : safeProducts.slice(0, 4).map((p) => {
-              const discountedPrice = safeNumber(p.price) - (safeNumber(p.price) * safeNumber(p.discount)) / 100;
-              return (
-                <div
-                  key={p._id}
-                  className="group relative flex gap-3.5 rounded-2xl border border-slate-800/80 bg-slate-900/30 p-3 hover:border-slate-700/80"
-                >
-                  <div className="h-16 w-16 flex-shrink-0 rounded-xl bg-slate-950 overflow-hidden flex items-center justify-center">
-                    {p.images && p.images[0] ? (
-                      <img src={p.images[0]} alt={p.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-lg">🛍️</span>
-                    )}
-                  </div>
+            )}
+          </section>
 
-                  <div className="flex-1 min-w-0">
-                    <h4
-                      onClick={() => onOpenProduct(p._id)}
-                      className="text-xs font-bold text-slate-200 hover:text-amber-400 transition cursor-pointer truncate"
-                    >
-                      {p.name}
-                    </h4>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">{p.brand}</p>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <span className="text-xs font-bold text-amber-300">{displayPrice(discountedPrice)}</span>
-                      {p.discount > 0 && (
-                        <span className="text-[10px] text-slate-500 line-through">{displayPrice(p.price)}</span>
+          {/* Hot Deals Sidebar */}
+          <aside className="rounded-[20px] border border-[#F0EAD6] bg-white p-5 shadow-sm h-fit">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="flex items-center gap-1.5 text-base font-bold tracking-tight text-[#0B1A30]">
+                <span className="text-xl">🔥</span>
+                <span>{translate('Hot Deals', 'लोकप्रिय सामान')}</span>
+              </h3>
+              <button className="text-xs font-bold text-[#E0A615] hover:text-[#0B1A30] transition cursor-pointer">{translate('View All', 'सबै हेर्नुहोस्')} &rarr;</button>
+            </div>
+
+            <div className="space-y-3">
+              {safeProducts.slice(0, 3).map((p) => {
+                const discountedPrice = safeNumber(p.price) - (safeNumber(p.price) * safeNumber(p.discount)) / 100;
+                return (
+                  <div key={p._id} className="flex items-center gap-3 rounded-[16px] border border-gray-100 bg-[#FDFBF7] p-2.5 transition hover:bg-[#FFF5D6]">
+                    <div className="h-16 w-16 overflow-hidden rounded-lg bg-gray-100 shrink-0">
+                      {p.images && p.images[0] ? (
+                        <img src={p.images[0]} alt={p.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xl bg-[#FFF5D6]">🛍️</div>
                       )}
                     </div>
-                    <div className={`mt-1 text-[10px] font-bold ${p.stock > 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
-                      {p.stock > 0 ? `Stock: ${p.stock}` : translate('Out of stock', 'स्टक छैन')}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="truncate text-xs font-bold text-[#0B1A30]">{p.name}</h4>
+                          <p className="mt-0.5 text-[10px] text-gray-500">{p.brand || 'Local Brand'}</p>
+                        </div>
+                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700 whitespace-nowrap">{p.discount || 20}% OFF</span>
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-1.5 text-xs">
+                        <span className="font-bold text-[#E0A615]">{displayPrice(discountedPrice)}</span>
+                        <span className="text-[10px] text-gray-400 line-through">{displayPrice(p.price)}</span>
+                      </div>
                     </div>
+
+                    <button
+                      onClick={() => onOpenProduct(p._id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] shrink-0 font-bold transition cursor-pointer"
+                    >
+                      &rarr;
+                    </button>
                   </div>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
 
-                  <button
-                    onClick={() => {
-                      onAddToCart({ id: p._id, name: p.name, price: discountedPrice, quantity: 1, seller: p.brand, stock: p.stock });
-                      Swal.fire({
-                        icon: 'success',
-                        title: translate('Added', 'थपियो'),
-                        text: `${p.name} in cart.`,
-                        timer: 1000,
-                        showConfirmButton: false,
-                      });
-                    }}
-                    disabled={p.stock <= 0}
-                    className={`absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full ${p.stock > 0 ? 'bg-amber-400 text-slate-950 hover:scale-105 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'} font-bold text-sm`}
-                    title={p.stock > 0 ? 'Add to Cart' : translate('Out of stock', 'स्टक छैन')}
-                  >
-                    +
-                  </button>
+        {/* Why Choose & stats widgets */}
+        <div className="mt-12 grid gap-6 md:grid-cols-2">
+          {/* Why Choose UdyogConnect */}
+          <section className="rounded-[20px] border border-[#F0EAD6] bg-[#FFFBF0] p-6 shadow-sm">
+            <div className="flex items-center gap-3.5 mb-5">
+              <span className="text-3xl">💡</span>
+              <div>
+                <h3 className="text-base font-bold text-[#0B1A30]">{translate('Why Choose UdyogConnect?', 'UdyogConnect किन रोज्ने?')}</h3>
+                <p className="text-xs text-gray-500">Smart • Trusted • Local</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3.5 sm:grid-cols-2">
+              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
+                <span className="text-xl">🛡️</span>
+                <div>
+                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Verified Businesses', 'प्रमाणित पसलहरू')}</h4>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Trust only verified local shops', 'प्रमाणित पसलहरूमा विश्वास गर्नुहोस्')}</p>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
+                <span className="text-xl">🤝</span>
+                <div>
+                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Local Support', 'स्थानीय समर्थन')}</h4>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Support your local economy', 'आफ्नो स्थानीय अर्थतन्त्रलाई टेवा दिनुहोस्')}</p>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
+                <span className="text-xl">🏷️</span>
+                <div>
+                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Best Deals', 'सर्वोत्तम सौदे')}</h4>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Exclusive offers just for you', 'तपाईंका लागि मात्रै विशेष अफरहरू')}</p>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
+                <span className="text-xl">🚀</span>
+                <div>
+                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Fast & Easy', 'द्रुत र सहज')}</h4>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Shop, order and track easily', 'सजिलै किनमेल गर्नुहोस् र ट्र्याक गर्नुहोस्')}</p>
+                </div>
+              </div>
+            </div>
+          </section>
 
-          {/* Sell promo card */}
-          <div className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-slate-950 p-5 text-left">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">UdyogConnect Business</span>
-            <h4 className="mt-1 text-sm font-bold text-white">{translate('Run a Small Shop?', 'आफ्नो व्यवसाय छ?')}</h4>
-            <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-              {translate('Register your business, upload legal document proof, verify your location, and list products/services online today.', 'आफ्नो व्यवसाय दर्ता गर्नुहोस्, पसलका कागजातहरू हाल्नुहोस् र आजै अनलाइन बिक्री सुरु गर्नुहोस्।')}
-            </p>
+          {/* Stats & Explore */}
+          <section className="rounded-[20px] border border-[#F0EAD6] bg-[#FFFBF0] p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-3.5 mb-4">
+                <span className="text-3xl">📍</span>
+                <div>
+                  <h3 className="text-base font-bold text-[#0B1A30]">{translate('My Local Business', 'मेरो स्थानीय व्यवसाय')}</h3>
+                  <p className="text-xs text-gray-500">{translate('Find businesses near your location', 'आफ्नो स्थान नजिकैका पसलहरू खोज्नुहोस्')}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 grid-cols-3 mb-5">
+                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
+                  <p className="text-lg font-bold text-[#E0A615]">1,250+</p>
+                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Local Businesses</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
+                  <p className="text-lg font-bold text-[#E0A615]">50K+</p>
+                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Happy Customers</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
+                  <p className="text-lg font-bold text-[#E0A615]">5+</p>
+                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Cities Covered</p>
+                </div>
+              </div>
+            </div>
+
             <button
-              onClick={() => onOpenDashboard('dashboard')}
-              className="mt-4 flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white"
+              onClick={() => setSelectedCategory('All')}
+              className="w-full bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] font-bold py-3.5 px-6 rounded-full flex items-center justify-center gap-2 cursor-pointer transition"
             >
-              <span>{translate('Get Started', 'सुरु गर्नुहोस्')}</span>
-              <FiChevronRight />
+              <span>Explore Nearby</span>
+              <span>&rarr;</span>
             </button>
-          </div>
-        </aside>
+          </section>
+        </div>
+
       </div>
     </div>
   );

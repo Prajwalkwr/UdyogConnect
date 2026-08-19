@@ -55,6 +55,9 @@ function App() {
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
 
+  // Dashboard active tab (driven from sidebar)
+  const [dashboardTab, setDashboardTab] = useState(null);
+
   // Sync token, notifications, and Socket.IO connection
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -181,6 +184,16 @@ function App() {
   const handleOpenDashboard = (view) => {
     if (view === 'home') navigate('/');
     else if (view === 'checkout') navigate('/checkout');
+    else if (view === 'wishlist') {
+      if (!user) {
+        setShowAuthModal(true);
+        return;
+      }
+      setDashboardTab('wishlist');
+      if (user.role === 'admin') navigate('/admin');
+      else if (user.role === 'seller') navigate('/business');
+      else navigate('/customer');
+    }
     else if (view === 'dashboard') {
       if (!user) {
         setShowAuthModal(true);
@@ -218,52 +231,64 @@ function App() {
     };
   }, [dispatch, location.pathname, navigate]);
 
+  // Check if we are on a dashboard route
+  const isDashboardRoute = ['/business', '/customer', '/admin'].some((p) =>
+    location.pathname.startsWith(p)
+  );
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-amber-400 selection:text-slate-950 flex flex-col justify-between">
-      <div>
-        {/* Sticky Header Navbar */}
-        <Navbar
-          user={user}
-          cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-          onOpenAuth={() => setShowAuthModal(true)}
-          onLogout={handleLogout}
-          lang={lang}
-          setLang={setLang}
-          onOpenDashboard={handleOpenDashboard}
-          onOpenChat={() => {
-            // Triggers floating chat visibility in children automatically
+    <div style={{ minHeight: '100vh', background: '#F5F6FA', fontFamily: "'Inter', sans-serif" }}>
+      {/* Navbar / Sidebar — renders sidebar on dashboard routes, top bar otherwise */}
+      <Navbar
+        user={user}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onLogout={handleLogout}
+        lang={lang}
+        setLang={setLang}
+        onOpenDashboard={handleOpenDashboard}
+        onOpenChat={() => {}}
+        notifications={notifications}
+        onClearNotifications={handleClearNotifications}
+        activeTab={dashboardTab}
+        onTabChange={setDashboardTab}
+        sidebarCounts={{
+          productCount: products.length,
+          orderCount: 0,
+          serviceCount: 0,
+          cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
+        }}
+      />
+
+      {/* Global Modal Windows */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={handleAuthSuccess}
+        lang={lang}
+      />
+
+      {(selectedBusinessId || selectedProductId) && (
+        <DetailsModal
+          businessId={selectedBusinessId}
+          productId={selectedProductId}
+          onClose={() => {
+            setSelectedBusinessId(null);
+            setSelectedProductId(null);
+            if (location.pathname.startsWith('/product/')) {
+              navigate('/');
+            }
           }}
-          notifications={notifications}
-          onClearNotifications={handleClearNotifications}
-        />
-
-        {/* Global Modal Windows */}
-        <AuthModal
-          isOpen={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
-          onAuthSuccess={handleAuthSuccess}
+          onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
           lang={lang}
+          user={user}
         />
+      )}
 
-        {(selectedBusinessId || selectedProductId) && (
-          <DetailsModal
-            businessId={selectedBusinessId}
-            productId={selectedProductId}
-            onClose={() => {
-              setSelectedBusinessId(null);
-              setSelectedProductId(null);
-              if (location.pathname.startsWith('/product/')) {
-                navigate('/');
-              }
-            }}
-            onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
-            lang={lang}
-            user={user}
-          />
-        )}
-
-        {/* Main Routes */}
-        <main className="pb-16">
+      {/* Main Routes */}
+      <main className={isDashboardRoute && user ? 'app-content' : ''}>
+        {isDashboardRoute && user && <div style={{ height: 56 }} />}
+        <div className={isDashboardRoute && user ? 'content-body' : ''}>
           <Routes>
             <Route
               path="/"
@@ -324,30 +349,41 @@ function App() {
                   user={user}
                   lang={lang}
                   onOpenProduct={(id) => setSelectedProductId(id)}
+                  activeTab={dashboardTab}
+                  onTabChange={setDashboardTab}
                 />
               }
             />
 
             <Route
               path="/business"
-              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} />}
+              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} notifications={notifications} />}
             />
 
-            <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} />} />
+            <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} />} />
 
             {/* Rider role temporarily removed */}
             <Route path="/payment-success" element={<PaymentSuccess />} />
           </Routes>
-        </main>
-      </div>
+        </div>
+      </main>
 
       {/* Floating Chat & AI system */}
       <ChatAndAI user={user} lang={lang} />
 
-      {/* Footer copyright section */}
-      <footer className="border-t border-slate-900 bg-slate-950/40 py-6 text-center text-xs text-slate-500">
-        UdyogConnect © 2026 · For local small businesses and customers in Nepal.
-      </footer>
+      {/* Footer — only on non-dashboard pages */}
+      {!isDashboardRoute && (
+        <footer style={{
+          borderTop: '1px solid #E5E7EB',
+          background: '#FFFFFF',
+          padding: '24px 0',
+          textAlign: 'center',
+          fontSize: 13,
+          color: '#9CA3AF',
+        }}>
+          UdyogConnect © 2026 · For local small businesses and customers in Nepal.
+        </footer>
+      )}
     </div>
   );
 }

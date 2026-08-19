@@ -713,23 +713,52 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
 });
 
 const authProfileUpload = upload.single('profilePhoto');
+const parseMaybeJson = (value, fallback) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'object') return value;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (err) {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+
+const toSafeUser = (user) => {
+  if (!user) return null;
+  const plain = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+  const { password, resetOtp, verificationOtp, ...safeUser } = plain;
+  return safeUser;
+};
+
 app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, res) => {
   try {
     const UserMDL = User();
     const user = await UserMDL.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'Profile not found.' });
 
-    if (req.body.name) user.name = req.body.name;
-    if (req.body.phone) user.phone = req.body.phone;
+    const updates = {};
+    if (req.body.name) updates.name = req.body.name;
+    if (req.body.phone !== undefined) updates.phone = req.body.phone;
+    if (req.body.email) updates.email = String(req.body.email).trim().toLowerCase();
     if (req.body.twoFactorEnabled !== undefined) {
-      user.twoFactorEnabled = req.body.twoFactorEnabled === 'true' || req.body.twoFactorEnabled === true;
+      updates.twoFactorEnabled = req.body.twoFactorEnabled === 'true' || req.body.twoFactorEnabled === true;
     }
-    if (req.body.addresses) {
-      try {
-        user.addresses = JSON.parse(req.body.addresses);
-      } catch (err) {
-        user.addresses = [];
-      }
+    if (req.body.addresses !== undefined) {
+      updates.addresses = parseMaybeJson(req.body.addresses, []);
+    }
+    if (req.body.wishlist !== undefined) {
+      const nextWishlist = parseMaybeJson(req.body.wishlist, user.wishlist || { products: [], services: [], businesses: [] });
+      updates.wishlist = {
+        products: Array.isArray(nextWishlist.products) ? nextWishlist.products : [],
+        services: Array.isArray(nextWishlist.services) ? nextWishlist.services : [],
+        businesses: Array.isArray(nextWishlist.businesses) ? nextWishlist.businesses : [],
+      };
+    }
+    if (req.body.paymentMethods !== undefined) {
+      updates.paymentMethods = parseMaybeJson(req.body.paymentMethods, user.paymentMethods || []);
     }
 
     if (req.file) {
@@ -741,16 +770,44 @@ app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, r
             await cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
           }
         }
-        user.profilePicture = photoUrl;
+        updates.profilePicture = photoUrl;
       }
     }
 
-    await user.save();
-    const { password, ...safeUser } = user.toObject();
-    res.json({ success: true, user: safeUser });
+    const updated = await UserMDL.findByIdAndUpdate(req.user.id, updates, { new: true });
+    res.json({ success: true, user: toSafeUser(updated) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error updating profile.' });
+  }
+});
+
+app.put('/api/auth/password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required.' });
+    }
+    if (newPassword.length < 8 || !/\d/.test(newPassword) || !/[a-zA-Z]/.test(newPassword)) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters and include letters and numbers.' });
+    }
+    if (confirmPassword && confirmPassword !== newPassword) {
+      return res.status(400).json({ message: 'Password confirmation does not match.' });
+    }
+
+    const UserMDL = User();
+    const user = await UserMDL.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'Profile not found.' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(400).json({ message: 'Current password is incorrect.' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await UserMDL.findByIdAndUpdate(req.user.id, { password: hashedPassword });
+    res.json({ success: true, message: 'Password updated.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update password.' });
   }
 });
 
@@ -1619,6 +1676,34 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
   }
 });
 
+app.put('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
+  try {
+    const OrderMDL = Order();
+    const order = await OrderMDL.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    if (req.user.role !== 'admin' && String(order.customerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'You can only cancel your own orders.' });
+    }
+    if (!['placed', 'accepted', 'pending'].includes(order.status)) {
+      return res.status(400).json({ message: 'This order can no longer be cancelled.' });
+    }
+
+    const trackingHistory = [...(order.trackingHistory || []), {
+      status: 'cancelled',
+      time: new Date().toISOString(),
+      note: 'Cancelled by customer.',
+    }];
+    const updated = await OrderMDL.findByIdAndUpdate(
+      req.params.id,
+      { status: 'cancelled', trackingHistory },
+      { new: true }
+    );
+    res.json({ success: true, order: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to cancel order.' });
+  }
+});
+
 app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status, note } = req.body;
@@ -1922,6 +2007,51 @@ app.put('/api/admin/support-tickets/:id', authenticateToken, requireRole(['admin
   }
 });
 
+app.get('/api/reviews/mine', authenticateToken, async (req, res) => {
+  try {
+    const ReviewMDL = Review();
+    const reviews = await ReviewMDL.find({ customerId: req.user.id });
+    const sorted = [...reviews].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    res.json(sorted);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to load reviews.' });
+  }
+});
+
+app.put('/api/reviews/:id', authenticateToken, async (req, res) => {
+  try {
+    const ReviewMDL = Review();
+    const review = await ReviewMDL.findById(req.params.id);
+    if (!review) return res.status(404).json({ message: 'Review not found.' });
+    if (String(review.customerId) !== String(req.user.id) && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'You can only edit your own reviews.' });
+    }
+
+    const updates = {};
+    if (req.body.rating !== undefined) updates.rating = parseInt(req.body.rating, 10);
+    if (req.body.comment !== undefined) updates.comment = String(req.body.comment).trim();
+    const updated = await ReviewMDL.findByIdAndUpdate(req.params.id, updates, { new: true });
+    res.json({ success: true, review: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update review.' });
+  }
+});
+
+app.delete('/api/reviews/:id', authenticateToken, async (req, res) => {
+  try {
+    const ReviewMDL = Review();
+    const review = await ReviewMDL.findById(req.params.id);
+    if (!review) return res.status(404).json({ message: 'Review not found.' });
+    if (String(review.customerId) !== String(req.user.id) && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'You can only delete your own reviews.' });
+    }
+    await ReviewMDL.deleteOne({ _id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete review.' });
+  }
+});
+
 app.post('/api/reviews', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     const { businessId, targetId, targetType, rating, comment } = req.body;
@@ -2151,40 +2281,78 @@ app.get('/api/ai/recommendations', authenticateToken, async (req, res) => {
   try {
     const BusinessMDL = Business();
     const ProductMDL = Product();
+    const ServiceMDL = Service();
     const OrderMDL = Order();
 
-    const businesses = await BusinessMDL.find({ verified: 'verified' });
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    const viewedProductIds = String(req.query.viewedProductIds || '').split(',').filter(Boolean);
+    const viewedBusinessIds = String(req.query.viewedBusinessIds || '').split(',').filter(Boolean);
+
+    const allBusinesses = await BusinessMDL.find({});
+    const businesses = allBusinesses.filter((b) => b.verified === 'verified' || b.verified === 'approved' || !b.verified);
     const products = await ProductMDL.find({});
+    const services = await ServiceMDL.find({});
     const myOrders = await OrderMDL.find({ customerId: req.user.id });
 
-    // Recommendation logic:
-    // 1. If customer bought from category, recommend products in same category
-    // 2. Recommend highest rated businesses
-    // 3. Match distance (fallback)
+    const withDistance = (list) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return list;
+      return list.map((b) => {
+        const dist = calculateDistance(lat, lng, b.latitude, b.longitude);
+        return { ...b, distanceVal: dist, distance: dist !== null ? `${dist} km` : 'Nearby' };
+      });
+    };
 
-    let recommendedBizs = [...businesses].sort((a, b) => b.rating - a.rating).slice(0, 3);
+    const nearby = withDistance(businesses)
+      .filter((b) => b.distanceVal == null || b.distanceVal <= 15)
+      .sort((a, b) => (a.distanceVal ?? 999) - (b.distanceVal ?? 999))
+      .slice(0, 6);
+
+    const popularNearYou = [...nearby].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6);
+
+    let recommendedBizs = [...businesses].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6);
     let recommendedProds = [];
+    let recommendedServices = services.filter((s) => s.availability !== false).slice(0, 6);
 
-    if (myOrders.length > 0) {
-      const itemsBought = myOrders.flatMap((o) => o.items);
-      if (itemsBought.length > 0) {
-        const matchName = itemsBought[0].name;
-        const matchingProd = products.find((p) => p.name === matchName);
-        if (matchingProd) {
-          recommendedProds = products.filter((p) => p.category === matchingProd.category && p._id !== matchingProd._id).slice(0, 3);
-        }
+    const itemsBought = myOrders.flatMap((o) => o.items || []);
+    if (itemsBought.length > 0) {
+      const matchName = itemsBought[0].name;
+      const matchingProd = products.find((p) => p.name === matchName);
+      if (matchingProd) {
+        recommendedProds = products.filter((p) => p.category === matchingProd.category && p._id !== matchingProd._id).slice(0, 6);
+        recommendedBizs = businesses.filter((b) => b.category === matchingProd.category).slice(0, 6).concat(recommendedBizs).filter((b, i, arr) => arr.findIndex((x) => x._id === b._id) === i).slice(0, 6);
       }
     }
 
     if (recommendedProds.length === 0) {
-      // Recommend products with discounts
-      recommendedProds = products.filter((p) => p.discount > 0).slice(0, 3);
+      recommendedProds = products.filter((p) => p.discount > 0).slice(0, 6);
     }
     if (recommendedProds.length === 0) {
-      recommendedProds = products.slice(0, 3);
+      recommendedProds = products.slice(0, 6);
     }
 
-    res.json({ businesses: recommendedBizs, products: recommendedProds });
+    const viewedProducts = products.filter((p) => viewedProductIds.includes(String(p._id)));
+    const viewedCategories = new Set(viewedProducts.map((p) => p.category).filter(Boolean));
+    const becauseYouViewed = viewedCategories.size
+      ? products.filter((p) => viewedCategories.has(p.category) && !viewedProductIds.includes(String(p._id))).slice(0, 6)
+      : products.slice(0, 6);
+
+    const youMayAlsoLike = products
+      .filter((p) => !recommendedProds.some((r) => r._id === p._id))
+      .slice(0, 6);
+
+    const viewedBusinesses = businesses.filter((b) => viewedBusinessIds.includes(String(b._id)));
+
+    res.json({
+      businesses: recommendedBizs,
+      products: recommendedProds,
+      services: recommendedServices,
+      nearby,
+      popularNearYou,
+      becauseYouViewed,
+      youMayAlsoLike,
+      viewedBusinesses,
+    });
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch recommendations.' });
   }

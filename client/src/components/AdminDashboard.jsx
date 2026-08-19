@@ -4,8 +4,9 @@ import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+import AccountProfileCard from './AccountProfileCard';
 
-export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
+export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTab, onTabChange }) {
   const [analytics, setAnalytics] = useState(null);
   const [businesses, setBusinesses] = useState([]);
   const [users, setUsers] = useState([]);
@@ -18,8 +19,8 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
   const [reviews, setReviews] = useState([]);
   const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
   const [announcementText, setAnnouncementText] = useState('');
+  const currentTab = activeTab || 'dashboard';
 
   // Coupon Form State
   const [couponCode, setCouponCode] = useState('');
@@ -341,108 +342,37 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 text-left">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-        <div>
-          <h2 className="text-2xl font-black text-white sm:text-3xl">{translate('Platform Management', 'प्रशासक ड्यासबोर्ड')}</h2>
-          <p className="text-xs text-slate-400 mt-1">{translate('System compliance monitoring, coupon creation, and sales reports exports.', 'समग्र प्रणाली, कुपन र रिपोर्टहरूको रेखदेख गर्नुहोस्')}</p>
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { title: 'Total Registered Users', value: analytics?.metrics?.totalUsers, icon: <FiUsers className="text-cyan-400" /> },
-          { title: 'System Revenue Volume', value: `Rs. ${analytics?.metrics?.revenue}`, icon: <FiTrendingUp className="text-emerald-400" /> },
-          { title: 'VAT Tax Collected (13%)', value: `Rs. ${analytics?.metrics?.tax}`, icon: <FiCheckCircle className="text-amber-400" /> },
-          { title: 'Disputes (Reported Content)', value: analytics?.metrics?.reportedReviews, icon: <FiFlag className="text-rose-400 animate-pulse" /> },
-        ].map((metric) => (
-          <div key={metric.title} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="text-2xl">{metric.icon}</div>
-            <div className="mt-3 text-2xl font-black text-white">{metric.value}</div>
-            <div className="text-xs text-slate-400 mt-1">{metric.title}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-10 flex flex-col gap-6 lg:flex-row">
-        {/* Nav list controls */}
-        <aside className="w-full lg:w-64 space-y-1.5 shrink-0">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/10 p-2 space-y-1">
-            {[
-              { key: 'dashboard', label: translate('Dashboard', 'ड्यासबोर्ड'), icon: <FiHome /> },
-              { key: 'businesses', label: translate('Business Management', 'व्यवसाय व्यवस्थापन'), icon: <FiBriefcase /> },
-              { key: 'users', label: translate('User Management', 'प्रयोगकर्ता व्यवस्थापन'), icon: <FiUsers /> },
-              { key: 'categories', label: translate('Category Management', 'श्रेणी व्यवस्थापन'), icon: <FiGrid /> },
-              { key: 'coupons', label: translate('Coupons Management', 'कुपन व्यवस्थापन'), icon: <FiTag /> },
-              { key: 'products', label: translate('Product & Service Management', 'उत्पादन र सेवा व्यवस्थापन'), icon: <FiPackage /> },
-              { key: 'orders', label: translate('Order Management', 'अर्डर व्यवस्थापन'), icon: <FiShoppingCart /> },
-              { key: 'reviews', label: translate('Review & Rating Management', 'समीक्षा र रेटिङ व्यवस्थापन'), icon: <FiShield /> },
-              { key: 'reports', label: translate('Reports & Analytics', 'रिपोर्ट र विश्लेषण'), icon: <FiDownload /> },
-              { key: 'announcements', label: translate('Announcements & Notifications', 'घोषणा र सूचनाहरू'), icon: <FiBell /> },
-              { key: 'support', label: translate('Complaints & Support', 'समस्या र सहयोग'), icon: <FiLifeBuoy /> },
-              { key: 'settings', label: translate('Settings', 'सेटिङ'), icon: <FiSettings /> },
-              { key: 'profile', label: translate('Admin Profile', 'प्रशासक प्रोफाइल'), icon: <FiUser /> },
-              { key: 'logout', label: translate('Logout', 'लगआउट'), icon: <FiLogOut /> },
-            ].map((menu) => (
-              <button
-                key={menu.key}
-                onClick={() => {
-                  if (menu.key === 'logout') {
-                    handleAdminLogout();
-                    return;
-                  }
-                  setActiveTab(menu.key);
-                }}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
-                  activeTab === menu.key
-                    ? 'bg-amber-400/10 text-amber-300 border border-amber-400/20'
-                    : 'text-slate-450 hover:bg-slate-900/60 hover:text-white'
-                }`}
-              >
-                {menu.icon}
-                <span>{menu.label}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        {/* Tab content area */}
-        <main className="flex-1 space-y-6">
-          {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-amber-300">
-                      ADMIN DASHBOARD
+    <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
+      {/* Admin Dashboard Content */}
+      <main className="p-4 sm:p-6 text-[#142835]">
+            <div className="mt-10 space-y-6">
+          {currentTab === 'dashboard' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Platform Overview', 'प्लेटफर्म सिंहावलोकन')}</h3>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {[
+                  { label: 'Total Users', value: users.length, icon: '👥' },
+                  { label: 'Businesses', value: businesses.length, icon: '🏪' },
+                  { label: 'Orders', value: orders.length, icon: '🛒' },
+                  { label: 'Reports', value: reviews.filter((r) => r.reported).length, icon: '⚠️' },
+                ].map((card) => (
+                  <div key={card.label} className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl">{card.icon}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Live</span>
                     </div>
-                    <h3 className="mt-3 text-lg font-extrabold text-white">{translate('Control the marketplace from one place', 'बजारलाई एकै ठाउँबाट नियन्त्रण गर्नुहोस्')}</h3>
+                    <div className="mt-6 text-3xl font-black text-white">{card.value}</div>
+                    <div className="mt-1 text-xs text-slate-400">{card.label}</div>
                   </div>
-                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-200">
-                    <div className="font-bold">{user?.name || 'Administrator'}</div>
-                    <div className="mt-1 text-[11px] text-cyan-300/80">{translate('Platform administrator', 'प्लेटफर्म प्रशासक')}</div>
-                  </div>
-                </div>
+                ))}
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-4xl border border-slate-800 bg-slate-900/30 p-5">
-                  <h4 className="text-sm font-bold text-white">{translate('Marketplace Overview', 'बजार अवलोकन')}</h4>
-                  <p className="mt-2 text-xs text-slate-400">{translate('Monitor approvals, users, sales, disputes, and platform health from the dashboard.', 'स्वीकृतिहरू, प्रयोगकर्ता, बिक्री, विवाद र प्लेटफर्म स्वास्थ्य ड्यासबोर्डबाट अनुगमन गर्नुहोस्।')}</p>
-                </div>
-                <div className="rounded-4xl border border-slate-800 bg-slate-900/30 p-5">
-                  <h4 className="text-sm font-bold text-white">{translate('Quick Actions', 'छोटो कार्य')}</h4>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button onClick={() => setActiveTab('businesses')} className="rounded-full bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950">Review Businesses</button>
-                    <button onClick={() => setActiveTab('users')} className="rounded-full bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-slate-950">Manage Users</button>
-                    <button onClick={() => setActiveTab('reports')} className="rounded-full bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-slate-950">Export Reports</button>
-                  </div>
-                </div>
+              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
+                {translate('The admin dashboard is active and each menu item is now connected to the correct section of the platform.', 'प्रशासक ड्यासबोर्ड सक्रिय छ र प्रत्येक मेनु वस्तु सही प्लेटफर्म सेक्शनमा जोडिएको छ।')}
               </div>
             </div>
           )}
 
-          {activeTab === 'businesses' && (
+          {currentTab === 'businesses' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Business Management', 'व्यवसाय व्यवस्थापन')}</h3>
               <div className="space-y-3">
@@ -546,7 +476,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
           )}
 
           {/* B. User management panel */}
-          {activeTab === 'users' && (
+          {currentTab === 'users' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('User Control Center', 'प्रयोगकर्ता नियन्त्रण केन्द्र')}</h3>
               <div className="space-y-3">
@@ -574,7 +504,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
           )}
 
           {/* C. Category management panel */}
-          {activeTab === 'categories' && (
+          {currentTab === 'categories' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Category Management', 'श्रेणी व्यवस्थापन')}</h3>
               <form onSubmit={handleSaveCategory} className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 space-y-3">
@@ -601,7 +531,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
             </div>
           )}
 
-          {activeTab === 'products' && (
+          {currentTab === 'products' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Product & Service Management', 'उत्पादन र सेवा व्यवस्थापन')}</h3>
               <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
@@ -625,8 +555,31 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
             </div>
           )}
 
+          {currentTab === 'services' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Service Catalog', 'सेवा सूची')}</h3>
+              <div className="space-y-3">
+                {services.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">No service listings are available yet.</div>
+                ) : services.map((service) => (
+                  <div key={service._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-white text-sm">{service.name}</div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wider">{service.businessId || 'Marketplace Service'}</div>
+                      </div>
+                      <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">Active</span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-300">{service.description || 'No description provided.'}</p>
+                    <div className="mt-2 text-[11px] text-amber-300">NPR {service.price || 0}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* D. Order management panel */}
-          {activeTab === 'orders' && (
+          {currentTab === 'orders' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Order Oversight', 'अर्डर मापन')}</h3>
               <div className="space-y-3">
@@ -645,8 +598,29 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
             </div>
           )}
 
+          {currentTab === 'payments' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('Payments & Settlement', 'भुक्तानी र सेटलमेन्ट')}</h3>
+              <div className="space-y-3">
+                {orders.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">No payment records are available yet.</div>
+                ) : orders.map((order) => (
+                  <div key={order._id} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-white text-sm">Order #{order._id?.slice(-6) || 'N/A'}</div>
+                        <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total NPR {order.total || 0}</div>
+                      </div>
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">{order.status || 'paid'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* F. Moderation & fake reviews resolver */}
-          {activeTab === 'reviews' && (
+          {currentTab === 'reviews' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Safety Moderation Desk', 'मध्यस्थता केन्द्र')}</h3>
 
@@ -684,7 +658,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
           )}
 
           {/* G. Financial reports downloads */}
-          {activeTab === 'reports' && (
+          {currentTab === 'reports' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Platform Reports Exporter', 'वित्तीय रिपोर्ट निकासी')}</h3>
 
@@ -712,7 +686,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
             </div>
           )}
 
-          {activeTab === 'announcements' && (
+          {currentTab === 'announcements' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Announcements & Notifications', 'घोषणा र सूचनाहरू')}</h3>
               <form onSubmit={handleSendAnnouncement} className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 space-y-4">
@@ -722,7 +696,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
             </div>
           )}
 
-          {activeTab === 'support' && (
+          {currentTab === 'support' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Complaints & Support', 'समस्या र सहयोग')}</h3>
               <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
@@ -755,8 +729,9 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
           )}
 
           {/* H. Platform settings panel */}
-          {activeTab === 'settings' && (
+          {currentTab === 'settings' && (
             <div className="space-y-4">
+              <AccountProfileCard user={user} lang={lang} />
               <h3 className="text-lg font-extrabold text-white">{translate('Platform Settings', 'प्लेटफर्म सेटिङ')}</h3>
               <form onSubmit={handleSaveSettings} className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -771,17 +746,8 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0 }) {
               </form>
             </div>
           )}
-
-          {activeTab === 'profile' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Admin Profile', 'प्रशासक प्रोफाइल')}</h3>
-              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
-                {translate('This admin account can manage all marketplace operations, approvals, settings, announcements, and support workflows.', 'यो प्रशासक खाता सबै बजार सञ्चालन, स्वीकृति, सेटिङ, घोषणा र सहयोग कार्य प्रवाह व्यवस्थापन गर्न सक्छ।')}
-              </div>
             </div>
-          )}
-        </main>
-      </div>
+      </main>
     </div>
   );
 }

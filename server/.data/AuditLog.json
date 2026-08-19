@@ -1,5 +1,53 @@
 [
   {
+    "_id": "9fwhpq86r",
+    "createdAt": "2026-08-15T09:33:59.733Z",
+    "updatedAt": "2026-08-15T09:33:59.733Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "l4v5i5ybw",
+    "createdAt": "2026-08-15T09:33:59.588Z",
+    "updatedAt": "2026-08-15T09:33:59.588Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "jwgw1wkef",
+    "createdAt": "2026-08-15T09:33:59.449Z",
+    "updatedAt": "2026-08-15T09:33:59.449Z",
+    "userId": "u1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "q90r3v5de",
+    "createdAt": "2026-08-15T09:33:05.387Z",
+    "updatedAt": "2026-08-15T09:33:05.387Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "xhmtxra17",
+    "createdAt": "2026-08-15T09:33:05.252Z",
+    "updatedAt": "2026-08-15T09:33:05.252Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "vy2fua45h",
+    "createdAt": "2026-08-15T09:33:05.110Z",
+    "updatedAt": "2026-08-15T09:33:05.110Z",
+    "userId": "u1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
     "_id": "nn6rw96lt",
     "createdAt": "2026-08-11T17:58:09.352Z",
     "updatedAt": "2026-08-11T17:58:09.352Z",
