@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
@@ -9,7 +9,7 @@ const getAuthErrorMessage = (err, fallback = 'Authentication operation failed.')
   return err?.response?.data?.message || err?.response?.statusText || err?.message || fallback;
 };
 
-export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
+export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initialMode = 'login' }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
   const [role, setRole] = useState('customer');
   const [email, setEmail] = useState('');
@@ -20,6 +20,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
+
+  useEffect(() => {
+    if (isOpen) setMode(initialMode);
+  }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 

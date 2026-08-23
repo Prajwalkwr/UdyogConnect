@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { FiShoppingBag, FiStar, FiCalendar, FiClock } from 'react-icons/fi';
+import { FiShoppingBag, FiStar, FiCalendar, FiClock, FiSearch, FiHeart, FiChevronRight, FiMapPin, FiHome, FiCreditCard, FiBell, FiPackage } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import AccountProfileCard from './AccountProfileCard';
 
-export default function CustomerDashboard({ user, lang, onOpenProduct, activeTab, onTabChange }) {
+export default function CustomerDashboard({ user, lang, businesses = [], products = [], onOpenProduct, onAddToCart, onOpenDashboard, activeTab, onTabChange }) {
   const [profileData, setProfileData] = useState(null);
   const [orders, setOrders] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [favorites, setFavorites] = useState({ products: [], businesses: [] });
-  const [internalTab, setInternalTab] = useState('orders');
+  const [internalTab, setInternalTab] = useState('dashboard');
   const currentTab = activeTab ?? internalTab;
   const changeTab = (tab) => {
     if (onTabChange) onTabChange(tab);
@@ -17,13 +17,19 @@ export default function CustomerDashboard({ user, lang, onOpenProduct, activeTab
   };
 
   const resolveTab = (tab) => {
-    if (!tab || tab === 'dashboard') return 'orders';
+    if (!tab) return 'dashboard';
+    if (tab === 'dashboard') return 'dashboard';
     if (tab === 'settings' || tab === 'addresses') return 'profile';
     if (tab === 'saved' || tab === 'reviews') return 'wishlist';
     if (tab === 'wallet' || tab === 'cart') return 'orders';
     return tab;
   };
   const activeView = resolveTab(currentTab);
+  const recentOrders = orders.slice(0, 4);
+  const recommendedBusinesses = businesses.slice(0, 3);
+  const popularProducts = products.slice(0, 4);
+  const businessImage = (business) => business?.imageUrl || business?.logoUrl || business?.logo || business?.image || '';
+  const cartTotal = orders.reduce((total, order) => total + Number(order.total || 0), 0);
 
   const [reviewForm, setReviewForm] = useState({});
 
@@ -53,10 +59,18 @@ export default function CustomerDashboard({ user, lang, onOpenProduct, activeTab
       const pRes = await api.get('/api/auth/profile');
       setProfileData(pRes.data);
 
-      // Seed mock favorite details
-      api.get('/api/products').then((res) => {
-        const wishProds = res.data.filter((p) => pRes.data.wishlist?.products?.includes(p._id));
-        setFavorites((prev) => ({ ...prev, products: wishProds }));
+      const wishlist = pRes.data.wishlist || {};
+      const hasWishlistId = (items, id) => Array.isArray(items)
+        && items.some((item) => String(item?._id || item?.id || item) === String(id));
+      const [productsRes, businessesRes] = await Promise.all([
+        api.get('/api/products'),
+        api.get('/api/businesses'),
+      ]);
+      setFavorites({
+        products: (Array.isArray(productsRes.data) ? productsRes.data : [])
+          .filter((product) => hasWishlistId(wishlist.products, product._id)),
+        businesses: (Array.isArray(businessesRes.data) ? businessesRes.data : [])
+          .filter((business) => hasWishlistId(wishlist.businesses, business._id)),
       });
     } catch (e) {
       console.log(e);
@@ -150,11 +164,38 @@ export default function CustomerDashboard({ user, lang, onOpenProduct, activeTab
   };
 
   return (
-    <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
+    <div className="mx-auto max-w-full px-3 sm:px-5 xl:px-8">
       {/* Customer Dashboard Content */}
-      <main className="bg-[#f7f1e8] p-4 text-[#142835] sm:p-6">
+      <main className="bg-[#f7f1e8] px-4 pb-4 text-[#142835] sm:px-6 sm:pb-6">
           {/* A. Profile & Security Settings */}
           {activeView === 'profile' && <AccountProfileCard user={user} lang={lang} />}
+
+          {activeView === 'dashboard' && (
+            <div className="customer-overview">
+              <section className="customer-welcome">
+                <div>
+                  <p className="customer-eyebrow">{translate('Local marketplace', 'स्थानीय बजार')}</p>
+                  <h1>{translate('Discover & Buy Local', 'स्थानीय उत्पादन तथा सेवा खोज्नुहोस्')}</h1>
+                  <p>{translate('Find the best products and services from trusted local businesses near you.', 'तपाईं नजिकका विश्वसनीय स्थानीय व्यवसायबाट उत्कृष्ट उत्पादन र सेवा पाउनुहोस्।')}</p>
+                  <span><FiMapPin /> {user?.location || 'Kathmandu, Nepal'}</span>
+                </div>
+                <div className="customer-welcome-art"><FiHome /><FiShoppingBag /><FiStar /></div>
+              </section>
+
+              <div className="customer-searchbar"><FiSearch /><input placeholder={translate('What are you looking for?', 'तपाईं के खोज्दै हुनुहुन्छ?')} /><button type="button" onClick={() => onOpenDashboard?.('home')}>{translate('Search', 'खोज्नुहोस्')}</button></div>
+
+              <div className="customer-section-heading"><h2>{translate('Shop by Category', 'श्रेणीअनुसार किनमेल')}</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div>
+              <div className="customer-categories">{['Grocery', 'Food & Restaurant', 'Electronics', 'Fashion', 'Beauty & Health', 'Home & Kitchen', 'Services', 'More'].map((category, index) => <button type="button" key={category} onClick={() => onOpenDashboard?.('home')}><span>{['🛒', '🍴', '▣', '👕', '✿', '⌂', '🔧', '⊞'][index]}</span><b>{category}</b></button>)}</div>
+
+              <div className="customer-dashboard-grid">
+                <section className="customer-panel customer-recommendations"><div className="customer-section-heading"><h2>{translate('Recommended Businesses', 'सिफारिस गरिएका व्यवसाय')}</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-business-grid">{recommendedBusinesses.map((business) => <button type="button" key={business._id} onClick={() => onOpenDashboard?.('home')}><div className="customer-business-image">{businessImage(business) ? <img src={businessImage(business)} alt={business.name} /> : <FiHome />}</div><strong>{business.name}</strong><small><FiStar /> {business.rating || '4.8'} · {business.category}</small><span><FiMapPin /> {business.location || 'Kathmandu'}</span><em>View Business</em></button>)}{recommendedBusinesses.length === 0 && <div className="customer-empty">No businesses available yet.</div>}</div></section>
+                <section className="customer-panel customer-side-panel"><div className="customer-section-heading"><h2>Your Orders</h2><button type="button" onClick={() => onTabChange?.('orders')}>View All <FiChevronRight /></button></div>{recentOrders.map((order) => <button type="button" className="customer-order-row" key={order._id} onClick={() => onTabChange?.('orders')}><FiPackage /><span><strong>#{String(order._id).slice(-6)}</strong><small>{order.items?.[0]?.name || `${order.items?.length || 0} item(s)`}</small></span><b className={String(order.status).toLowerCase()}>{order.status || 'Pending'}</b><FiChevronRight /></button>)}{recentOrders.length === 0 && <div className="customer-empty">No orders yet.</div>}</section>
+                <section className="customer-panel customer-side-panel"><div className="customer-section-heading"><h2>Wallet</h2><button type="button" onClick={() => onTabChange?.('wallet')}>View All <FiChevronRight /></button></div><div className="customer-wallet"><small>Available Balance</small><strong>Rs. {Number(user?.walletBalance || user?.wallet?.balance || 0).toLocaleString('en-IN')}</strong><button type="button" onClick={() => onTabChange?.('wallet')}><FiCreditCard /> Manage Wallet</button></div></section>
+              </div>
+
+              <div className="customer-dashboard-grid customer-lower-grid"><section className="customer-panel customer-products"><div className="customer-section-heading"><h2>Popular Products</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-product-grid">{popularProducts.map((product) => <div className="customer-product-card" key={product._id}><button type="button" className="customer-product-open" onClick={() => onOpenProduct?.(product._id)}><div>{product.images?.[0] ? <img src={product.images[0]} alt={product.name} /> : '🛍️'}</div><strong>{product.name}</strong><small>{product.brand || 'Local Brand'}</small><b>Rs. {Number(product.price || 0).toLocaleString('en-IN')}</b></button><button type="button" className="customer-product-add" onClick={() => onAddToCart?.({ id: product._id, name: product.name, price: Number(product.price || 0), stock: product.stock, businessId: product.businessId })}><FiShoppingBag /> Add to Cart</button></div>)}{popularProducts.length === 0 && <div className="customer-empty">No products available yet.</div>}</div></section><section className="customer-panel customer-offers"><div className="customer-section-heading"><h2>Special Offers</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-offer-card"><span>20% OFF</span><h3>Fresh local favourites</h3><p>Discover great deals from businesses near you.</p><button type="button" onClick={() => onOpenDashboard?.('home')}>Shop Now</button></div><div className="customer-ai"><FiBell /><div><strong>AI Recommendations</strong><p>Personalized local picks based on your activity.</p></div></div></section></div>
+            </div>
+          )}
 
           {/* B. Order History & Live tracking stepper */}
           {activeView === 'orders' && (
@@ -290,12 +331,23 @@ export default function CustomerDashboard({ user, lang, onOpenProduct, activeTab
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Your Favorites', 'मनपर्ने वस्तुहरू')}</h3>
 
-              {favorites.products.length === 0 ? (
+              {favorites.products.length === 0 && favorites.businesses.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-500">
                   {translate('Your wishlist catalog is empty.', 'मनपर्ने सूची खाली छ।')}
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {favorites.businesses.map((business) => (
+                    <div key={business._id} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex gap-3 hover:border-slate-700 cursor-pointer">
+                      <div className="h-12 w-12 rounded-xl bg-slate-950 overflow-hidden flex items-center justify-center text-lg">
+                        {business.imageUrl ? <img src={business.imageUrl} alt={business.name} className="h-full w-full object-cover" /> : '🏪'}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-200 text-xs">{business.name}</h4>
+                        <p className="text-[10px] text-slate-500">{business.category}</p>
+                      </div>
+                    </div>
+                  ))}
                   {favorites.products.map((p) => (
                     <div
                       key={p._id}

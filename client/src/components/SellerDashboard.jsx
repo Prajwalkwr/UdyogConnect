@@ -93,7 +93,11 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   const [loading, setLoading]         = useState(true);
   const [internalTab, setInternalTab] = useState('overview');
   const [pollingMsg, setPollingMsg]   = useState('');
-  const currentTab = activeTab ?? internalTab;
+  const offeringType = myBusiness?.offeringType || 'both';
+  const requestedTab = activeTab ?? internalTab;
+  const currentTab = (offeringType === 'products' && requestedTab === 'services') || (offeringType === 'services' && requestedTab === 'products')
+    ? 'overview'
+    : requestedTab;
   const changeTab = (tab) => {
     if (onTabChange) onTabChange(tab);
     setInternalTab(tab);
@@ -403,8 +407,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
       const uploadedUrls = await uploadFilesToCloudinary([selectedFile]);
       if (uploadedUrls[0]) {
         fd.append('logoUrl', uploadedUrls[0]);
-        fd.append('logo', selectedFile);
       }
+      fd.append('logo', selectedFile);
       const response = await api.put(`/api/businesses/${myBusiness._id}`, fd, { headers: { ...createIdempotencyHeader('business-logo') } });
       if (response.data?.business) {
         setMyBusiness(response.data.business);
@@ -652,8 +656,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
     { key: 'overview',   label: t('Overview',   'सिंहावलोकन'),   icon: <FiTrendingUp /> },
     { key: 'orders',     label: t('Orders',      'अर्डर'),          icon: <FiShoppingBag /> },
     { key: 'bookings',   label: t('Bookings',    'बुकिङ'),          icon: <FiCalendar /> },
-    { key: 'products',   label: t('Products',    'उत्पादन'),        icon: <FiPackage /> },
-    { key: 'services',   label: t('Services',    'सेवाहरू'),        icon: <FiFileText /> },
+    ...(offeringType !== 'services' ? [{ key: 'products', label: t('Products', 'उत्पादन'), icon: <FiPackage /> }] : []),
+    ...(offeringType !== 'products' ? [{ key: 'services', label: t('Services', 'सेवाहरू'), icon: <FiFileText /> }] : []),
     { key: 'reviews',    label: t('Reviews',     'समीक्षाहरू'),     icon: <FiStar /> },
     { key: 'promos',     label: t('Promotions',  'प्रोमो'),         icon: <FiTag /> },
   ];
@@ -738,12 +742,12 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(600px, 1fr)) 340px', gap: 20, alignItems: 'start' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               {/* Stats Row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${offeringType === 'both' ? 4 : 3}, 1fr)`, gap: 14 }}>
                 {[
                   { icon: <FiShoppingBag />, label: t('Total Orders', 'कुल अर्डर'), value: orders.length, change: '+12%', color: '#3B82F6', bg: '#EFF6FF' },
                   { icon: <FiDollarSign />, label: t('Total Revenue', 'कुल राजस्व'), value: fmt(totalRevenue), change: '+15%', color: '#059669', bg: '#ECFDF5' },
-                  { icon: <FiPackage />, label: t('Products', 'उत्पादनहरू'), value: products.length, change: '+6%', color: '#F2B71D', bg: '#FFFBEB' },
-                  { icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: '+25%', color: '#8B5CF6', bg: '#F5F3FF' },
+                  ...(offeringType !== 'services' ? [{ icon: <FiPackage />, label: t('Products', 'उत्पादनहरू'), value: products.length, change: '+6%', color: '#F2B71D', bg: '#FFFBEB' }] : []),
+                  ...(offeringType !== 'products' ? [{ icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: '+25%', color: '#8B5CF6', bg: '#F5F3FF' }] : []),
                 ].map((stat, idx) => (
                   <div key={idx} style={{
                     background: stat.bg, borderRadius: 16, padding: '18px 16px',
@@ -1332,7 +1336,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
           </div>
 
           {/* Add / Edit Product Form */}
-          {showAddProd && (
+          {showAddProd && offeringType !== 'services' && (
             <form onSubmit={handleAddProduct} className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5 space-y-3">
               <div className="flex justify-between items-center">
                 <h4 className="text-sm font-bold text-white">{editingProduct ? t('Edit Product', 'उत्पादन सम्पादन') : t('New Product', 'नयाँ उत्पादन')}</h4>
@@ -1362,7 +1366,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
           )}
 
           {/* Add / Edit Service Form */}
-          {showAddServ && (
+          {showAddServ && offeringType !== 'products' && (
             <form onSubmit={handleAddService} className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5 space-y-3">
               <div className="flex justify-between items-center">
                 <h4 className="text-sm font-bold text-white">{editingService ? t('Edit Service', 'सेवा सम्पादन') : t('New Service', 'नयाँ सेवा')}</h4>
@@ -1385,7 +1389,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
           )}
 
           {/* Products List */}
-          <div>
+          {offeringType !== 'services' && <div>
             <h4 className="text-sm font-bold text-white mb-3">{t('Products', 'उत्पादनहरू')} ({products.length})</h4>
             {products.length === 0 ? (
               <EmptyState icon={<FiPackage />} msg={t('No products added yet.', 'अझैसम्म कुनै उत्पादन थपिएको छैन।')} />
@@ -1415,7 +1419,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Services List */}
           {myBusiness?.offeringType !== 'products' && (

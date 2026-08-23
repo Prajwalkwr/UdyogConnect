@@ -161,6 +161,7 @@ const io = new SocketIOServer(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
   transports: ['websocket', 'polling'],
 });
+const onlineUsers = new Map();
 
 // Middleware: authenticate socket connections via JWT token in handshake
 io.use((socket, next) => {
@@ -186,14 +187,26 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   // Each user joins their own private room (by userId) for targeted delivery
   if (socket.userId) {
+    onlineUsers.set(String(socket.userId), (onlineUsers.get(String(socket.userId)) || 0) + 1);
     socket.join(`user:${socket.userId}`);
     // Also join a role-based room for broadcast events (e.g. admin, seller)
     if (socket.userRole) {
       socket.join(`role:${socket.userRole}`);
     }
+    socket.emit('presence_snapshot', Array.from(onlineUsers.keys()));
+    socket.broadcast.emit('presence_update', { userId: socket.userId, online: true });
   }
 
-  socket.on('disconnect', () => {});
+  socket.on('disconnect', () => {
+    if (!socket.userId) return;
+    const connectionCount = (onlineUsers.get(String(socket.userId)) || 1) - 1;
+    if (connectionCount > 0) {
+      onlineUsers.set(String(socket.userId), connectionCount);
+    } else {
+      onlineUsers.delete(String(socket.userId));
+      socket.broadcast.emit('presence_update', { userId: socket.userId, online: false });
+    }
+  });
 });
 
 // Expose io instance so routes can emit events
@@ -558,14 +571,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     console.log('User logged in:', user._id, user.email);
+    const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeLoginUser } = typeof user.toObject === 'function' ? user.toObject() : user;
     res.json({
       success: true,
       token,
       user: {
+        ...safeLoginUser,
         id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
         businessStatus,
         onboardingPending
       }
@@ -692,7 +704,8 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeGoogleUser } = typeof user.toObject === 'function' ? user.toObject() : user;
+    res.json({ success: true, token, user: { ...safeGoogleUser, id: user._id } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Google Sign In failed.' });
@@ -853,7 +866,10 @@ app.get('/api/businesses', async (req, res) => {
       }
     }
 
-    res.json(listings);
+    res.json(listings.map((business) => ({
+      ...business,
+      imageUrl: business.imageUrl || business.logoUrl || business.logo || business.image || '',
+    })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to retrieve listings.' });
@@ -874,7 +890,15 @@ app.get('/api/businesses/:id', async (req, res) => {
     const services = await ServiceMDL.find({ businessId: req.params.id });
     const reviews = await ReviewMDL.find({ businessId: req.params.id, targetType: 'business' });
 
-    res.json({ business, products, services, reviews });
+    res.json({
+      business: {
+        ...business,
+        imageUrl: business.imageUrl || business.logoUrl || business.logo || business.image || '',
+      },
+      products,
+      services,
+      reviews,
+    });
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving business details.' });
   }
@@ -1101,6 +1125,8 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
         message: notificationMsg,
         type: 'admin'
       });
+      const socketIo = req.app.get('io');
+      if (socketIo) socketIo.to(`user:${biz.ownerId}`).emit('new_notification');
     } catch (notifErr) {
       console.error('Failed to create notification', notifErr);
     }
@@ -2117,11 +2143,16 @@ app.get('/api/users', authenticateToken, async (req, res) => {
       email: u.email,
       role: u.role,
       profilePicture: u.profilePicture || '',
+      online: onlineUsers.has(String(u._id)),
     }));
     res.json(safe);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch users.' });
   }
+});
+
+app.get('/api/chat/presence', authenticateToken, (req, res) => {
+  res.json({ onlineUserIds: Array.from(onlineUsers.keys()) });
 });
 
 app.get('/api/chat/:receiverId', authenticateToken, async (req, res) => {
@@ -2146,6 +2177,12 @@ app.get('/api/chat/:receiverId', authenticateToken, async (req, res) => {
 app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     const { receiverId, message } = req.body;
+    const UserMDL = User();
+    const receiver = await UserMDL.findById(receiverId);
+    if (!receiver) return res.status(404).json({ message: 'Chat recipient not found.' });
+    if (receiver.role === 'seller' && !onlineUsers.has(String(receiverId))) {
+      return res.status(409).json({ message: 'This seller is currently offline. Please try again when they are active.' });
+    }
     const ChatMDL = Chat();
     let imgUrl = '';
     if (req.file) {
@@ -2534,7 +2571,7 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
     
     const io = req.app.get('io');
     if (io) {
-      io.emit('new_notification');
+      users.forEach((u) => io.to(`user:${u._id}`).emit('new_notification'));
     }
     
     res.json({ success: true });

@@ -49,9 +49,13 @@ function App() {
   // Data lists
   const [businesses, setBusinesses] = useState([]);
   const [products, setProducts] = useState([]);
+  const sellerBusiness = user?.role === 'seller'
+    ? businesses.find((business) => String(business.ownerId) === String(user._id || user.id))
+    : null;
 
   // Modal open states
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
 
@@ -152,6 +156,40 @@ function App() {
     });
   };
 
+  const wishlist = user?.wishlist || {};
+  const wishlistCount = ['products', 'businesses', 'services'].reduce((total, type) => {
+    const items = Array.isArray(wishlist[type]) ? wishlist[type] : [];
+    return total + new Set(items.map((item) => String(item?._id || item?.id || item))).size;
+  }, 0);
+
+  const handleWishlistToggle = async (type, id) => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    const currentItems = Array.isArray(user.wishlist?.[type]) ? user.wishlist[type] : [];
+    const itemId = String(id);
+    const isSaved = currentItems.some((item) => String(item?._id || item?.id || item) === itemId);
+    const updatedWishlist = {
+      products: Array.isArray(user.wishlist?.products) ? [...user.wishlist.products] : [],
+      services: Array.isArray(user.wishlist?.services) ? [...user.wishlist.services] : [],
+      businesses: Array.isArray(user.wishlist?.businesses) ? [...user.wishlist.businesses] : [],
+    };
+    updatedWishlist[type] = isSaved
+      ? currentItems.filter((item) => String(item?._id || item?.id || item) !== itemId)
+      : [...currentItems, id];
+
+    try {
+      await api.put('/api/auth/profile', { wishlist: updatedWishlist });
+      const updatedUser = { ...user, wishlist: updatedWishlist };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      dispatch({ type: 'SET_USER', payload: updatedUser });
+    } catch (error) {
+      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Unable to update wishlist.' });
+    }
+  };
+
   const handleLogout = () => {
     removeStoredValue('token');
     removeStoredValue('user');
@@ -199,6 +237,7 @@ function App() {
         setShowAuthModal(true);
         return;
       }
+      setDashboardTab('dashboard');
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'seller') navigate('/business');
       else navigate('/customer');
@@ -242,7 +281,7 @@ function App() {
       <Navbar
         user={user}
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenAuth={(mode = 'login') => { setAuthMode(mode); setShowAuthModal(true); }}
         onLogout={handleLogout}
         lang={lang}
         setLang={setLang}
@@ -257,7 +296,9 @@ function App() {
           orderCount: 0,
           serviceCount: 0,
           cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
+          wishlistCount,
         }}
+        businessOfferingType={sellerBusiness?.offeringType || user?.businessOfferingType || 'both'}
       />
 
       {/* Global Modal Windows */}
@@ -266,6 +307,7 @@ function App() {
         onClose={() => setShowAuthModal(false)}
         onAuthSuccess={handleAuthSuccess}
         lang={lang}
+        initialMode={authMode}
       />
 
       {(selectedBusinessId || selectedProductId) && (
@@ -282,12 +324,12 @@ function App() {
           onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
           lang={lang}
           user={user}
+          onToggleWishlist={handleWishlistToggle}
         />
       )}
 
       {/* Main Routes */}
       <main className={isDashboardRoute && user ? 'app-content' : ''}>
-        {isDashboardRoute && user && <div style={{ height: 56 }} />}
         <div className={isDashboardRoute && user ? 'content-body' : ''}>
           <Routes>
             <Route
@@ -302,6 +344,7 @@ function App() {
                   onOpenBusiness={(id) => setSelectedBusinessId(id)}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
+                  onToggleWishlist={handleWishlistToggle}
                 />
               }
             />
@@ -320,6 +363,7 @@ function App() {
                     onOpenBusiness={(id) => setSelectedBusinessId(id)}
                     onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                     onOpenDashboard={handleOpenDashboard}
+                    onToggleWishlist={handleWishlistToggle}
                   />
                 </>
               }
@@ -348,7 +392,11 @@ function App() {
                 <CustomerDashboard
                   user={user}
                   lang={lang}
+                  businesses={businesses}
+                  products={products}
                   onOpenProduct={(id) => setSelectedProductId(id)}
+                  onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
+                  onOpenDashboard={handleOpenDashboard}
                   activeTab={dashboardTab}
                   onTabChange={setDashboardTab}
                 />
@@ -381,7 +429,7 @@ function App() {
           fontSize: 13,
           color: '#9CA3AF',
         }}>
-          UdyogConnect © 2026 · For local small businesses and customers in Nepal.
+          <div className="homepage-footer-content"><strong>UdyogConnect</strong><a href="#about">About</a><a href="#businesses">Businesses</a><a href="#products">Products</a><a href="#services">Services</a><a href="#contact">Help &amp; Contact</a><a href="#about">Privacy Policy</a><a href="#about">Terms &amp; Conditions</a><span>© 2026 UdyogConnect · Supporting local businesses in Nepal.</span></div>
         </footer>
       )}
     </div>

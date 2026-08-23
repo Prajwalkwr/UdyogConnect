@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent, FiZap, FiAward, FiCheckCircle, FiBriefcase, FiTrendingUp, FiHeart, FiHome } from 'react-icons/fi';
+import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent, FiZap, FiAward, FiCheckCircle, FiBriefcase, FiTrendingUp, FiHeart, FiHome, FiPackage, FiUser } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { matchesSearchQuery } from '../utils/search';
@@ -14,6 +14,7 @@ export default function Marketplace({
   onOpenBusiness,
   onAddToCart,
   onOpenDashboard,
+  onToggleWishlist,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTrigger, setSearchTrigger] = useState('');
@@ -26,6 +27,7 @@ export default function Marketplace({
   const [sortBy, setSortBy] = useState('popular'); // 'popular' | 'price' | 'distance' | 'newest'
   const [isListening, setIsListening] = useState(false);
   const [aiRecs, setAiRecs] = useState({ businesses: [], products: [] });
+  const [customerReviews, setCustomerReviews] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Countdown timer for Flash Sales
@@ -33,6 +35,11 @@ export default function Marketplace({
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
+  };
+
+  const isWishlisted = (type, id) => {
+    const items = user?.wishlist?.[type];
+    return Array.isArray(items) && items.some((item) => String(item?._id || item?.id || item) === String(id));
   };
 
   const categories = [
@@ -182,6 +189,7 @@ export default function Marketplace({
   };
 
   const safeName = (entity) => safeText(entity?.name, 'Unknown');
+  const businessImage = (business) => business?.imageUrl || business?.logoUrl || business?.logo || business?.image || '';
   const safeProducts = (Array.isArray(products) ? products : []).filter((p) => {
     const parentBiz = Array.isArray(businesses) ? businesses.find((b) => b._id === p.businessId) : null;
     return parentBiz && parentBiz.verified === 'verified';
@@ -190,6 +198,17 @@ export default function Marketplace({
   const verifiedBusinesses = Array.isArray(businesses)
     ? businesses.filter((b) => b?.verified === 'verified')
     : [];
+  const recommendationBusinesses = user && aiRecs.businesses.length > 0 ? aiRecs.businesses : verifiedBusinesses.slice(0, 3);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(verifiedBusinesses.slice(0, 6).map((business) => api.get(`/api/businesses/${business._id}`).then((res) => (
+      (res.data?.reviews || []).map((review) => ({ ...review, businessName: business.name }))
+    )).catch(() => []))).then((reviewGroups) => {
+      if (active) setCustomerReviews(reviewGroups.flat().filter((review) => review.comment).slice(0, 3));
+    });
+    return () => { active = false; };
+  }, [businesses]);
 
   const activeSearchQuery = searchTrigger || searchQuery;
   const searchSuggestions = (activeSearchQuery ? [
@@ -274,13 +293,13 @@ export default function Marketplace({
   const [hr, min, sec] = (timeLeft || '05:40:04').split(':');
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] py-6">
+    <div className="min-h-screen bg-[#FFFCF5] py-4 sm:py-5">
       <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
         
         {/* Banner Section */}
-        <section className="relative mb-6 overflow-hidden rounded-[24px] bg-gradient-to-r from-[#0C121F] via-[#4A3B18] to-[#F2B71D] px-6 py-8 shadow-md text-white sm:px-8 sm:py-10">
+        <section id="home" className="homepage-hero relative mb-4 overflow-hidden rounded-[22px] bg-[#FFF1C9] px-6 py-7 shadow-md text-[#061B3A] sm:px-10 sm:py-9">
           {/* Nepal Stupa SVG Backdrop */}
-          <div className="absolute right-[10%] bottom-0 h-44 w-64 opacity-25 pointer-events-none hidden md:block">
+          <div className="absolute right-[6%] bottom-0 h-44 w-64 opacity-45 pointer-events-none hidden md:block">
             <svg viewBox="0 0 200 200" fill="none" className="w-full h-full text-[#F2B71D]" stroke="currentColor" strokeWidth="1.5">
               {/* Stupa Spire */}
               <path d="M100,10 L100,50 M95,45 L105,45 M90,40 L110,40 M85,35 L115,35 M80,30 L120,30 M75,25 L125,25 M70,20 L130,20" />
@@ -300,29 +319,21 @@ export default function Marketplace({
 
           <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-[720px]">
-              <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-black/30 border border-white/20 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#F2B71D]">
-                <FiZap className="h-3.5 w-3.5 fill-[#F2B71D]" />
-                <span>{translate('LIMITED TIME FLASH DEAL', 'सीमित समयको धमाका अफर')}</span>
-              </div>
-
-              <h2 className="text-[2.2rem] font-black leading-[1.0] tracking-[-0.04em] text-white sm:text-[3.2rem] lg:text-[4.2rem]">
-                Local Business <span className="text-[#F2B71D]">Carnival</span>
-              </h2>
-
-              <p className="mt-4 max-w-[620px] text-xs sm:text-sm md:text-base text-[#F4F4F5] font-medium leading-relaxed">
-                {translate('Earn double loyalty reward points (+20) and receive up to 15% discount on all handicraft products.', 'दोब्बर लोयल्टी पोइन्ट र हस्तकला सामग्रीहरूमा १५% सम्मको विशेष छुट पाउनुहोस्।')}
-              </p>
+              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-white/65 border border-[#E8C96C] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#C28B00]"><FiMapPin className="h-3.5 w-3.5" /><span>Kathmandu, Nepal</span></div>
+              <h2 className="max-w-[600px] text-[2.2rem] font-black leading-[1.02] tracking-[-0.04em] text-[#061B3A] sm:text-[3.2rem]">Discover &amp; Support <span className="text-[#D99D00]">Local Businesses</span></h2>
+              <p className="mt-3 max-w-[570px] text-xs font-medium leading-relaxed text-[#334B68] sm:text-sm">Find the best products, services and businesses near you — all in one place.</p>
+              <div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={() => document.getElementById('businesses')?.scrollIntoView({ behavior: 'smooth' })} className="inline-flex items-center gap-2 rounded-full bg-[#FFC400] px-5 py-2.5 text-[11px] font-extrabold text-[#061B3A] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#EFAF00]">Explore Businesses <FiArrowRight /></button><button type="button" onClick={() => document.getElementById('why-choose')?.scrollIntoView({ behavior: 'smooth' })} className="inline-flex items-center gap-2 rounded-full border border-[#D6DDE7] bg-white px-5 py-2.5 text-[11px] font-extrabold text-[#061B3A] transition hover:-translate-y-0.5"><FiZap /> How It Works</button></div>
             </div>
 
             {/* Countdown Box */}
             <div className="flex items-center justify-center lg:justify-end">
-              <div className="relative w-full max-w-[280px] overflow-hidden rounded-[20px] bg-black/45 px-5 py-4 text-center border border-white/10 backdrop-blur-md">
+              <div className="relative w-full max-w-[220px] overflow-hidden rounded-[20px] bg-white/70 px-5 py-4 text-center border border-[#E8D48D] backdrop-blur-md">
                 <div className="mb-3 flex items-center justify-center gap-1.5 text-center text-[#F2B71D]">
                   <FiClock className="h-3.5 w-3.5" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em]">{translate('ENDS IN', 'बाँकी समय')}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#C28B00]">{translate('LOCAL DEALS', 'स्थानीय अफर')}</span>
                 </div>
 
-                <div className="mb-2 flex items-center justify-center gap-3 font-mono text-[2.2rem] font-extrabold tracking-tight text-white">
+                <div className="mb-2 flex items-center justify-center gap-3 font-mono text-[2rem] font-extrabold tracking-tight text-[#061B3A]">
                   <span>{hr || '05'}</span>
                   <span className="text-[#F2B71D] animate-pulse">:</span>
                   <span>{min || '40'}</span>
@@ -341,8 +352,11 @@ export default function Marketplace({
         </section>
 
         {/* Search & Filters Controls */}
-        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center">
+        <div id="search" className="homepage-search mb-5 flex flex-col gap-3 md:flex-row md:items-center">
           <div className="relative flex-1 flex items-center bg-white border border-[#F0EAD6] rounded-full px-3 py-1.5 shadow-sm">
+            <select aria-label="Search category" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="hidden border-r border-[#E8E1D2] bg-transparent px-2 py-2 text-[10px] font-bold text-[#061B3A] outline-none md:block">
+              {categories.map((category) => <option key={category.name} value={category.name}>{category.name === 'All' ? 'All Categories' : category.name}</option>)}
+            </select>
             <FiSearch className="text-gray-400 h-5 w-5 ml-2 mr-2" />
             <input
               type="text"
@@ -495,7 +509,7 @@ export default function Marketplace({
         )}
 
         {/* Categories Horizontal Row */}
-        <div className="mb-8">
+        <div id="categories" className="mb-6">
           <div className="flex items-center justify-between gap-4 overflow-x-auto pb-3 scrollbar-thin">
             <div className="flex gap-2">
               {categories.map((cat) => {
@@ -520,13 +534,13 @@ export default function Marketplace({
         </div>
 
         {/* AI Recommendations Card Header + Grid */}
-        {user && (aiRecs.businesses.length > 0 || aiRecs.products.length > 0) && (
+        {(recommendationBusinesses.length > 0 || aiRecs.products.length > 0) && (
           <section className="mb-8 overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm">
             <div className="bg-[#0B1A30] px-5 py-4 flex items-center justify-between text-white">
               <div className="flex items-center gap-3">
                 <span className="text-2xl">🤖</span>
                 <div>
-                  <h3 className="text-base font-bold tracking-tight text-white">{translate('AI Business Recommendations', 'एआई व्यवसाय सुझावहरू')}</h3>
+                  <h3 className="text-base font-bold tracking-tight text-white">{translate('AI Recommendations For You', 'तपाईंका लागि एआई सुझावहरू')}</h3>
                   <p className="text-[11px] text-[#94A3B8]">{translate('Discover the best local businesses near you, based on your interests and location', 'तपाईंको रुचि र स्थानमा आधारित उत्तम स्थानीय व्यवसायहरू पत्ता लगाउनुहोस्।')}</p>
                 </div>
               </div>
@@ -536,15 +550,15 @@ export default function Marketplace({
             </div>
 
             <div className="p-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {aiRecs.businesses.slice(0, 3).map((b) => (
+              {recommendationBusinesses.slice(0, 3).map((b) => (
                 <div
                   key={b._id}
                   onClick={() => onOpenBusiness(b._id)}
                   className="group cursor-pointer overflow-hidden rounded-[16px] border border-gray-100 bg-white shadow-sm hover:shadow-md transition duration-200"
                 >
                   <div className="relative h-40 bg-gray-50">
-                    {b.imageUrl ? (
-                      <img src={b.imageUrl} alt={b.name} className="h-full w-full object-cover" />
+                    {businessImage(b) ? (
+                      <img src={businessImage(b)} alt={b.name} className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">{safeName(b).charAt(0)}</div>
                     )}
@@ -553,8 +567,12 @@ export default function Marketplace({
                         Verified
                       </span>
                     )}
-                    <button className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition">
-                      <FiHeart className="h-3.5 w-3.5" />
+                    <button
+                      onClick={(event) => { event.stopPropagation(); onToggleWishlist?.('businesses', b._id); }}
+                      aria-label={isWishlisted('businesses', b._id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                      className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition"
+                    >
+                      <FiHeart className="h-3.5 w-3.5" fill={isWishlisted('businesses', b._id) ? 'currentColor' : 'none'} />
                     </button>
                   </div>
 
@@ -589,7 +607,7 @@ export default function Marketplace({
         )}
 
         {/* Main Content Columns: Featured Businesses + Hot Deals */}
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <div id="businesses" className="grid gap-6 lg:grid-cols-[2fr_1fr]">
           
           {/* Featured Businesses */}
           <section className="space-y-4">
@@ -612,8 +630,8 @@ export default function Marketplace({
                     className="group cursor-pointer overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm hover:shadow-md transition duration-200"
                   >
                     <div className="relative h-40 bg-gray-50">
-                      {biz.imageUrl ? (
-                        <img src={biz.imageUrl} alt={biz.name} className="h-full w-full object-cover" />
+                      {businessImage(biz) ? (
+                        <img src={businessImage(biz)} alt={biz.name} className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">
                           {safeName(biz).charAt(0)}
@@ -624,8 +642,12 @@ export default function Marketplace({
                           Verified
                         </span>
                       )}
-                      <button className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition">
-                        <FiHeart className="h-3.5 w-3.5" />
+                      <button
+                        onClick={(event) => { event.stopPropagation(); onToggleWishlist?.('businesses', biz._id); }}
+                        aria-label={isWishlisted('businesses', biz._id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                        className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition"
+                      >
+                        <FiHeart className="h-3.5 w-3.5" fill={isWishlisted('businesses', biz._id) ? 'currentColor' : 'none'} />
                       </button>
                     </div>
 
@@ -665,7 +687,7 @@ export default function Marketplace({
           </section>
 
           {/* Hot Deals Sidebar */}
-          <aside className="rounded-[20px] border border-[#F0EAD6] bg-white p-5 shadow-sm h-fit">
+          <aside id="products" className="rounded-[20px] border border-[#F0EAD6] bg-white p-5 shadow-sm h-fit">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h3 className="flex items-center gap-1.5 text-base font-bold tracking-tight text-[#0B1A30]">
                 <span className="text-xl">🔥</span>
@@ -716,7 +738,7 @@ export default function Marketplace({
         </div>
 
         {/* Why Choose & stats widgets */}
-        <div className="mt-12 grid gap-6 md:grid-cols-2">
+        <div id="why-choose" className="mt-10 grid gap-6 md:grid-cols-2">
           {/* Why Choose UdyogConnect */}
           <section className="rounded-[20px] border border-[#F0EAD6] bg-[#FFFBF0] p-6 shadow-sm">
             <div className="flex items-center gap-3.5 mb-5">
@@ -772,15 +794,15 @@ export default function Marketplace({
 
               <div className="grid gap-3 grid-cols-3 mb-5">
                 <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">1,250+</p>
+                  <p className="text-lg font-bold text-[#E0A615]">{verifiedBusinesses.length.toLocaleString('en-IN')}</p>
                   <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Local Businesses</p>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">50K+</p>
+                  <p className="text-lg font-bold text-[#E0A615]">{(new Set(verifiedBusinesses.map((business) => business.ownerId).filter(Boolean)).size || 0).toLocaleString('en-IN')}</p>
                   <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Happy Customers</p>
                 </div>
                 <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">5+</p>
+                  <p className="text-lg font-bold text-[#E0A615]">{new Set(verifiedBusinesses.map((business) => business.location).filter(Boolean)).size.toLocaleString('en-IN')}</p>
                   <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Cities Covered</p>
                 </div>
               </div>
@@ -795,6 +817,22 @@ export default function Marketplace({
             </button>
           </section>
         </div>
+
+        <section id="about" className="homepage-stats mt-8 grid gap-3 sm:grid-cols-4">
+          {[
+            { value: verifiedBusinesses.length, label: 'Local Businesses', icon: <FiBriefcase /> },
+            { value: safeProducts.length, label: 'Products & Services', icon: <FiPackage /> },
+            { value: new Set(verifiedBusinesses.map((business) => business.location).filter(Boolean)).size, label: 'Locations Covered', icon: <FiMapPin /> },
+            { value: aiRecs.products.length + aiRecs.businesses.length, label: 'Personalized Picks', icon: <FiAward /> },
+          ].map((stat) => <div key={stat.label}><span>{stat.icon}</span><strong>{stat.value.toLocaleString('en-IN')}</strong><small>{stat.label}</small></div>)}
+        </section>
+
+        <section id="contact" className="homepage-testimonials mt-8">
+          <div className="customer-section-heading"><h2>{translate('What Our Customers Say', 'हाम्रा ग्राहकहरू के भन्छन्')}</h2><span className="text-xs text-gray-500">Real marketplace feedback</span></div>
+          <div className="grid gap-3 md:grid-cols-3">{customerReviews.map((review) => <article key={review._id}><FiUser /><div><div className="text-[#F2B71D]">{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}</div><p>“{review.comment}”</p><small>Customer of {review.businessName}</small></div></article>)}{customerReviews.length === 0 && <div className="homepage-empty-feedback">Customer reviews will appear here as your community shares feedback.</div>}</div>
+        </section>
+
+        <section id="services" className="homepage-business-cta mt-8"><div><p>GROW WITH YOUR COMMUNITY</p><h2>Be a Part of UdyogConnect</h2><span>List your business. Reach more customers. Grow together.</span></div><button type="button" onClick={() => onOpenDashboard('dashboard')}>Register Your Business <FiArrowRight /></button></section>
 
       </div>
     </div>

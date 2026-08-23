@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiMessageSquare, FiX, FiSend, FiPaperclip, FiImage, FiCpu, FiUser, FiTerminal } from 'react-icons/fi';
+import { io as socketIO } from 'socket.io-client';
 import api from '../utils/api';
 import Swal from 'sweetalert2';
 
@@ -18,10 +19,8 @@ export default function ChatAndAI({ user, lang }) {
   ]);
 
   // DM Chat State
-  const [contacts, setContacts] = useState([
-    { id: 's1', name: 'Ram Seller (Bhoj Garden)', role: 'seller' },
-    { id: 'a1', name: 'System Admin Support', role: 'admin' },
-  ]);
+  const [contacts, setContacts] = useState([]);
+  const [onlineUserIds, setOnlineUserIds] = useState(new Set());
   const [selectedContact, setSelectedContact] = useState(null);
   const [dmMessage, setDmMessage] = useState('');
   const [dmHistory, setDmHistory] = useState([]);
@@ -39,6 +38,50 @@ export default function ChatAndAI({ user, lang }) {
     return lang === 'en' ? enText : neText;
   };
 
+  useEffect(() => {
+    if (!user) {
+      setContacts([]);
+      setOnlineUserIds(new Set());
+      return undefined;
+    }
+
+    let mounted = true;
+    api.get('/api/users').then((res) => {
+      if (mounted) {
+        const allowedRoles = user.role === 'customer' ? ['seller', 'admin'] : user.role === 'seller' ? ['customer', 'admin'] : ['seller', 'customer'];
+        setContacts((Array.isArray(res.data) ? res.data : []).filter((contact) => (
+          String(contact._id || contact.id) !== String(user._id) && allowedRoles.includes(contact.role)
+        )));
+      }
+    }).catch(() => {});
+    api.get('/api/chat/presence').then((res) => {
+      if (mounted) setOnlineUserIds(new Set((res.data?.onlineUserIds || []).map(String)));
+    }).catch(() => {});
+
+    const token = localStorage.getItem('token');
+    const socket = socketIO(import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
+    socket.on('presence_snapshot', (ids) => mounted && setOnlineUserIds(new Set(ids.map(String))));
+    socket.on('presence_update', ({ userId, online }) => {
+      if (!mounted) return;
+      setOnlineUserIds((previous) => {
+        const next = new Set(previous);
+        if (online) next.add(String(userId)); else next.delete(String(userId));
+        return next;
+      });
+    });
+    socket.on('new_message', (message) => {
+      if (!mounted || !selectedContact || (String(message.senderId) !== String(selectedContact.id) && String(message.receiverId) !== String(selectedContact.id))) return;
+      setDmHistory((previous) => previous.some((item) => item._id === message._id) ? previous : [...previous, message]);
+    });
+    return () => {
+      mounted = false;
+      socket.disconnect();
+    };
+  }, [user, selectedContact]);
+
   // Scroll body container to bottom
   useEffect(() => {
     if (scrollRef.current) {
@@ -50,10 +93,9 @@ export default function ChatAndAI({ user, lang }) {
   useEffect(() => {
     if (selectedContact && user) {
       fetchDmHistory(selectedContact.id);
-      const interval = setInterval(() => {
-        fetchDmHistory(selectedContact.id);
-      }, 5000); // Poll DMs every 5s for real-time feel
-      return () => clearInterval(interval);
+      if (selectedContact.role === 'seller' && !onlineUserIds.has(String(selectedContact.id))) {
+        setDmHistory([]);
+      }
     }
   }, [selectedContact, user]);
 
@@ -291,6 +333,10 @@ export default function ChatAndAI({ user, lang }) {
   const handleSendDm = async (e) => {
     e.preventDefault();
     if (!dmMessage.trim() && !dmImage) return;
+    if (selectedContact.role === 'seller' && !onlineUserIds.has(String(selectedContact.id))) {
+      Swal.fire({ icon: 'info', text: 'This seller is offline. You can message them when they are active.' });
+      return;
+    }
 
     try {
       const formData = new FormData();
@@ -412,7 +458,7 @@ export default function ChatAndAI({ user, lang }) {
                         </div>
                         <div className="text-left">
                           <h5 className="text-xs font-bold text-slate-200">{c.name}</h5>
-                          <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">{c.role}</span>
+                          <span className={`text-[9px] font-semibold uppercase tracking-wider ${onlineUserIds.has(String(c.id || c._id)) ? 'text-emerald-400' : 'text-slate-500'}`}>{onlineUserIds.has(String(c.id || c._id)) ? 'Online' : 'Offline'} · {c.role}</span>
                         </div>
                       </div>
                     ))}
@@ -423,7 +469,7 @@ export default function ChatAndAI({ user, lang }) {
                     {/* Header back button */}
                     <div className="flex items-center gap-2 border-b border-slate-900 pb-2 mb-2">
                       <button onClick={() => setSelectedContact(null)} className="text-xs text-amber-400">← Back</button>
-                      <span className="text-xs font-extrabold text-white truncate max-w-[200px]">{selectedContact.name}</span>
+                      <span className="text-xs font-extrabold text-white truncate max-w-[200px]">{selectedContact.name} {selectedContact.role === 'seller' && (onlineUserIds.has(String(selectedContact.id)) ? '(Online)' : '(Offline)')}</span>
                     </div>
 
                     {/* Messages thread */}
@@ -560,12 +606,13 @@ export default function ChatAndAI({ user, lang }) {
                     </label>
                     <input
                       type="text"
-                      placeholder="Type a message..."
+                      placeholder={selectedContact.role === 'seller' && !onlineUserIds.has(String(selectedContact.id)) ? 'Seller is offline' : 'Type a message...'}
                       value={dmMessage}
                       onChange={(e) => setDmMessage(e.target.value)}
+                      disabled={selectedContact.role === 'seller' && !onlineUserIds.has(String(selectedContact.id))}
                       className="flex-1 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
                     />
-                    <button type="submit" className="rounded-xl bg-amber-400 p-2 text-slate-950 cursor-pointer hover:scale-105 active:scale-95 transition">
+                    <button type="submit" disabled={selectedContact.role === 'seller' && !onlineUserIds.has(String(selectedContact.id))} className="rounded-xl bg-amber-400 p-2 text-slate-950 cursor-pointer hover:scale-105 active:scale-95 transition disabled:cursor-not-allowed disabled:opacity-40">
                       <FiSend className="h-4.5 w-4.5" />
                     </button>
                   </div>

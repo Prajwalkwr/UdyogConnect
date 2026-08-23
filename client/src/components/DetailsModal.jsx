@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUser, FiInfo, FiTruck } from 'react-icons/fi';
+import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUser, FiInfo, FiTruck, FiHeart } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { useDispatch } from 'react-redux';
@@ -12,6 +12,7 @@ export default function DetailsModal({
   onAddToCart,
   lang,
   user,
+  onToggleWishlist,
 }) {
   const dispatch = useDispatch();
   const [businessData, setBusinessData] = useState(null);
@@ -76,6 +77,11 @@ export default function DetailsModal({
   const displayPrice = (val) => {
     return `Rs. ${val}`;
   };
+
+  const businessImage = businessData?.business?.imageUrl || businessData?.business?.logoUrl || businessData?.business?.logo || businessData?.business?.image || '';
+
+  const isWishlisted = (id) => Array.isArray(user?.wishlist?.products)
+    && user.wishlist.products.some((item) => String(item?._id || item?.id || item) === String(id));
 
   const handleBooking = async (e) => {
     e.preventDefault();
@@ -226,8 +232,8 @@ export default function DetailsModal({
           {/* Profile details */}
           <div className="absolute bottom-4 left-6 flex items-end gap-4">
             <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-2xl bg-slate-900 border-2 border-slate-800 flex items-center justify-center text-4xl shadow-xl">
-              {businessData?.business?.imageUrl ? (
-                <img src={businessData.business.imageUrl} alt="logo" className="h-full w-full object-cover rounded-2xl" />
+              {businessImage ? (
+                <img src={businessImage} alt="logo" className="h-full w-full object-cover rounded-2xl" />
               ) : (
                 businessData?.business?.name?.charAt(0) || '🏪'
               )}
@@ -286,7 +292,9 @@ export default function DetailsModal({
 
                   <div className="pt-2">
                     <button
-                      onClick={() => handleWishlistAdd('businesses', businessData.business._id)}
+                      onClick={() => onToggleWishlist
+                        ? onToggleWishlist('businesses', businessData.business._id)
+                        : handleWishlistAdd('businesses', businessData.business._id)}
                       className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800"
                     >
                       <FiStar className="text-amber-400" />
@@ -337,12 +345,20 @@ export default function DetailsModal({
                         return (
                           <div key={p._id} className="rounded-xl border border-slate-805 bg-slate-950/20 p-3.5 flex flex-col justify-between">
                             <div>
-                              <div className="h-24 w-full bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center">
+                              <div className="relative h-24 w-full bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center">
                                 {p.images && p.images[0] ? (
                                   <img src={p.images[0]} alt="product" className="h-full w-full object-cover" />
                                 ) : (
                                   <span className="text-xl">🛍️</span>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleWishlist?.('products', p._id)}
+                                  aria-label={isWishlisted(p._id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/80 text-amber-300 hover:text-rose-400"
+                                >
+                                  <FiHeart className="h-3.5 w-3.5" fill={isWishlisted(p._id) ? 'currentColor' : 'none'} />
+                                </button>
                               </div>
                               <h4 className="font-bold text-slate-200 text-sm mt-2">{p.name}</h4>
                               <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{p.description}</p>

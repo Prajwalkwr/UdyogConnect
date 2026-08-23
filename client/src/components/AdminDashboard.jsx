@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser } from 'react-icons/fi';
+import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser, FiCalendar, FiChevronRight, FiCreditCard, FiStar, FiTruck } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
@@ -341,33 +341,88 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
     );
   }
 
+  const metrics = analytics.metrics;
+  const chartData = Array.isArray(analytics.charts) ? analytics.charts : [];
+  const chartMax = Math.max(...chartData.map((item) => Number(item.amount) || 0), 1);
+  const chartPoints = chartData.map((item, index) => {
+    const x = chartData.length > 1 ? (index / (chartData.length - 1)) * 100 : 50;
+    const y = 94 - ((Number(item.amount) || 0) / chartMax) * 72;
+    return `${x},${y}`;
+  }).join(' ');
+  const recentBusinesses = businesses.slice(0, 5);
+  const recentOrders = orders.slice(0, 5);
+  const pendingBusinesses = businesses.filter((business) => business.verified === 'pending').slice(0, 4);
+  const categoryCounts = categories.map((category) => ({
+    name: category.name,
+    count: businesses.filter((business) => String(business.category).toLowerCase() === String(category.name).toLowerCase()).length,
+  })).filter((category) => category.count > 0).sort((a, b) => b.count - a.count).slice(0, 5);
+  const maxCategoryCount = Math.max(...categoryCounts.map((category) => category.count), 1);
+  const statusCounts = ['pending', 'processing', 'dispatched', 'delivered', 'cancelled'].map((status) => ({
+    label: status,
+    count: orders.filter((order) => String(order.status || '').toLowerCase() === status).length,
+  }));
+  const reportedReviews = reviews.filter((review) => review.reported);
+  const ratedReviews = reviews.filter((review) => Number.isFinite(Number(review.rating)));
+  const averageRating = ratedReviews.length
+    ? (ratedReviews.reduce((total, review) => total + Number(review.rating), 0) / ratedReviews.length).toFixed(1)
+    : '0.0';
+  const formatCompact = (value) => Number(value || 0).toLocaleString('en-IN');
+  const goTo = (tab) => onTabChange?.(tab);
+
   return (
     <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
       {/* Admin Dashboard Content */}
       <main className="p-4 sm:p-6 text-[#142835]">
             <div className="mt-10 space-y-6">
           {currentTab === 'dashboard' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Platform Overview', 'प्लेटफर्म सिंहावलोकन')}</h3>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {[
-                  { label: 'Total Users', value: users.length, icon: '👥' },
-                  { label: 'Businesses', value: businesses.length, icon: '🏪' },
-                  { label: 'Orders', value: orders.length, icon: '🛒' },
-                  { label: 'Reports', value: reviews.filter((r) => r.reported).length, icon: '⚠️' },
-                ].map((card) => (
-                  <div key={card.label} className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-2xl">{card.icon}</span>
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Live</span>
-                    </div>
-                    <div className="mt-6 text-3xl font-black text-white">{card.value}</div>
-                    <div className="mt-1 text-xs text-slate-400">{card.label}</div>
-                  </div>
+            <div className="admin-overview">
+              <div className="admin-overview-heading">
+                <div>
+                  <p className="admin-eyebrow">{translate('Operations center', 'सञ्चालन केन्द्र')}</p>
+                  <h1>{translate('Admin Dashboard', 'प्रशासक ड्यासबोर्ड')}</h1>
+                  <p>{translate('Welcome to UdyogConnect Admin Panel', 'UdyogConnect प्रशासक प्यानलमा स्वागत छ')}</p>
+                </div>
+                <div className="admin-date"><FiCalendar /><span>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}<strong>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></span></div>
+              </div>
+
+              <div className="admin-stat-grid">
+                      {[
+                        { label: 'Total Businesses', value: metrics.totalBusinesses ?? businesses.length, trend: `${metrics.pendingApprovals || 0} pending`, icon: <FiBriefcase />, tone: 'blue', tab: 'businesses' },
+                        { label: 'Total Users', value: metrics.totalUsers ?? users.length, trend: `${metrics.customers || 0} customers`, icon: <FiUsers />, tone: 'indigo', tab: 'users' },
+                        { label: 'Total Orders', value: metrics.totalOrders ?? orders.length, trend: `${formatCompact(metrics.revenue)} revenue`, icon: <FiShoppingCart />, tone: 'orange', tab: 'orders' },
+                        { label: 'Total Bookings', value: services.length, trend: `${services.filter((service) => service.availability !== false).length} active`, icon: <FiCalendar />, tone: 'coral', tab: 'services' },
+                        { label: 'Average Rating', value: `${averageRating}/5`, trend: `${reviews.length} reviews`, icon: <FiStar />, tone: 'yellow', tab: 'reviews' },
+                      ].map((stat) => (
+                  <button type="button" key={stat.label} className="admin-stat-card" onClick={() => goTo(stat.tab)}>
+                    <span className={`admin-stat-icon ${stat.tone}`}>{stat.icon}</span>
+                    <span className="admin-stat-copy"><small>{stat.label}</small><strong>{typeof stat.value === 'number' ? formatCompact(stat.value) : stat.value}</strong><em><FiTrendingUp /> {stat.trend}</em></span>
+                  </button>
                 ))}
               </div>
-              <div className="rounded-4xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-300">
-                {translate('The admin dashboard is active and each menu item is now connected to the correct section of the platform.', 'प्रशासक ड्यासबोर्ड सक्रिय छ र प्रत्येक मेनु वस्तु सही प्लेटफर्म सेक्शनमा जोडिएको छ।')}
+
+              <div className="admin-main-grid">
+                <section className="admin-panel admin-chart-panel">
+                  <div className="admin-panel-heading"><div><h2>Platform Overview</h2><p>Sales activity for the last 7 days</p></div><select aria-label="Chart range"><option>Last 7 Days</option><option>Last 30 Days</option></select></div>
+                  <div className="admin-line-chart">
+                    <div className="admin-chart-legend"><span className="users-line">Users</span><span className="orders-line">Orders</span><span className="businesses-line">Businesses</span></div>
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Seven day sales chart"><path className="chart-grid-line" d="M0 22H100 M0 46H100 M0 70H100 M0 94H100" /><polyline className="chart-area" points={`0,94 ${chartPoints} 100,94`} /><polyline className="chart-line" points={chartPoints || '0,94 100,94'} />{chartData.map((item, index) => { const x = chartData.length > 1 ? (index / (chartData.length - 1)) * 100 : 50; const y = 94 - ((Number(item.amount) || 0) / chartMax) * 72; return <circle key={item.date} cx={x} cy={y} r="1.5" className="chart-dot" />; })}</svg>
+                    <div className="admin-chart-labels">{chartData.map((item) => <span key={item.date}>{new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>)}</div>
+                  </div>
+                </section>
+
+                <section className="admin-panel admin-donut-panel"><div className="admin-panel-heading"><div><h2>Business & User Growth</h2><p>Current platform mix</p></div></div><div className="admin-donut-wrap"><div className="admin-donut"><strong>{formatCompact(metrics.totalUsers ?? users.length)}</strong><span>Total Users</span></div><div className="admin-donut-legend"><span><i className="dot blue" />Customers <b>{metrics.totalUsers ? Math.round((metrics.customers / metrics.totalUsers) * 100) : 0}%</b></span><span><i className="dot orange" />Businesses <b>{metrics.totalBusinesses ? Math.round((metrics.sellers / metrics.totalBusinesses) * 100) : 0}%</b></span><span><i className="dot purple" />Others <b>{metrics.totalUsers ? Math.max(0, 100 - Math.round((metrics.customers / metrics.totalUsers) * 100) - Math.round((metrics.sellers / metrics.totalUsers) * 100)) : 0}%</b></span></div></div></section>
+              </div>
+
+              <div className="admin-three-grid">
+                <section className="admin-panel admin-table-panel"><div className="admin-panel-heading"><h2>Recent Businesses</h2><button type="button" onClick={() => goTo('businesses')}>View All <FiChevronRight /></button></div><div className="admin-table"><div className="admin-table-row admin-table-header"><span>Business Name</span><span>Category</span><span>Location</span><span>Status</span><span>Joined</span></div>{recentBusinesses.map((business) => <button type="button" className="admin-table-row" key={business._id} onClick={() => goTo('businesses')}><strong>{business.name}</strong><span>{business.category}</span><span>{business.location || 'N/A'}</span><span className={`status-dot ${business.verified === 'verified' ? 'open' : 'pending'}`}>{business.verified === 'verified' ? 'Open' : business.verified}</span><span>{new Date(business.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></button>)}{recentBusinesses.length === 0 && <div className="admin-empty">No businesses registered yet.</div>}</div><button type="button" className="admin-yellow-action" onClick={() => goTo('businesses')}>View All Businesses <FiChevronRight /></button></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Order & Booking Status</h2><button type="button" onClick={() => goTo('orders')}>View All <FiChevronRight /></button></div><div className="status-bars">{statusCounts.map((status) => <button type="button" key={status.label} onClick={() => goTo('orders')}><span>{status.label}</span><i><b className={status.label} style={{ width: `${Math.min(100, (status.count / Math.max(orders.length, 1)) * 100)}%` }} /></i><strong>{status.count}</strong></button>)}</div></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Top Categories</h2><button type="button" onClick={() => goTo('businesses')}>View All <FiChevronRight /></button></div><div className="category-bars">{categoryCounts.map((category) => <button type="button" key={category.name} onClick={() => goTo('businesses')}><span><i className="dot orange" />{category.name}</span><b>{Math.round((category.count / maxCategoryCount) * 100)}%</b></button>)}{categoryCounts.length === 0 && <div className="admin-empty">No category data yet.</div>}</div></section>
+              </div>
+
+              <div className="admin-bottom-grid">
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Recent Reviews</h2><button type="button" onClick={() => goTo('reviews')}>View All <FiChevronRight /></button></div><div className="review-list">{reviews.slice(0, 3).map((review) => <button type="button" key={review._id} onClick={() => goTo('reviews')}><FiStar /><span><strong>{review.customerName || 'Customer'}</strong><small>{review.comment || 'No comment provided.'}</small></span><b>{review.rating || 0}/5</b></button>)}{reviews.length === 0 && <div className="admin-empty">No reviews yet.</div>}</div></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Pending Verifications</h2><button type="button" onClick={() => goTo('businesses')}>View All <FiChevronRight /></button></div><div className="verification-list">{pendingBusinesses.map((business) => <div key={business._id}><span><strong>{business.name}</strong><small>{business.category || 'Business'} · {business.location || 'Location pending'}</small></span><button type="button" onClick={() => handleVerifyBusiness(business._id, 'verified')}>Verify</button></div>)}{pendingBusinesses.length === 0 && <div className="admin-empty">All businesses are verified.</div>}</div></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Admin Quick Actions</h2></div><div className="admin-quick-actions"><button type="button" onClick={() => goTo('businesses')}><FiBriefcase />Add New Business</button><button type="button" onClick={() => goTo('users')}><FiUsers />Manage Users</button><button type="button" onClick={() => goTo('reviews')}><FiFlag />Review Reports <b>{reportedReviews.length}</b></button><button type="button" onClick={() => goTo('payments')}><FiCreditCard />Payment Records</button><button type="button" onClick={() => goTo('settings')}><FiSettings />System Settings</button><button type="button" onClick={() => goTo('products')}><FiPackage />Content Management</button></div></section>
               </div>
             </div>
           )}

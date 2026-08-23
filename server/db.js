@@ -351,9 +351,7 @@ const seedDemoUsers = async () => {
   if (!db.User) return;
   for (const userData of DEMO_USERS) {
     const existing = await db.User.findOne({ email: userData.email });
-    if (existing) {
-      await db.User.findByIdAndUpdate(existing._id, { ...userData, password: userData.password });
-    } else {
+    if (!existing) {
       await db.User.create({ ...userData });
     }
   }

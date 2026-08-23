@@ -61,7 +61,7 @@ const sellerNav = [
 const customerNav = [
   { key: 'dashboard', label: 'Dashboard', icon: FiGrid },
   { key: 'orders', label: 'My Orders', icon: FiShoppingBag },
-  { key: 'wishlist', label: 'My Wishlist', icon: FiHeart },
+  { key: 'wishlist', label: 'My Wishlist', icon: FiHeart, countKey: 'wishlistCount' },
   { key: 'cart', label: 'My Cart', icon: FiShoppingCart, countKey: 'cartCount' },
   { key: 'saved', label: 'Saved Businesses', icon: FiStar },
   { key: 'reviews', label: 'Reviews', icon: FiStar },
@@ -95,10 +95,14 @@ export default function Navbar({
   activeTab,
   onTabChange,
   sidebarCounts,
+  businessOfferingType = 'both',
 }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [publicMenuOpen, setPublicMenuOpen] = useState(false);
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState('Kathmandu, Nepal');
   const location = useLocation();
 
   const safeNotifications = Array.isArray(notifications) ? notifications : [];
@@ -117,7 +121,10 @@ export default function Navbar({
   // Get nav items for current role
   const getNavItems = () => {
     if (user?.role === 'admin') return adminNav;
-    if (user?.role === 'seller') return sellerNav;
+    if (user?.role === 'seller') return sellerNav.filter((item) => (
+      (item.key !== 'products' || businessOfferingType !== 'services')
+      && (item.key !== 'services' || businessOfferingType !== 'products')
+    ));
     return customerNav;
   };
 
@@ -129,7 +136,7 @@ export default function Navbar({
       <header className="sticky top-0 z-40 bg-[#0B1A30] text-white shadow-md border-b border-[#0B1A30]">
         <div className="public-nav-row mx-auto flex h-[76px] max-w-[1480px] items-center justify-between gap-3 px-3 sm:px-4 lg:px-6">
           <button
-            onClick={() => onOpenDashboard('home')}
+            onClick={() => onOpenDashboard(user ? 'dashboard' : 'home')}
             className="flex items-center gap-3 rounded-full bg-transparent p-0 text-left cursor-pointer"
             aria-label="UdyogConnect home"
           >
@@ -142,7 +149,13 @@ export default function Navbar({
             </div>
           </button>
 
-          <div className="hidden flex-1 justify-center md:flex px-6">
+          <nav className="public-nav-links hidden items-center gap-5 lg:flex" aria-label="Primary navigation">
+            {['Home', 'Businesses', 'Products', 'Services', 'About', 'Contact'].map((item) => (
+              <button key={item} type="button" onClick={() => item === 'Home' ? onOpenDashboard(user ? 'dashboard' : 'home') : document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' })} className="border-0 bg-transparent text-[11px] font-semibold text-white/80 transition hover:text-[#F2B71D] cursor-pointer">{item}</button>
+            ))}
+          </nav>
+
+          <div className="hidden flex-1 justify-center md:flex px-4 xl:px-6">
             <div className="relative w-full max-w-[550px]">
               <FiSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8] h-4 w-4" />
               <input
@@ -154,6 +167,12 @@ export default function Navbar({
           </div>
 
           <div className="public-nav-actions flex items-center gap-3 sm:gap-4">
+            <div className="relative hidden sm:block">
+              <button type="button" onClick={() => setLocationMenuOpen(!locationMenuOpen)} className="flex items-center gap-1 rounded-full border border-[#2D496E] bg-[#102744] px-3 py-2 text-[10px] font-semibold text-white" title="Choose location">
+                <FiMapPin className="text-[#F2B71D]" /> {selectedLocation} <FiChevronDown className="text-white/50" />
+              </button>
+              {locationMenuOpen && <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-[#2D496E] bg-[#102744] p-1 shadow-xl">{['Kathmandu, Nepal', 'Lalitpur, Nepal', 'Bhaktapur, Nepal'].map((location) => <button type="button" key={location} onClick={() => { setSelectedLocation(location); setLocationMenuOpen(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-[10px] text-white hover:bg-[#1B3A61] hover:text-[#F2B71D]">{location}</button>)}</div>}
+            </div>
             <button
               onClick={() => setLang(lang === 'en' ? 'ne' : 'en')}
               className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#101E35] px-3 py-2 text-xs font-semibold text-[#F2B71D] transition hover:bg-[#1E293B] cursor-pointer"
@@ -169,9 +188,11 @@ export default function Navbar({
               aria-label="Wishlist"
             >
               <FiHeart className="h-4.5 w-4.5 text-[#F2B71D]" />
-              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white">
-                2
-              </span>
+              {user && counts.wishlistCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white">
+                  {counts.wishlistCount}
+                </span>
+              )}
             </button>
 
             <div className="relative">
@@ -185,11 +206,7 @@ export default function Navbar({
                   <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E0A615] px-1 text-[8px] font-bold text-[#0B1A30]">
                     {unreadNotifs.length}
                   </span>
-                ) : (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E0A615] px-1 text-[8px] font-bold text-[#0B1A30]">
-                    4
-                  </span>
-                )}
+                ) : null}
               </button>
 
               {showNotifMenu && (
@@ -261,16 +278,23 @@ export default function Navbar({
                 </div>
               </button>
             ) : (
-              <button
-                onClick={onOpenAuth}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] px-4 py-2 text-xs font-bold text-[#0B1A30] shadow-sm transition cursor-pointer"
-              >
-                <FiUser className="h-3.5 w-3.5" />
-                {translate('Sign In', 'लगइन')}
-              </button>
+              <div className="hidden items-center gap-2 sm:flex">
+                <button onClick={() => onOpenAuth('login')} className="rounded-lg border border-[#526783] bg-transparent px-4 py-2 text-[11px] font-bold text-white transition hover:border-[#F2B71D] cursor-pointer">Login</button>
+                <button onClick={() => onOpenAuth('signup')} className="rounded-lg bg-[#F2B71D] px-4 py-2 text-[11px] font-bold text-[#0B1A30] transition hover:bg-[#E0A615] cursor-pointer">Register</button>
+              </div>
             )}
+            <button type="button" onClick={() => setPublicMenuOpen(!publicMenuOpen)} className="flex rounded-lg border border-[#2D496E] bg-[#102744] p-2 text-white lg:hidden" aria-label="Open navigation"><FiMenu /></button>
           </div>
         </div>
+
+        {publicMenuOpen && (
+          <nav className="border-t border-[#1E3553] bg-[#0B1A30] px-4 py-3 lg:hidden" aria-label="Mobile navigation">
+            <div className="grid grid-cols-2 gap-2">
+              {['Home', 'Businesses', 'Products', 'Services', 'About', 'Contact'].map((item) => <button key={item} type="button" onClick={() => { setPublicMenuOpen(false); item === 'Home' ? onOpenDashboard(user ? 'dashboard' : 'home') : document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' }); }} className="rounded-lg px-3 py-2 text-left text-xs font-semibold text-white/80 hover:bg-[#102744] hover:text-[#F2B71D]">{item}</button>)}
+            </div>
+            {!user && <div className="mt-2 flex gap-2"><button onClick={() => onOpenAuth('login')} className="flex-1 rounded-lg border border-[#526783] py-2 text-xs font-bold text-white">Login</button><button onClick={() => onOpenAuth('signup')} className="flex-1 rounded-lg bg-[#F2B71D] py-2 text-xs font-bold text-[#0B1A30]">Register</button></div>}
+          </nav>
+        )}
 
         <div className="border-t border-[#1E293B] bg-[#0B1A30] md:hidden">
           <div className="mx-auto max-w-[1480px] px-3 py-2.5">
@@ -302,7 +326,7 @@ export default function Navbar({
         {/* Logo */}
         <div style={{ padding: '20px 20px 8px' }}>
           <button
-            onClick={() => onOpenDashboard('home')}
+            onClick={() => onOpenDashboard(user ? 'dashboard' : 'home')}
             style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: 'pointer' }}
           >
             <div style={{
