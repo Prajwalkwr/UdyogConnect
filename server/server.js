@@ -1092,7 +1092,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     delete updateData.documentUrl;
     delete updateData.qrUrl;
 
-    if (removeLogo || logoUrl) {
+    if (removeLogo || (logoUrl && logoUrl !== biz.imageUrl)) {
       if (biz.imageUrl && biz.imageUrl.includes('cloudinary.com')) {
         const publicId = extractPublicIdFromUrl(biz.imageUrl);
         if (publicId && cloudinary) {
@@ -1107,7 +1107,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       updateData.imageUrl = logoUrl;
     }
     
-    if (coverUrl) {
+    if (coverUrl && coverUrl !== biz.coverUrl) {
       if (biz.coverUrl && biz.coverUrl.includes('cloudinary.com')) {
         const publicId = extractPublicIdFromUrl(biz.coverUrl);
         if (publicId && cloudinary) {
@@ -1115,8 +1115,11 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
         }
       }
       updateData.coverUrl = coverUrl;
+    } else if (coverUrl === biz.coverUrl) {
+      updateData.coverUrl = coverUrl;
     }
-    if (docUrl) {
+
+    if (docUrl && docUrl !== (biz.documents && biz.documents[0])) {
       if (biz.documents && biz.documents[0] && biz.documents[0].includes('cloudinary.com')) {
         const publicId = extractPublicIdFromUrl(biz.documents[0]);
         if (publicId && cloudinary) {
@@ -1124,14 +1127,19 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
         }
       }
       updateData.documents = [docUrl];
+    } else if (docUrl === (biz.documents && biz.documents[0])) {
+      updateData.documents = [docUrl];
     }
-    if (qrUrl) {
+
+    if (qrUrl && qrUrl !== biz.qrUrl) {
       if (biz.qrUrl && biz.qrUrl.includes('cloudinary.com')) {
         const publicId = extractPublicIdFromUrl(biz.qrUrl);
         if (publicId && cloudinary) {
           cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }).catch(console.error);
         }
       }
+      updateData.qrUrl = qrUrl;
+    } else if (qrUrl === biz.qrUrl) {
       updateData.qrUrl = qrUrl;
     }
 
