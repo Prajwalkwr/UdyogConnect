@@ -275,6 +275,15 @@ function App() {
     };
   }, [dispatch, location.pathname, navigate]);
 
+  const handleSidebarNav = (tab) => {
+    setDashboardTab(tab);
+    if (user) {
+      if (user.role === 'admin' && location.pathname !== '/admin') navigate('/admin');
+      else if (user.role === 'seller' && location.pathname !== '/business') navigate('/business');
+      else if (user.role === 'customer' && location.pathname !== '/customer') navigate('/customer');
+    }
+  };
+
   // Check if we are on a dashboard route
   const isDashboardRoute = ['/business', '/customer', '/admin'].some((p) =>
     location.pathname.startsWith(p)
@@ -295,7 +304,7 @@ function App() {
         notifications={notifications}
         onClearNotifications={handleClearNotifications}
         activeTab={dashboardTab}
-        onTabChange={setDashboardTab}
+        onTabChange={handleSidebarNav}
         sidebarCounts={{
           productCount: products.length,
           orderCount: 0,
