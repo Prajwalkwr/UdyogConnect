@@ -27,7 +27,11 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
   const activeView = resolveTab(currentTab);
   const recentOrders = orders.slice(0, 4);
   const recommendedBusinesses = businesses.slice(0, 3);
-  const popularProducts = products.slice(0, 4);
+  // Filter only truly popular products: rating >= 4.0, sorted by rating descending
+  const popularProducts = products
+    .filter((p) => (p.rating || 0) >= 4.0)
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 4);
   const businessImage = (business) => business?.imageUrl || business?.logoUrl || business?.logo || business?.image || '';
   const cartTotal = orders.reduce((total, order) => total + Number(order.total || 0), 0);
 

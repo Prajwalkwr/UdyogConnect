@@ -195,6 +195,11 @@ export default function Marketplace({
     return parentBiz && parentBiz.verified === 'verified';
   });
 
+  // Filter for truly popular products: rating >= 4.0, sorted by rating
+  const popularProducts = safeProducts
+    .filter((p) => (p.rating || 0) >= 4.0)
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
   const verifiedBusinesses = Array.isArray(businesses)
     ? businesses.filter((b) => b?.verified === 'verified')
     : [];
@@ -703,7 +708,7 @@ export default function Marketplace({
             </div>
 
             <div className="space-y-3">
-              {safeProducts.slice(0, 3).map((p) => {
+              {popularProducts.slice(0, 3).map((p) => {
                 const discountedPrice = safeNumber(p.price) - (safeNumber(p.price) * safeNumber(p.discount)) / 100;
                 return (
                   <div key={p._id} className="flex items-center gap-3 rounded-[16px] border border-gray-100 bg-[#FDFBF7] p-2.5 transition hover:bg-[#FFF5D6]">
@@ -739,6 +744,11 @@ export default function Marketplace({
                   </div>
                 );
               })}
+              {popularProducts.length === 0 && (
+                <div className="text-center py-6 text-gray-500">
+                  <p className="text-sm">No popular products available yet.</p>
+                </div>
+              )}
             </div>
           </aside>
         </div>
