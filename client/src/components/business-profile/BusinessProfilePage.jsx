@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BadgeCheck, Coffee, Heart, MapPin, Share2, Star, UtensilsCrossed } from 'lucide-react';
+import { BadgeCheck, Coffee, Heart, MapPin, Share2, Star, UtensilsCrossed, Camera } from 'lucide-react';
 import Swal from 'sweetalert2';
 import api from '../../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../../utils/submitProtection';
+import { uploadFilesToCloudinary } from '../../utils/mediaUpload';
 import ProductCard from './ProductCard';
 import ServiceRow from './ServiceRow';
 import ReviewsPanel from './ReviewsPanel';
@@ -56,6 +57,48 @@ export default function BusinessProfilePage({
   const [reviewDraft, setReviewDraft] = useState({ rating: 5, comment: '' });
   const submitGuard = useMemo(() => createSubmissionGuard(), []);
   const openMeta = isOpenNow();
+
+  const isOwner = user?.role === 'seller' && String(profile?.business?.ownerId) === String(user._id || user.id);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleImageUpload = async (event, type) => {
+    const file = event.target.files[0];
+    if (!file || !isOwner) return;
+
+    if (!submitGuard.begin()) return;
+    setIsUploading(true);
+    try {
+      Swal.fire({
+        title: 'Uploading...',
+        text: 'Please wait...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+      });
+      
+      const fd = new FormData();
+      const uploadedUrls = await uploadFilesToCloudinary([file]);
+      if (uploadedUrls && uploadedUrls[0]) {
+        fd.append(type === 'cover' ? 'coverUrl' : 'logoUrl', uploadedUrls[0]);
+      }
+      fd.append(type === 'cover' ? 'cover' : 'logo', file);
+      
+      const response = await api.put(`/api/businesses/${profile.business._id}`, fd, {
+        headers: createIdempotencyHeader(`update-biz-${type}`),
+      });
+
+      if (response.data?.business) {
+        setProfile((prev) => ({ ...prev, business: response.data.business }));
+      }
+      
+      Swal.fire({ icon: 'success', title: 'Updated!', timer: 1200, showConfirmButton: false });
+    } catch (error) {
+      console.error(error);
+      Swal.fire({ icon: 'error', text: 'Failed to update image.' });
+    } finally {
+      setIsUploading(false);
+      submitGuard.finish();
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -220,13 +263,40 @@ export default function BusinessProfilePage({
 
   return (
     <div className="bp-page">
-      <section className="bp-hero">
+      <section className="bp-hero" style={{ position: 'relative' }}>
         <img className="bp-hero-img" src={business.coverUrl} alt={`${business.name} cover`} />
         <div className="bp-hero-overlay" />
+        {isOwner && (
+          <label style={{
+            position: 'absolute', top: 16, right: 16, zIndex: 10,
+            background: 'rgba(0,0,0,0.6)', color: 'white', padding: '8px 16px',
+            borderRadius: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13,
+            transition: 'background 0.2s', 
+          }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.8)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.6)'}>
+            <Camera size={16} /> Edit Cover
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(e, 'cover')} disabled={isUploading} />
+          </label>
+        )}
         <div className="bp-hero-inner">
-          <div className="bp-logo-card">
-            <Coffee size={36} color="#f2b71d" />
-            <span>{business.name.split(' ')[0]}</span>
+          <div className="bp-logo-card" style={{ position: 'relative', padding: business.imageUrl ? 0 : undefined, overflow: 'hidden' }}>
+            {business.imageUrl ? (
+              <img src={business.imageUrl} alt={business.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <>
+                <Coffee size={36} color="#f2b71d" />
+                <span>{business.name.split(' ')[0]}</span>
+              </>
+            )}
+            {isOwner && (
+              <label style={{
+                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', 
+                display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                opacity: 0, transition: 'opacity 0.2s', cursor: 'pointer'
+              }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>
+                <Camera size={24} color="white" />
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(e, 'logo')} disabled={isUploading} />
+              </label>
+            )}
           </div>
           <div className="bp-hero-copy">
             <h1>

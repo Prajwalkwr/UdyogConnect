@@ -6,7 +6,6 @@ import Swal from 'sweetalert2';
 import { normalizeUser } from './utils/authFlow';
 import { readStoredJson, removeStoredValue } from './utils/storage';
 import { io as socketIO } from 'socket.io-client';
-import { attemptAutoLogin } from './config/autoLogin';
 
 // Import Modular Components
 import Navbar from './components/Navbar';
@@ -66,19 +65,15 @@ function App() {
 
   // Sync token, notifications, and Socket.IO connection
   useEffect(() => {
-    const initializeApp = async () => {
-      // Try auto-login first
-      const autoLoginResult = await attemptAutoLogin(dispatch, api);
-      
-      const token = localStorage.getItem('token');
-      const parsedUser = readStoredJson('user', null);
+    const token = localStorage.getItem('token');
+    const parsedUser = readStoredJson('user', null);
 
-      if (token) {
-        if (parsedUser) {
-          const normalizedUser = normalizeUser(parsedUser);
-          dispatch({ type: 'SET_USER', payload: normalizedUser });
-        }
-        fetchNotifications();
+    if (token) {
+      if (parsedUser) {
+        const normalizedUser = normalizeUser(parsedUser);
+        dispatch({ type: 'SET_USER', payload: normalizedUser });
+      }
+      fetchNotifications();
 
         // ── Real-time Socket.IO connection ────────────────────────
         const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin;
@@ -110,9 +105,6 @@ function App() {
           socketRef.current = null;
         };
       }
-    };
-    
-    initializeApp();
   }, [dispatch, user?._id]);
 
   // Load Marketplace Catalogs
