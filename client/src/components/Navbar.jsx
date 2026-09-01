@@ -96,6 +96,7 @@ export default function Navbar({
   onTabChange,
   sidebarCounts,
   businessOfferingType = 'both',
+  hideSidebar = false,
 }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
@@ -316,13 +317,16 @@ export default function Navbar({
   return (
     <>
       {/* Mobile overlay */}
-      <div
-        className={`sidebar-overlay ${mobileMenuOpen ? 'active' : ''}`}
-        onClick={() => setMobileMenuOpen(false)}
-      />
+      {!hideSidebar && (
+        <div
+          className={`sidebar-overlay ${mobileMenuOpen ? 'active' : ''}`}
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
 
       {/* Sidebar */}
-      <aside className={`app-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
+      {!hideSidebar && (
+        <aside className={`app-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
         {/* Logo */}
         <div style={{ padding: '20px 20px 8px' }}>
           <button
@@ -454,10 +458,11 @@ export default function Navbar({
             <span>{translate('Logout', 'लगआउट')}</span>
           </button>
         </div>
-      </aside>
+        </aside>
+      )}
 
       {/* Content-area Top Header */}
-      <div className="content-header" style={{ marginLeft: 'var(--sidebar-width)' }}>
+      <div className="content-header" style={{ marginLeft: hideSidebar ? '0' : 'var(--sidebar-width)' }}>
         {/* Mobile hamburger */}
         <button
           className="lg:hidden"

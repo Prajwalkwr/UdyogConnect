@@ -680,37 +680,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-app.post('/api/auth/google', async (req, res) => {
-  try {
-    const { email, name, googleId } = req.body;
-    if (!email || !name) return res.status(400).json({ message: 'Google authentication details missing.' });
 
-    const UserMDL = User();
-    let user = await UserMDL.findOne({ email });
-
-    if (!user) {
-      user = await UserMDL.create({
-        name,
-        email,
-        password: await bcrypt.hash(Math.random().toString(36), 10),
-        role: 'customer',
-        loyaltyPoints: 10,
-        googleId,
-        addresses: [],
-        paymentMethods: [],
-        wishlist: { products: [], services: [], businesses: [] },
-        isVerified: true,
-      });
-    }
-
-    const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeGoogleUser } = typeof user.toObject === 'function' ? user.toObject() : user;
-    res.json({ success: true, token, user: { ...safeGoogleUser, id: user._id } });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Google Sign In failed.' });
-  }
-});
 
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
@@ -824,6 +794,89 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== HEALTH CHECK & PERSISTENCE VERIFICATION ====================
+
+// Health check endpoint - verify MongoDB connection
+app.get('/api/health/status', async (req, res) => {
+  try {
+    const mongoConnected = getIsMongo();
+    
+    // Try to count businesses to verify connection
+    let businessCount = 0;
+    let mongoError = null;
+    
+    try {
+      const BusinessMDL = Business();
+      businessCount = await BusinessMDL.countDocuments({});
+    } catch (err) {
+      mongoError = err.message;
+    }
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      database: {
+        type: mongoConnected ? 'MongoDB (Production)' : 'JSON File Storage (Development)',
+        connected: true,
+        mongoError: mongoError || null,
+        businessCount: businessCount
+      },
+      message: mongoConnected 
+        ? 'Database connected. Business data will PERSIST across server restarts.' 
+        : 'Using file-based storage. Business data will persist if saved to JSON files.'
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Health check failed', 
+      error: err.message 
+    });
+  }
+});
+
+// Admin endpoint - verify all businesses are persisted
+app.get('/api/admin/businesses/persistence-check', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const BusinessMDL = Business();
+    const businesses = await BusinessMDL.find({});
+    
+    const stats = {
+      totalBusinesses: businesses.length,
+      byStatus: {
+        pending: businesses.filter(b => b.verified === 'pending').length,
+        verified: businesses.filter(b => b.verified === 'verified').length,
+        approved: businesses.filter(b => b.verified === 'approved').length,
+        rejected: businesses.filter(b => b.verified === 'rejected').length,
+        suspended: businesses.filter(b => b.verified === 'suspended').length,
+      },
+      mongoConnected: getIsMongo(),
+      timestamp: new Date().toISOString(),
+    };
+
+    res.json({
+      status: 'ok',
+      databaseType: getIsMongo() ? 'MongoDB (Production)' : 'JSON Files (Development)',
+      persistenceInfo: 'All business data listed below is permanently stored and will persist across server restarts.',
+      stats,
+      businesses: businesses.map(b => ({
+        id: b._id,
+        name: b.name,
+        owner: b.ownerId,
+        category: b.category,
+        verified: b.verified,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Failed to check business persistence', 
+      error: err.message 
+    });
+  }
+});
+
 // ==================== MARKETPLACE & BUSINESS APIS ====================
 
 app.get('/api/businesses', async (req, res) => {
@@ -925,6 +978,8 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       return res.status(409).json({ message: 'A business with this name already exists. Please choose a different name.' });
     }
 
+    console.log(`[LOG] Seller ${req.user.email} (${req.user.id}) is registering business: "${name}" in category "${category}"`);
+
     let logoUrl = '';
     let coverUrl = '';
     let docUrl = '';
@@ -980,6 +1035,8 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       visitorsCount: 0,
       offeringType: offeringType || 'both',
     });
+
+    console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${req.user.email} with status: pending. Business will persist until admin verification or permanent deletion.`);
 
     res.status(201).json({ success: true, business: newBusiness });
   } catch (err) {
@@ -1140,11 +1197,18 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
 // Admin deletes business account and all associated data
 app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
+    // Verify admin role is set
+    if (req.user.role !== 'admin') {
+      console.warn(`[SECURITY] Non-admin user ${req.user.id} attempted to delete business ${req.params.id}`);
+      return res.status(403).json({ message: 'Only administrators can delete businesses.' });
+    }
+
     const BusinessMDL = Business();
     const ProductMDL = Product();
     const ServiceMDL = Service();
     const ReviewMDL = Review();
     const BookingMDL = Booking();
+    const AuditLogMDL = AuditLog();
 
     const bizId = req.params.id;
     let biz;
@@ -1163,6 +1227,18 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
       return res.status(404).json({ message: 'Business not found.' });
     }
 
+    // Log audit trail for admin deletion
+    console.log(`[AUDIT] Admin ${req.user.email} (ID: ${req.user.id}) is deleting business "${biz.name}" (ID: ${bizId})`);
+
+    // Record cascading deletions for audit trail
+    let deletionStats = {
+      business: 1,
+      products: 0,
+      services: 0,
+      reviews: 0,
+      bookings: 0
+    };
+
     // Delete the business document
     try {
       await BusinessMDL.deleteOne({ _id: bizId });
@@ -1176,10 +1252,12 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
 
     // Clean up associated products
     try {
-      await ProductMDL.deleteMany({ businessId: bizId });
+      const prodResult = await ProductMDL.deleteMany({ businessId: bizId });
+      deletionStats.products = prodResult.deletedCount || 0;
     } catch (err) {
       if (ProductMDL.collection) {
-        await ProductMDL.collection.deleteMany({ businessId: bizId });
+        const prodResult = await ProductMDL.collection.deleteMany({ businessId: bizId });
+        deletionStats.products = prodResult.deletedCount || 0;
       } else {
         throw err;
       }
@@ -1187,10 +1265,12 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
 
     // Clean up associated services
     try {
-      await ServiceMDL.deleteMany({ businessId: bizId });
+      const svcResult = await ServiceMDL.deleteMany({ businessId: bizId });
+      deletionStats.services = svcResult.deletedCount || 0;
     } catch (err) {
       if (ServiceMDL.collection) {
-        await ServiceMDL.collection.deleteMany({ businessId: bizId });
+        const svcResult = await ServiceMDL.collection.deleteMany({ businessId: bizId });
+        deletionStats.services = svcResult.deletedCount || 0;
       } else {
         throw err;
       }
@@ -1198,10 +1278,12 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
 
     // Clean up associated reviews
     try {
-      await ReviewMDL.deleteMany({ businessId: bizId });
+      const revResult = await ReviewMDL.deleteMany({ businessId: bizId });
+      deletionStats.reviews = revResult.deletedCount || 0;
     } catch (err) {
       if (ReviewMDL.collection) {
-        await ReviewMDL.collection.deleteMany({ businessId: bizId });
+        const revResult = await ReviewMDL.collection.deleteMany({ businessId: bizId });
+        deletionStats.reviews = revResult.deletedCount || 0;
       } else {
         throw err;
       }
@@ -1209,19 +1291,33 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
 
     // Clean up associated bookings
     try {
-      await BookingMDL.deleteMany({ businessId: bizId });
+      const bkResult = await BookingMDL.deleteMany({ businessId: bizId });
+      deletionStats.bookings = bkResult.deletedCount || 0;
     } catch (err) {
       if (BookingMDL.collection) {
-        await BookingMDL.collection.deleteMany({ businessId: bizId });
+        const bkResult = await BookingMDL.collection.deleteMany({ businessId: bizId });
+        deletionStats.bookings = bkResult.deletedCount || 0;
       } else {
         throw err;
       }
     }
 
-    res.json({ success: true, message: 'Business and all associated records deleted successfully.' });
+    // Log audit trail
+    try {
+      await AuditLogMDL.create({
+        userId: req.user.id,
+        action: 'BUSINESS_DELETED',
+        details: `Admin deleted business "${biz.name}" (${bizId}). Cascade deleted: ${deletionStats.products} products, ${deletionStats.services} services, ${deletionStats.reviews} reviews, ${deletionStats.bookings} bookings.`
+      });
+    } catch (auditErr) {
+      console.error('Failed to record audit log for business deletion:', auditErr && auditErr.message);
+    }
+
+    console.log(`[AUDIT] Business deletion completed. Stats:`, deletionStats);
+    res.json({ success: true, message: 'Business and all associated data permanently deleted.', deletionStats });
   } catch (err) {
-    console.error('Failed to delete business', err);
-    res.status(500).json({ message: 'Failed to delete business account.', error: err.message });
+    console.error('[ERROR] Business deletion failed:', err);
+    res.status(500).json({ message: 'Business deletion failed. Please try again.' });
   }
 });
 

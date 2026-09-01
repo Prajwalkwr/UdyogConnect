@@ -595,7 +595,10 @@ export default function Marketplace({
 
                     <p className="mt-2 text-xs text-gray-600 line-clamp-1">{b.description || 'Fresh products, best quality'}</p>
 
-                    <button className="mt-3.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] py-2 text-xs font-bold text-[#0B1A30] transition">
+                    <button
+                      onClick={(event) => { event.stopPropagation(); onOpenBusiness(b._id); }}
+                      className="mt-3.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] py-2 text-xs font-bold text-[#0B1A30] transition"
+                    >
                       <FiHome className="h-3.5 w-3.5" />
                       <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
                     </button>
@@ -674,7 +677,10 @@ export default function Marketplace({
                         <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${getBusinessAvailabilityMeta(biz).isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {getBusinessAvailabilityMeta(biz).isOpen ? 'Open' : 'Closed'}
                         </span>
-                        <button className="inline-flex items-center gap-1 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] px-3.5 py-1.5 text-xs font-bold text-[#0B1A30] transition">
+                        <button
+                          onClick={(event) => { event.stopPropagation(); onOpenBusiness(biz._id); }}
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] px-3.5 py-1.5 text-xs font-bold text-[#0B1A30] transition"
+                        >
                           <FiHome className="h-3.5 w-3.5" />
                           <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
                         </button>

@@ -373,7 +373,6 @@ const initMongooseModels = async () => {
       businesses: { type: Array, default: [] },
     },
     loyaltyPoints: { type: Number, default: 0, min: 0 },
-    googleId: { type: String, trim: true },
     twoFactorEnabled: { type: Boolean, default: false },
     loginHistory: { type: Array, default: [] },
     isVerified: { type: Boolean, default: false },

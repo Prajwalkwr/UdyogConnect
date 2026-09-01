@@ -490,103 +490,82 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   ══════════════════════════════════════════════════════════════ */
   if (!myBusiness) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-10">
-        <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/80 p-8 shadow-2xl">
-          <div className="mb-6">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/10 border border-amber-400/20 mb-4">
-              <FiPackage className="h-5 w-5 text-amber-400" />
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900/80 to-slate-950/80">
+        <div className="w-full h-full overflow-y-auto">
+          <div className="p-6 sm:p-8">
+            <div className="mb-4">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/10 border border-amber-400/20 mb-3">
+                <FiPackage className="h-5 w-5 text-amber-400" />
+              </div>
+              <h2 className="text-2xl font-black text-white">{t('Register Your Business', 'व्यवसाय दर्ता गर्नुहोस्')}</h2>
+              <p className="text-sm text-slate-400 mt-1">{t('Fill in your details and submit for admin approval. You\'ll be notified once approved.', 'विवरण भर्नुहोस् र अनुमोदनको लागि पेश गर्नुहोस्।')}</p>
             </div>
-            <h2 className="text-2xl font-black text-white">{t('Register Your Business', 'व्यवसाय दर्ता गर्नुहोस्')}</h2>
-            <p className="text-sm text-slate-400 mt-1">{t('Fill in your details and submit for admin approval. You\'ll be notified once approved.', 'विवरण भर्नुहोस् र अनुमोदनको लागि पेश गर्नुहोस्।')}</p>
-          </div>
 
-          <form onSubmit={handleRegisterBusiness} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <InputField label={t('Business Name *', 'पसलको नाम *')} placeholder="e.g. Himalayan Crafts" value={bizForm.name} onChange={e => setBizForm({...bizForm, name: e.target.value})} required />
+            <form onSubmit={handleRegisterBusiness} className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InputField label={t('Business Name *', 'पसलको नाम *')} placeholder="e.g. Himalayan Crafts" value={bizForm.name} onChange={e => setBizForm({...bizForm, name: e.target.value})} required />
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">{t('Category *', 'वर्ग *')}</label>
+                  <select value={bizForm.category} onChange={e => setBizForm({...bizForm, category: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
+                    {['Grocery','Restaurants & Food','Furniture','Gift Shop / Crafts','Home Services','Mechanics & Repair','Electronics','Clothing & Fashion','Health & Beauty','Education'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel, Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value})} required />
+                <InputField label="Business Hours" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} />
+              </div>
+
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">{t('Category *', 'वर्ग *')}</label>
-                <select value={bizForm.category} onChange={e => setBizForm({...bizForm, category: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
-                  {['Grocery','Restaurants & Food','Furniture','Gift Shop / Crafts','Home Services','Mechanics & Repair','Electronics','Clothing & Fashion','Health & Beauty','Education'].map(c => <option key={c} value={c}>{c}</option>)}
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Catalog Type (What do you offer?)</label>
+                <select value={bizForm.offeringType} onChange={e => setBizForm({...bizForm, offeringType: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
+                  <option value="both">Products & Services</option>
+                  <option value="products">Products Only</option>
+                  <option value="services">Services Only</option>
                 </select>
               </div>
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel, Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value})} required />
-              <InputField label="Business Hours" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1">Catalog Type (What do you offer?)</label>
-              <select value={bizForm.offeringType} onChange={e => setBizForm({...bizForm, offeringType: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
-                <option value="both">Products & Services</option>
-                <option value="products">Products Only</option>
-                <option value="services">Services Only</option>
-              </select>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <InputField label="Contact Email" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} />
-              <InputField label="Phone Number" type="tel" placeholder="+977-98XXXXXXXX" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value})} />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <InputField label="Registration Number" placeholder="REG-XXXXXXXX" value={bizForm.registrationNumber} onChange={e => setBizForm({...bizForm, registrationNumber: e.target.value})} />
-              <InputField label="PAN / VAT Number" placeholder="PAN-XXXXXXXXX" value={bizForm.panVatNumber} onChange={e => setBizForm({...bizForm, panVatNumber: e.target.value})} />
-            </div>
-
-            <TextAreaField label={t('Business Description *', 'व्यवसायको विवरण *')} placeholder="Tell customers what you offer, your specialties, years of experience…" value={bizForm.description} onChange={e => setBizForm({...bizForm, description: e.target.value})} rows={4} required />
-
-            <div className="grid gap-4 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-300">
-                <p className="font-semibold text-white">Open status</p>
-                <p className="mt-1 text-xs text-slate-400">This is derived from your business hours automatically.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InputField label="Contact Email" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} />
+                <InputField label="Phone Number" type="tel" placeholder="+977-98XXXXXXXX" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value})} />
               </div>
-              <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-200">
-                <span>Delivery available</span>
-                <input type="checkbox" checked={Boolean(bizForm.deliveryAvailable)} onChange={(e) => setBizForm({ ...bizForm, deliveryAvailable: e.target.checked })} className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-amber-500 accent-amber-400" />
-              </label>
-              <div className="md:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Delivery radius (km)</label>
-                <input type="number" min="1" max="50" value={bizForm.deliveryRadiusKm} onChange={(e) => setBizForm({ ...bizForm, deliveryRadiusKm: e.target.value })} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20" />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InputField label="Registration Number" placeholder="REG-XXXXXXXX" value={bizForm.registrationNumber} onChange={e => setBizForm({...bizForm, registrationNumber: e.target.value})} />
+                <InputField label="PAN / VAT Number" placeholder="PAN-XXXXXXXXX" value={bizForm.panVatNumber} onChange={e => setBizForm({...bizForm, panVatNumber: e.target.value})} />
               </div>
-            </div>
 
-            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                <FiUpload className="inline mr-1.5" />{t('Business Certificate / Document', 'व्यवसाय प्रमाणपत्र')}
-              </label>
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setBizDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20" />
-              {bizDoc && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizDoc.name}</p>}
-            </div>
+              <TextAreaField label={t('Business Description *', 'व्यवसायको विवरण *')} placeholder="Tell customers what you offer, your specialties, years of experience…" value={bizForm.description} onChange={e => setBizForm({...bizForm, description: e.target.value})} rows={4} required />
 
-            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-300">
+                  <p className="font-semibold text-white">Open status</p>
+                  <p className="mt-1 text-xs text-slate-400">This is derived from your business hours automatically.</p>
+                </div>
+                <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-200">
+                  <span>Delivery available</span>
+                  <input type="checkbox" checked={Boolean(bizForm.deliveryAvailable)} onChange={(e) => setBizForm({ ...bizForm, deliveryAvailable: e.target.checked })} className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-amber-500 accent-amber-400" />
+                </label>
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Delivery radius (km)</label>
+                  <input type="number" min="1" max="50" value={bizForm.deliveryRadiusKm} onChange={(e) => setBizForm({ ...bizForm, deliveryRadiusKm: e.target.value })} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20" />
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">QR Code URL</label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={bizForm.qrUrl}
-                  onChange={e => setBizForm({ ...bizForm, qrUrl: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20"
-                />
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  <FiUpload className="inline mr-1.5" />{t('Business Certificate / Document', 'व्यवसाय प्रमाणपत्र')}
+                </label>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setBizDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20" />
+                {bizDoc && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizDoc.name}</p>}
               </div>
-              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2"><FiUpload className="inline mr-1.5" />Upload QR Code</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={e => setBizQr(e.target.files[0])}
-                  className="w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20"
-                />
-                {bizQr && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizQr.name}</p>}
-              </div>
-            </div>
 
-            <button type="submit" disabled={isSubmitting} className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all hover:-translate-y-0.5 active:scale-98 disabled:opacity-60">
-              {isSubmitting ? t('Processing...', 'प्रोसेस हुँदै...') : t('Submit Business Registration', 'व्यवसाय दर्ता पेश गर्नुहोस्')}
-            </button>
-          </form>
+              <button type="submit" disabled={isSubmitting} className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all hover:-translate-y-0.5 active:scale-98 disabled:opacity-60">
+                {isSubmitting ? t('Processing...', 'प्रोसेस हुँदै...') : t('Submit Business Registration', 'व्यवसाय दर्ता पेश गर्नुहोस्')}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     );

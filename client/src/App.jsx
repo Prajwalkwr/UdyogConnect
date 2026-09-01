@@ -18,6 +18,7 @@ import CustomerDashboard from './components/CustomerDashboard';
 import SellerDashboard from './components/SellerDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import PaymentSuccess from './components/PaymentSuccess';
+import BusinessProfilePage from './components/business-profile/BusinessProfilePage';
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -244,6 +245,10 @@ function App() {
     }
   };
 
+  const handleOpenBusinessProfile = (businessId) => {
+    navigate(`/business-profile/${businessId}`);
+  };
+
   useEffect(() => {
     const handleUnauthorized = () => {
       removeStoredValue('token');
@@ -299,6 +304,7 @@ function App() {
           wishlistCount,
         }}
         businessOfferingType={sellerBusiness?.offeringType || user?.businessOfferingType || 'both'}
+        hideSidebar={user?.role === 'seller' && !sellerBusiness}
       />
 
       {/* Global Modal Windows */}
@@ -341,7 +347,7 @@ function App() {
                   products={products}
                   lang={lang}
                   onOpenProduct={(id) => setSelectedProductId(id)}
-                  onOpenBusiness={(id) => setSelectedBusinessId(id)}
+                  onOpenBusiness={handleOpenBusinessProfile}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
                   onToggleWishlist={handleWishlistToggle}
@@ -360,7 +366,7 @@ function App() {
                     products={products}
                     lang={lang}
                     onOpenProduct={(id) => setSelectedProductId(id)}
-                    onOpenBusiness={(id) => setSelectedBusinessId(id)}
+                    onOpenBusiness={handleOpenBusinessProfile}
                     onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                     onOpenDashboard={handleOpenDashboard}
                     onToggleWishlist={handleWishlistToggle}
@@ -395,10 +401,27 @@ function App() {
                   businesses={businesses}
                   products={products}
                   onOpenProduct={(id) => setSelectedProductId(id)}
+                  onOpenBusiness={handleOpenBusinessProfile}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
                   activeTab={dashboardTab}
                   onTabChange={setDashboardTab}
+                />
+              }
+            />
+
+            <Route
+              path="/business-profile/:id"
+              element={
+                <BusinessProfilePage
+                  user={user}
+                  onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
+                  onToggleWishlist={handleWishlistToggle}
+                  onRequireAuth={() => {
+                    setAuthMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  onOpenChat={() => {}}
                 />
               }
             />
