@@ -6,6 +6,7 @@ import Swal from 'sweetalert2';
 import { normalizeUser } from './utils/authFlow';
 import { readStoredJson, removeStoredValue } from './utils/storage';
 import { io as socketIO } from 'socket.io-client';
+import { attemptAutoLogin } from './config/autoLogin';
 
 // Import Modular Components
 import Navbar from './components/Navbar';
@@ -65,46 +66,53 @@ function App() {
 
   // Sync token, notifications, and Socket.IO connection
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const parsedUser = readStoredJson('user', null);
+    const initializeApp = async () => {
+      // Try auto-login first
+      const autoLoginResult = await attemptAutoLogin(dispatch, api);
+      
+      const token = localStorage.getItem('token');
+      const parsedUser = readStoredJson('user', null);
 
-    if (token) {
-      if (parsedUser) {
-        const normalizedUser = normalizeUser(parsedUser);
-        dispatch({ type: 'SET_USER', payload: normalizedUser });
-      }
-      fetchNotifications();
-
-      // ── Real-time Socket.IO connection ────────────────────────
-      const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin;
-      const socket = socketIO(backendUrl, {
-        auth: { token },
-        transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 2000,
-      });
-      socketRef.current = socket;
-
-      // Receive a notification pushed by the server in real-time
-      socket.on('new_notification', () => {
+      if (token) {
+        if (parsedUser) {
+          const normalizedUser = normalizeUser(parsedUser);
+          dispatch({ type: 'SET_USER', payload: normalizedUser });
+        }
         fetchNotifications();
-        setLiveOrderTick((t) => t + 1);
-      });
 
-      // Receive a new_order event — trigger seller/admin dashboard refresh
-      socket.on('new_order', () => {
-        setLiveOrderTick((t) => t + 1);
-      });
+        // ── Real-time Socket.IO connection ────────────────────────
+        const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin;
+        const socket = socketIO(backendUrl, {
+          auth: { token },
+          transports: ['websocket', 'polling'],
+          reconnectionAttempts: 5,
+          reconnectionDelay: 2000,
+        });
+        socketRef.current = socket;
 
-      socket.on('support_ticket_update', () => {
-        setLiveOrderTick((t) => t + 1);
-      });
+        // Receive a notification pushed by the server in real-time
+        socket.on('new_notification', () => {
+          fetchNotifications();
+          setLiveOrderTick((t) => t + 1);
+        });
 
-      return () => {
-        socket.disconnect();
-        socketRef.current = null;
-      };
-    }
+        // Receive a new_order event — trigger seller/admin dashboard refresh
+        socket.on('new_order', () => {
+          setLiveOrderTick((t) => t + 1);
+        });
+
+        socket.on('support_ticket_update', () => {
+          setLiveOrderTick((t) => t + 1);
+        });
+
+        return () => {
+          socket.disconnect();
+          socketRef.current = null;
+        };
+      }
+    };
+    
+    initializeApp();
   }, [dispatch, user?._id]);
 
   // Load Marketplace Catalogs

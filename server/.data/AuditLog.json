@@ -1,5 +1,13 @@
 [
   {
+    "_id": "nxyvw6ltl",
+    "createdAt": "2026-09-01T15:31:25.493Z",
+    "updatedAt": "2026-09-01T15:31:25.493Z",
+    "userId": "ngkcoi63m",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
     "_id": "9fwhpq86r",
     "createdAt": "2026-08-15T09:33:59.733Z",
     "updatedAt": "2026-08-15T09:33:59.733Z",

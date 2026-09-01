@@ -91,7 +91,7 @@
   {
     "_id": "ngkcoi63m",
     "createdAt": "2026-08-11T15:52:05.548Z",
-    "updatedAt": "2026-08-11T17:53:10.221Z",
+    "updatedAt": "2026-09-01T15:31:25.489Z",
     "name": "prajwal",
     "email": "praa@G.com",
     "password": "$2b$10$7q1iIHQr8/yoOppiFKKDEuP7WyjdTvgtb6cYhcsvvYlW76.bYyWCu",
@@ -187,6 +187,11 @@
         "timestamp": "2026-08-11T17:53:10.219Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-01T15:31:25.486Z",
+        "ip": "::1",
+        "agent": "axios/1.18.1"
       }
     ],
     "isVerified": true,

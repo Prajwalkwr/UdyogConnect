@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "_id": "f5h047g7z",
+    "createdAt": "2026-09-01T15:31:25.566Z",
+    "updatedAt": "2026-09-01T15:31:25.566Z",
+    "businessId": "ns9p6amog",
+    "name": "Coffee Catering Service",
+    "description": "We provide special coffee catering for events and meetings",
+    "price": 1500,
+    "duration": 60,
+    "slots": [
+      "09:00 - 10:00",
+      "11:00 - 12:00",
+      "14:00 - 15:00"
+    ],
+    "staff": [
+      "Barista",
+      "Server"
+    ],
+    "homeService": true,
+    "availability": true
+  }
+]
