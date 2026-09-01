@@ -213,7 +213,9 @@ export default function BusinessProfilePage({
     onOpenChat?.();
   };
 
-  const featured = products.slice(0, 3);
+  const popularProducts = products
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 4);
   const business = profile.business;
 
   return (
@@ -272,13 +274,17 @@ export default function BusinessProfilePage({
             {tab === 'overview' && (
               <div className="bp-section">
                 <div className="bp-section-head">
-                  <h2>Featured Products</h2>
+                  <h2>Popular Products</h2>
                   <button type="button" className="bp-link" onClick={() => changeTab('products')}>View All</button>
                 </div>
                 <div className="bp-products">
-                  {featured.map((item) => (
-                    <ProductCard key={item._id} product={item} onOpen={setProduct} onAdd={addToCart} onBuy={buyNow} />
-                  ))}
+                  {popularProducts.length > 0 ? (
+                    popularProducts.map((item) => (
+                      <ProductCard key={item._id} product={item} onOpen={setProduct} onAdd={addToCart} onBuy={buyNow} />
+                    ))
+                  ) : (
+                    <div className="bp-empty">No products available for this business yet.</div>
+                  )}
                 </div>
                 <div className="bp-section-head" style={{ marginTop: 18 }}>
                   <h2>Services</h2>
