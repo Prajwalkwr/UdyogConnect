@@ -17,7 +17,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   const [services, setServices] = useState([]);
   const [supportTickets, setSupportTickets] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
+  const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card'] }));
   const [loading, setLoading] = useState(true);
   const [announcementText, setAnnouncementText] = useState('');
   const currentTab = activeTab || 'dashboard';
@@ -30,7 +30,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   const [categoryName, setCategoryName] = useState('');
   const [categoryDescription, setCategoryDescription] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState(null);
-  const [settingsForm, setSettingsForm] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card', 'Wallet'] }));
+  const [settingsForm, setSettingsForm] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card'] }));
   const [submittingAction, setSubmittingAction] = useState(false);
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 

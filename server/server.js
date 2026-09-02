@@ -228,6 +228,25 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+const getApprovalStatus = (business) => {
+  if (['pending', 'approved', 'rejected'].includes(business?.approvalStatus)) return business.approvalStatus;
+  if (business?.verified === 'approved' || business?.verified === 'verified') return 'approved';
+  if (business?.verified === 'rejected' || business?.verified === 'suspended') return 'rejected';
+  return 'pending';
+};
+
+const serializeBusiness = (business) => {
+  const plain = typeof business?.toObject === 'function' ? business.toObject() : { ...business };
+  const approvalStatus = getApprovalStatus(plain);
+  return {
+    ...plain,
+    approvalStatus,
+    isVerified: approvalStatus === 'approved',
+    verified: approvalStatus === 'approved' ? 'verified' : approvalStatus,
+    imageUrl: plain.imageUrl || plain.logoUrl || plain.logo || plain.image || '',
+  };
+};
+
 const idempotencyStore = new Map();
 
 app.use((req, res, next) => {
@@ -558,7 +577,7 @@ app.post('/api/auth/login', async (req, res) => {
         onboardingPending = true;
         businessStatus = 'none';
       } else {
-        businessStatus = biz.verified; // 'pending' | 'approved' | 'rejected'
+        businessStatus = getApprovalStatus(biz);
       }
     }
 
@@ -688,7 +707,13 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
     const user = await UserMDL.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'Profile not found.' });
 
-    const { password, ...safeUser } = user;
+    const safeUser = toSafeUser(user);
+    if (user.role === 'seller') {
+      const BusinessMDL = Business();
+      const business = await BusinessMDL.findOne({ ownerId: String(req.user.id) });
+      safeUser.business = business ? serializeBusiness(business) : null;
+      safeUser.businessStatus = business ? getApprovalStatus(business) : 'none';
+    }
     res.json(safeUser);
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving profile.' });
@@ -919,13 +944,21 @@ app.get('/api/businesses', async (req, res) => {
       }
     }
 
-    res.json(listings.map((business) => ({
-      ...business,
-      imageUrl: business.imageUrl || business.logoUrl || business.logo || business.image || '',
-    })));
+    res.json(listings.map(serializeBusiness));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to retrieve listings.' });
+  }
+});
+
+app.get('/api/businesses/mine', authenticateToken, requireRole(['seller']), async (req, res) => {
+  try {
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findOne({ ownerId: String(req.user.id) });
+    if (!business) return res.status(404).json({ message: 'Business profile not found.' });
+    res.json({ business: serializeBusiness(business) });
+  } catch (err) {
+    res.status(500).json({ message: 'Error retrieving business profile.' });
   }
 });
 
@@ -944,10 +977,7 @@ app.get('/api/businesses/:id', async (req, res) => {
     const reviews = await ReviewMDL.find({ businessId: req.params.id, targetType: 'business' });
 
     res.json({
-      business: {
-        ...business,
-        imageUrl: business.imageUrl || business.logoUrl || business.logo || business.image || '',
-      },
+      business: serializeBusiness(business),
       products,
       services,
       reviews,
@@ -971,6 +1001,10 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
 
     // Business name must be unique across all businesses
     const BusinessMDL = Business();
+    const ownerBusiness = await BusinessMDL.findOne({ ownerId: String(req.user.id) });
+    if (ownerBusiness) {
+      return res.status(409).json({ message: 'You already have a registered business. Update your existing business profile instead.' });
+    }
     const existingBiz = await BusinessMDL.findOne({
       name: { $regex: `^${String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
     });
@@ -1023,7 +1057,11 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
       qrUrl: qrUrl,
       latitude: latitude ? parseFloat(latitude) : 27.7007 + (Math.random() - 0.5) * 0.05,
       longitude: longitude ? parseFloat(longitude) : 85.3001 + (Math.random() - 0.5) * 0.05,
-      verified: 'pending',
+      approvalStatus: 'pending',
+      isVerified: false,
+      approvedAt: null,
+      approvedBy: null,
+      rejectionReason: '',
       documents: docUrl ? [docUrl] : [],
       rating: 5.0,
       reviewCount: 0,
@@ -1038,7 +1076,7 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
 
     console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${req.user.email} with status: pending. Business will persist until admin verification or permanent deletion.`);
 
-    res.status(201).json({ success: true, business: newBusiness });
+    res.status(201).json({ success: true, business: serializeBusiness(newBusiness) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to register business.' });
@@ -1051,7 +1089,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     const biz = await BusinessMDL.findById(req.params.id);
     if (!biz) return res.status(404).json({ message: 'Business not found.' });
 
-    if (biz.ownerId !== req.user.id && req.user.role !== 'admin') {
+    if (String(biz.ownerId) !== String(req.user.id) && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Unauthorized profile edit.' });
     }
 
@@ -1076,7 +1114,15 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       }
     }
 
-    const updateData = { ...req.body };
+    const editableFields = [
+      'name', 'category', 'subcategory', 'location', 'price', 'description',
+      'contactEmail', 'phone', 'website', 'hours', 'latitude', 'longitude',
+      'registrationNumber', 'panVatNumber', 'deliveryAvailable', 'offeringType',
+      'isOpen', 'deliveryRadiusKm',
+    ];
+    const updateData = Object.fromEntries(editableFields
+      .filter((field) => req.body[field] !== undefined)
+      .map((field) => [field, req.body[field]]));
     if (typeof updateData.deliveryAvailable !== 'undefined') {
       updateData.deliveryAvailable = updateData.deliveryAvailable === 'true' || updateData.deliveryAvailable === true;
     }
@@ -1143,14 +1189,8 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       updateData.qrUrl = qrUrl;
     }
 
-    if (req.user.role === 'seller') {
-      if (biz.verified === 'rejected' || biz.verified === 'suspended') {
-        updateData.verified = 'pending';
-      }
-    }
-
     const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData, { new: true });
-    res.json({ success: true, business: updated });
+    res.json({ success: true, business: serializeBusiness(updated) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to update business.' });
@@ -1160,12 +1200,23 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
 // Admin approves business & sets verification badge
 app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { status } = req.body; // 'verified', 'suspended', 'pending', 'rejected'
+    const { status, rejectionReason = '' } = req.body;
+    const approvalStatus = status === 'verified' ? 'approved' : status === 'suspended' ? 'rejected' : status;
+    if (!['pending', 'approved', 'rejected'].includes(approvalStatus)) {
+      return res.status(400).json({ message: 'Invalid approval status.' });
+    }
     const BusinessMDL = Business();
     const biz = await BusinessMDL.findById(req.params.id);
     if (!biz) return res.status(404).json({ message: 'Business not found.' });
 
-    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, { verified: status });
+    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, {
+      approvalStatus,
+      verified: approvalStatus === 'approved' ? 'verified' : approvalStatus,
+      isVerified: approvalStatus === 'approved',
+      approvedAt: approvalStatus === 'approved' ? new Date() : null,
+      approvedBy: approvalStatus === 'approved' ? String(req.user.id) : null,
+      rejectionReason: approvalStatus === 'rejected' ? String(rejectionReason || '') : '',
+    }, { new: true });
 
     // Send notification to business owner
     try {
@@ -1173,10 +1224,10 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
       let notificationTitle = 'Business Status Updated';
       let notificationMsg = `Your business "${biz.name}" status has been updated to ${status}.`;
 
-      if (status === 'verified') {
+      if (approvalStatus === 'approved') {
         notificationTitle = 'Business Approved';
         notificationMsg = `Congratulations! Your business "${biz.name}" has been verified and approved by the admin. You now have full access to the seller dashboard.`;
-      } else if (status === 'rejected') {
+      } else if (approvalStatus === 'rejected') {
         notificationTitle = 'Business Declined';
         notificationMsg = `Your business "${biz.name}" registration was declined by the administrator. Please update your details and resubmit for approval.`;
       } else if (status === 'suspended') {
@@ -1196,7 +1247,7 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
       console.error('Failed to create notification', notifErr);
     }
 
-    res.json({ success: true, business: updated });
+    res.json({ success: true, business: serializeBusiness(updated) });
   } catch (err) {
     res.status(500).json({ message: 'Action failed.' });
   }
@@ -2261,14 +2312,20 @@ app.get('/api/chat/presence', authenticateToken, (req, res) => {
 
 app.get('/api/chat/:receiverId', authenticateToken, async (req, res) => {
   try {
+    const UserMDL = User();
+    const receiver = await UserMDL.findById(req.params.receiverId);
+    if (!receiver) return res.status(404).json({ message: 'Chat recipient not found.' });
+    const validConversation = (req.user.role === 'seller' && receiver.role === 'customer')
+      || (req.user.role === 'customer' && receiver.role === 'seller');
+    if (!validConversation) return res.status(403).json({ message: 'Only sellers and customers can chat with each other.' });
     const ChatMDL = Chat();
     const msgs = await ChatMDL.find({});
     // Filter messages between sender and receiver in either direction
     const filtered = msgs
       .filter(
         (m) =>
-          (m.senderId === req.user.id && m.receiverId === req.params.receiverId) ||
-          (m.senderId === req.params.receiverId && m.receiverId === req.user.id)
+          (String(m.senderId) === String(req.user.id) && String(m.receiverId) === String(req.params.receiverId)) ||
+          (String(m.senderId) === String(req.params.receiverId) && String(m.receiverId) === String(req.user.id))
       )
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
@@ -2284,9 +2341,9 @@ app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res
     const UserMDL = User();
     const receiver = await UserMDL.findById(receiverId);
     if (!receiver) return res.status(404).json({ message: 'Chat recipient not found.' });
-    if (receiver.role === 'seller' && !onlineUsers.has(String(receiverId))) {
-      return res.status(409).json({ message: 'This seller is currently offline. Please try again when they are active.' });
-    }
+    const validConversation = (req.user.role === 'seller' && receiver.role === 'customer')
+      || (req.user.role === 'customer' && receiver.role === 'seller');
+    if (!validConversation) return res.status(403).json({ message: 'Only sellers and customers can chat with each other.' });
     const ChatMDL = Chat();
     let imgUrl = '';
     if (req.file) {
@@ -2642,7 +2699,13 @@ app.post('/api/admin/businesses/:id/request-info', authenticateToken, requireRol
     await NotificationMDL.create({ userId: ownerId, title: 'Admin: Request for more info', message: message || 'Please provide additional documents or details for your business verification.', type: 'admin' });
 
     // Ensure business stays in pending state and record audit
-    await BusinessMDL.findByIdAndUpdate(req.params.id, { verified: 'pending' });
+    await BusinessMDL.findByIdAndUpdate(req.params.id, {
+      approvalStatus: 'pending',
+      verified: 'pending',
+      isVerified: false,
+      approvedAt: null,
+      approvedBy: null,
+    });
 
     res.json({ success: true });
   } catch (err) {

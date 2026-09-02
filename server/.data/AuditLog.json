@@ -1,5 +1,517 @@
 [
   {
+    "_id": "ko3bqpelt",
+    "createdAt": "2026-09-02T15:18:44.933Z",
+    "updatedAt": "2026-09-02T15:18:44.933Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "tkxt5avbd",
+    "createdAt": "2026-09-02T15:17:00.782Z",
+    "updatedAt": "2026-09-02T15:17:00.782Z",
+    "userId": "pumkm7u12",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "5ls33tyn7",
+    "createdAt": "2026-09-02T15:16:24.252Z",
+    "updatedAt": "2026-09-02T15:16:24.252Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "k7i7abph3",
+    "createdAt": "2026-09-02T15:15:38.329Z",
+    "updatedAt": "2026-09-02T15:15:38.329Z",
+    "userId": "r1",
+    "action": "BUSINESS_DELETED",
+    "details": "Admin deleted business \"pot\" (3c1gexsrm). Cascade deleted: 0 products, 0 services, 0 reviews, 0 bookings."
+  },
+  {
+    "_id": "dz36z441k",
+    "createdAt": "2026-09-02T15:15:19.389Z",
+    "updatedAt": "2026-09-02T15:15:19.389Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "pufoq2608",
+    "createdAt": "2026-09-02T15:14:42.154Z",
+    "updatedAt": "2026-09-02T15:14:42.154Z",
+    "userId": "ngkcoi63m",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "6qgizu7jw",
+    "createdAt": "2026-09-02T15:14:08.978Z",
+    "updatedAt": "2026-09-02T15:14:08.978Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "zpt91bbqk",
+    "createdAt": "2026-09-02T15:13:50.079Z",
+    "updatedAt": "2026-09-02T15:13:50.079Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "8hgz1ov8c",
+    "createdAt": "2026-09-02T15:12:32.419Z",
+    "updatedAt": "2026-09-02T15:12:32.420Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "dbo2jpnex",
+    "createdAt": "2026-09-02T15:11:27.840Z",
+    "updatedAt": "2026-09-02T15:11:27.840Z",
+    "userId": "l5xy0fhx2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "3x9rbrfyi",
+    "createdAt": "2026-09-02T15:11:04.220Z",
+    "updatedAt": "2026-09-02T15:11:04.220Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "a2uwkul2u",
+    "createdAt": "2026-09-02T15:10:51.818Z",
+    "updatedAt": "2026-09-02T15:10:51.818Z",
+    "userId": "demo-owner-b4",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "hq5qpx5vl",
+    "createdAt": "2026-09-02T15:10:36.071Z",
+    "updatedAt": "2026-09-02T15:10:36.071Z",
+    "userId": "s2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "v2u7n9765",
+    "createdAt": "2026-09-02T15:10:24.960Z",
+    "updatedAt": "2026-09-02T15:10:24.960Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "5e6h4lbed",
+    "createdAt": "2026-09-02T15:09:47.698Z",
+    "updatedAt": "2026-09-02T15:09:47.698Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "y8rc48fc0",
+    "createdAt": "2026-09-02T15:09:00.101Z",
+    "updatedAt": "2026-09-02T15:09:00.101Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "nk57z6myo",
+    "createdAt": "2026-09-02T15:07:36.354Z",
+    "updatedAt": "2026-09-02T15:07:36.354Z",
+    "userId": "demo-owner-b4",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "mb06eharw",
+    "createdAt": "2026-09-02T15:06:55.280Z",
+    "updatedAt": "2026-09-02T15:06:55.280Z",
+    "userId": "demo-owner-b5",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "4iy9igpmb",
+    "createdAt": "2026-09-02T15:06:39.282Z",
+    "updatedAt": "2026-09-02T15:06:39.282Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "lyae7mta7",
+    "createdAt": "2026-09-02T14:28:47.154Z",
+    "updatedAt": "2026-09-02T14:28:47.154Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "5kl16wneb",
+    "createdAt": "2026-09-02T14:28:31.392Z",
+    "updatedAt": "2026-09-02T14:28:31.392Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "n6uv1hb9z",
+    "createdAt": "2026-09-02T14:26:25.875Z",
+    "updatedAt": "2026-09-02T14:26:25.875Z",
+    "userId": "pumkm7u12",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "gnx8yh1tc",
+    "createdAt": "2026-09-02T14:26:11.398Z",
+    "updatedAt": "2026-09-02T14:26:11.398Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "cop5eou6g",
+    "createdAt": "2026-09-02T14:25:27.423Z",
+    "updatedAt": "2026-09-02T14:25:27.423Z",
+    "userId": "s2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "0u7wy1mmo",
+    "createdAt": "2026-09-02T14:15:19.827Z",
+    "updatedAt": "2026-09-02T14:15:19.827Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "fi5l5fscm",
+    "createdAt": "2026-09-02T14:14:50.436Z",
+    "updatedAt": "2026-09-02T14:14:50.436Z",
+    "userId": "ngkcoi63m",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "psu7l319a",
+    "createdAt": "2026-09-02T14:14:45.109Z",
+    "updatedAt": "2026-09-02T14:14:45.109Z",
+    "userId": "ngkcoi63m",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "qvtg020ay",
+    "createdAt": "2026-09-02T14:14:44.989Z",
+    "updatedAt": "2026-09-02T14:14:44.989Z",
+    "userId": "l5xy0fhx2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "ensq7ow2m",
+    "createdAt": "2026-09-02T14:14:44.907Z",
+    "updatedAt": "2026-09-02T14:14:44.907Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "9tfkgk7fp",
+    "createdAt": "2026-09-02T14:14:44.827Z",
+    "updatedAt": "2026-09-02T14:14:44.827Z",
+    "userId": "demo-owner-b5",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "q2tp0yno6",
+    "createdAt": "2026-09-02T14:14:44.744Z",
+    "updatedAt": "2026-09-02T14:14:44.744Z",
+    "userId": "demo-owner-b4",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "sts8j6p2q",
+    "createdAt": "2026-09-02T14:14:44.663Z",
+    "updatedAt": "2026-09-02T14:14:44.663Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "xb429aymg",
+    "createdAt": "2026-09-02T14:14:44.575Z",
+    "updatedAt": "2026-09-02T14:14:44.575Z",
+    "userId": "s2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "zuogj3l6a",
+    "createdAt": "2026-09-02T14:14:44.487Z",
+    "updatedAt": "2026-09-02T14:14:44.487Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "gl39wjpu2",
+    "createdAt": "2026-09-02T14:14:33.006Z",
+    "updatedAt": "2026-09-02T14:14:33.006Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "0eywbonp2",
+    "createdAt": "2026-09-02T14:13:44.641Z",
+    "updatedAt": "2026-09-02T14:13:44.641Z",
+    "userId": "s2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "xpejoqodl",
+    "createdAt": "2026-09-02T14:13:28.894Z",
+    "updatedAt": "2026-09-02T14:13:28.894Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "urudujdek",
+    "createdAt": "2026-09-02T12:59:45.284Z",
+    "updatedAt": "2026-09-02T12:59:45.284Z",
+    "userId": "24d6i1s3y",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "kivcw0zoi",
+    "createdAt": "2026-09-02T12:59:20.556Z",
+    "updatedAt": "2026-09-02T12:59:20.556Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "hf76f8b4p",
+    "createdAt": "2026-09-02T12:58:25.494Z",
+    "updatedAt": "2026-09-02T12:58:25.494Z",
+    "userId": "24d6i1s3y",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "li0uuwgg2",
+    "createdAt": "2026-09-02T12:53:39.965Z",
+    "updatedAt": "2026-09-02T12:53:39.965Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "ylqp0tv1k",
+    "createdAt": "2026-09-02T12:53:08.557Z",
+    "updatedAt": "2026-09-02T12:53:08.557Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "bvb1q3irw",
+    "createdAt": "2026-09-02T12:53:08.400Z",
+    "updatedAt": "2026-09-02T12:53:08.400Z",
+    "userId": "demo-owner-b5",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "sxv2dm1kr",
+    "createdAt": "2026-09-02T12:53:08.246Z",
+    "updatedAt": "2026-09-02T12:53:08.246Z",
+    "userId": "demo-owner-b4",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "231kxjt21",
+    "createdAt": "2026-09-02T12:53:08.101Z",
+    "updatedAt": "2026-09-02T12:53:08.101Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "jhi0zl57n",
+    "createdAt": "2026-09-02T12:53:07.945Z",
+    "updatedAt": "2026-09-02T12:53:07.945Z",
+    "userId": "s2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "pdvm1y3to",
+    "createdAt": "2026-09-02T12:53:07.791Z",
+    "updatedAt": "2026-09-02T12:53:07.791Z",
+    "userId": "s1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "tmg81n8tk",
+    "createdAt": "2026-09-02T12:53:00.277Z",
+    "updatedAt": "2026-09-02T12:53:00.277Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "84n5oqpr8",
+    "createdAt": "2026-09-02T12:52:37.098Z",
+    "updatedAt": "2026-09-02T12:52:37.098Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "fdtn2t9xh",
+    "createdAt": "2026-09-02T12:52:31.226Z",
+    "updatedAt": "2026-09-02T12:52:31.226Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "s577mg8el",
+    "createdAt": "2026-09-02T12:51:00.771Z",
+    "updatedAt": "2026-09-02T12:51:00.771Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "2xwo22djf",
+    "createdAt": "2026-09-02T12:50:30.917Z",
+    "updatedAt": "2026-09-02T12:50:30.917Z",
+    "userId": "pumkm7u12",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "1734xrg9a",
+    "createdAt": "2026-09-02T12:50:03.490Z",
+    "updatedAt": "2026-09-02T12:50:03.490Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "o0a87witf",
+    "createdAt": "2026-09-02T12:49:46.392Z",
+    "updatedAt": "2026-09-02T12:49:46.392Z",
+    "userId": "demo-owner-b6",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "ebuvabnoj",
+    "createdAt": "2026-09-02T12:49:30.582Z",
+    "updatedAt": "2026-09-02T12:49:30.582Z",
+    "userId": "demo-owner-b5",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "l1f0cdf0z",
+    "createdAt": "2026-09-02T12:49:14.176Z",
+    "updatedAt": "2026-09-02T12:49:14.176Z",
+    "userId": "demo-owner-b4",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "s05xne6tv",
+    "createdAt": "2026-09-02T12:48:47.217Z",
+    "updatedAt": "2026-09-02T12:48:47.217Z",
+    "userId": "s3",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "c275t82so",
+    "createdAt": "2026-09-02T12:38:31.564Z",
+    "updatedAt": "2026-09-02T12:38:31.564Z",
+    "userId": "l5xy0fhx2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "hfwe25lw7",
+    "createdAt": "2026-09-02T12:38:17.178Z",
+    "updatedAt": "2026-09-02T12:38:17.178Z",
+    "userId": "x1jgl9o0k",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "k0d1d9run",
+    "createdAt": "2026-09-02T12:35:40.389Z",
+    "updatedAt": "2026-09-02T12:35:40.389Z",
+    "userId": "x1jgl9o0k",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "rvcw9kjg5",
+    "createdAt": "2026-09-02T12:32:12.517Z",
+    "updatedAt": "2026-09-02T12:32:12.517Z",
+    "userId": "l5xy0fhx2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "bro99zubx",
+    "createdAt": "2026-09-02T12:30:04.366Z",
+    "updatedAt": "2026-09-02T12:30:04.366Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "gc4i208xv",
+    "createdAt": "2026-09-02T12:28:29.766Z",
+    "updatedAt": "2026-09-02T12:28:29.766Z",
+    "userId": "l5xy0fhx2",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
+    "_id": "7zkf0cpi3",
+    "createdAt": "2026-09-02T12:24:10.523Z",
+    "updatedAt": "2026-09-02T12:24:10.523Z",
+    "userId": "r1",
+    "action": "LOGIN",
+    "details": "User logged in successfully"
+  },
+  {
     "_id": "nxyvw6ltl",
     "createdAt": "2026-09-01T15:31:25.493Z",
     "updatedAt": "2026-09-01T15:31:25.493Z",

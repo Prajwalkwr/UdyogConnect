@@ -1,5 +1,50 @@
 [
   {
+    "_id": "6avid2ujg",
+    "createdAt": "2026-09-02T12:59:24.034Z",
+    "updatedAt": "2026-09-02T12:59:24.034Z",
+    "userId": "24d6i1s3y",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"pot\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "c9tsqth2w",
+    "createdAt": "2026-09-02T12:58:25.339Z",
+    "updatedAt": "2026-09-02T12:58:25.339Z",
+    "userId": "24d6i1s3y",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 803946",
+    "type": "general"
+  },
+  {
+    "_id": "4xyzg3oyz",
+    "createdAt": "2026-09-02T12:50:08.035Z",
+    "updatedAt": "2026-09-02T12:50:08.035Z",
+    "userId": "s3",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"Lalitpur Home Essentials\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "owu7stsvx",
+    "createdAt": "2026-09-02T12:30:08.645Z",
+    "updatedAt": "2026-09-02T12:30:08.645Z",
+    "userId": "l5xy0fhx2",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"nepali cafe\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "02teluzp6",
+    "createdAt": "2026-09-02T12:28:29.600Z",
+    "updatedAt": "2026-09-02T12:28:29.600Z",
+    "userId": "l5xy0fhx2",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 905006",
+    "type": "general"
+  },
+  {
     "_id": "dv5ht3gix",
     "createdAt": "2026-08-11T17:53:04.586Z",
     "updatedAt": "2026-08-11T17:53:04.586Z",

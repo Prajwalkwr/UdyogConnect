@@ -31,6 +31,16 @@ function DetailsPathWrapper({ setSelectedProductId }) {
   return null;
 }
 
+const getCartStorageKey = (user) => `cart:${user?._id || user?.id || 'guest'}`;
+const readCartForUser = (user) => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(getCartStorageKey(user)) || '[]');
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+};
+
 function App() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -46,13 +56,22 @@ function App() {
 
   // Socket ref
   const socketRef = useRef(null);
+  const cartOwnerRef = useRef(null);
+  const cartSwitchingRef = useRef(false);
 
   // Data lists
   const [businesses, setBusinesses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [services, setServices] = useState([]);
   const sellerBusiness = user?.role === 'seller'
     ? businesses.find((business) => String(business.ownerId) === String(user._id || user.id))
     : null;
+  const sellerProductCount = sellerBusiness
+    ? products.filter((product) => String(product.businessId) === String(sellerBusiness._id)).length
+    : 0;
+  const sellerServiceCount = sellerBusiness
+    ? services.filter((service) => String(service.businessId) === String(sellerBusiness._id)).length
+    : 0;
 
   // Modal open states
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -62,6 +81,26 @@ function App() {
 
   // Dashboard active tab (driven from sidebar)
   const [dashboardTab, setDashboardTab] = useState(null);
+  const [cartOpen, setCartOpen] = useState(false);
+
+  useEffect(() => {
+    const userId = user?._id || user?.id || null;
+    const currentOwner = cartOwnerRef.current;
+    if (currentOwner === userId) return;
+    cartSwitchingRef.current = true;
+    cartOwnerRef.current = userId;
+    dispatch({ type: 'SET_CART', payload: readCartForUser(user) });
+  }, [dispatch, user?._id, user?.id]);
+
+  useEffect(() => {
+    const userId = user?._id || user?.id || null;
+    if (cartOwnerRef.current !== userId) return;
+    if (cartSwitchingRef.current) {
+      cartSwitchingRef.current = false;
+      return;
+    }
+    localStorage.setItem(getCartStorageKey(user), JSON.stringify(cart));
+  }, [cart, user]);
 
   // Sync token, notifications, and Socket.IO connection
   useEffect(() => {
@@ -73,10 +112,18 @@ function App() {
         const normalizedUser = normalizeUser(parsedUser);
         dispatch({ type: 'SET_USER', payload: normalizedUser });
       }
+      api.get('/api/auth/profile')
+        .then((response) => {
+          const freshUser = normalizeUser(response.data);
+          localStorage.setItem('user', JSON.stringify(freshUser));
+          dispatch({ type: 'SET_USER', payload: freshUser });
+        })
+        .catch(() => {});
       fetchNotifications();
 
         // ── Real-time Socket.IO connection ────────────────────────
-        const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || window.location.origin;
+        const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
+          || (import.meta.env.DEV ? window.location.origin : 'https://udyogconnect.onrender.com');
         const socket = socketIO(backendUrl, {
           auth: { token },
           transports: ['websocket', 'polling'],
@@ -127,6 +174,14 @@ function App() {
       })
       .catch(() => {
         setProducts([]);
+      });
+
+    api.get('/api/services')
+      .then((res) => {
+        setServices(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        setServices([]);
       });
   };
 
@@ -192,6 +247,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.setItem(getCartStorageKey(user), JSON.stringify(cart));
     removeStoredValue('token');
     removeStoredValue('user');
     dispatch({ type: 'SET_USER', payload: null });
@@ -222,7 +278,7 @@ function App() {
 
   const handleOpenDashboard = (view) => {
     if (view === 'home') navigate('/');
-    else if (view === 'checkout') navigate('/checkout');
+    else if (view === 'checkout') setCartOpen(true);
     else if (view === 'wishlist') {
       if (!user) {
         setShowAuthModal(true);
@@ -276,6 +332,10 @@ function App() {
   }, [dispatch, location.pathname, navigate]);
 
   const handleSidebarNav = (tab) => {
+    if (tab === 'cart') {
+      setCartOpen(true);
+      return;
+    }
     setDashboardTab(tab);
     if (user) {
       if (user.role === 'admin' && location.pathname !== '/admin') navigate('/admin');
@@ -306,7 +366,8 @@ function App() {
         activeTab={dashboardTab}
         onTabChange={handleSidebarNav}
         sidebarCounts={{
-          productCount: products.length,
+          productCount: user?.role === 'seller' ? sellerProductCount : products.length,
+          catalogCount: user?.role === 'seller' ? sellerProductCount + sellerServiceCount : products.length,
           orderCount: 0,
           serviceCount: 0,
           cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
@@ -324,6 +385,21 @@ function App() {
         lang={lang}
         initialMode={authMode}
       />
+
+      {cartOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
+          <CartCheckout
+            cart={cart}
+            user={user}
+            lang={lang}
+            onUpdateQty={(id, qty) => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { id, quantity: qty } })}
+            onRemoveItem={(id) => dispatch({ type: 'REMOVE_FROM_CART', payload: id })}
+            onClearCart={() => dispatch({ type: 'CLEAR_CART' })}
+            onClose={() => setCartOpen(false)}
+            onOrderSuccess={() => setCartOpen(false)}
+          />
+        </div>
+      )}
 
       {(selectedBusinessId || selectedProductId) && (
         <DetailsModal
@@ -437,7 +513,7 @@ function App() {
 
             <Route
               path="/business"
-              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} notifications={notifications} />}
+              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} onOpenBusiness={handleOpenBusinessProfile} notifications={notifications} />}
             />
 
             <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} />} />

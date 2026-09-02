@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCreditCard, FiCheckCircle, FiTag } from 'react-icons/fi';
+import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCreditCard, FiCheckCircle, FiTag, FiX } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
@@ -13,6 +13,7 @@ export default function CartCheckout({
   onUpdateQty,
   onRemoveItem,
   onClearCart,
+  onClose,
   onOrderSuccess,
 }) {
   const [promoCode, setPromoCode] = useState('');
@@ -21,7 +22,7 @@ export default function CartCheckout({
 
   // Form State
   const [deliveryMethod, setDeliveryMethod] = useState('delivery'); // 'delivery' | 'pickup'
-  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'Card' | 'Wallet' | 'QR'
+  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'Card' | 'QR'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -184,8 +185,8 @@ export default function CartCheckout({
         throw new Error('Failed to initiate card payment.');
       }
 
-      // Wallet / QR simulated validation (instant)
-      if (paymentMethod === 'Wallet' || paymentMethod === 'QR') {
+      // QR simulated validation (instant)
+      if (paymentMethod === 'QR') {
         await api.post('/api/payment/confirm', { orderId: placedOrder._id, status: 'paid' });
       }
 
@@ -215,6 +216,11 @@ export default function CartCheckout({
             <h2 className="text-2xl font-black text-[#1a1a2e] sm:text-3xl">{translate('Shopping Cart', 'किनमेल झोला')}</h2>
             <p className="mt-1 text-xs text-slate-500">{translate('Review items and finalize checkout options', 'विवरण समीक्षा गरी अर्डर पूरा गर्नुहोस्')}</p>
           </div>
+          {onClose && (
+            <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Close cart">
+              <FiX className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         {cart.length === 0 ? (
@@ -380,7 +386,6 @@ export default function CartCheckout({
                     {[
                       { value: 'COD', label: 'Cash / COD' },
                       { value: 'Card', label: 'Credit Card' },
-                      { value: 'Wallet', label: 'Wallet Pay' },
                       { value: 'QR', label: 'QR Scan' },
                     ].map((pay) => (
                       <button

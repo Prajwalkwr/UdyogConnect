@@ -1,8 +1,402 @@
 [
   {
+    "_id": "24d6i1s3y",
+    "createdAt": "2026-09-02T12:58:25.333Z",
+    "updatedAt": "2026-09-02T12:59:45.278Z",
+    "name": "prajj",
+    "email": "nep@G.com",
+    "password": "$2b$10$pDRzKSMSMzg924W2rPpfcu.aNXJOoPdTuDMLI2r0hWmvUg1kprg8G",
+    "phone": "",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:58:25.488Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:59:45.274Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "demo-owner-b6",
+    "createdAt": "2026-09-02T12:45:32.978Z",
+    "updatedAt": "2026-09-02T15:10:24.957Z",
+    "demoId": "demo-owner-b6",
+    "name": "Nabin Repair Seller",
+    "email": "repair@udyog.np",
+    "password": "$2b$10$zJDRdzgxALgt57KI5bvTc.IA5jlmGYRfUEXJw.a4HrV9lKfHgZ5Eq",
+    "phone": "9840000009",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:49:46.387Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:08.551Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.903Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:15:19.821Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:06:39.277Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:10:24.954Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null
+  },
+  {
+    "_id": "demo-owner-b5",
+    "createdAt": "2026-09-02T12:45:32.975Z",
+    "updatedAt": "2026-09-02T15:06:55.276Z",
+    "demoId": "demo-owner-b5",
+    "name": "Bikash Lakeside Seller",
+    "email": "treasures@udyog.np",
+    "password": "$2b$10$zJDRdzgxALgt57KI5bvTc.IA5jlmGYRfUEXJw.a4HrV9lKfHgZ5Eq",
+    "phone": "9840000008",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:49:30.577Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:08.395Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.824Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T15:06:55.271Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null
+  },
+  {
+    "_id": "demo-owner-b4",
+    "createdAt": "2026-09-02T12:45:32.973Z",
+    "updatedAt": "2026-09-02T15:10:51.814Z",
+    "demoId": "demo-owner-b4",
+    "name": "Asha Spice Seller",
+    "email": "spice@udyog.np",
+    "password": "$2b$10$zJDRdzgxALgt57KI5bvTc.IA5jlmGYRfUEXJw.a4HrV9lKfHgZ5Eq",
+    "phone": "9840000007",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:49:14.169Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:08.242Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.741Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T15:07:36.347Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:10:51.812Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null
+  },
+  {
+    "_id": "s3",
+    "createdAt": "2026-09-02T12:45:32.970Z",
+    "updatedAt": "2026-09-02T15:18:44.928Z",
+    "demoId": "s3",
+    "name": "Suman Home Seller",
+    "email": "home@udyog.np",
+    "password": "$2b$10$zJDRdzgxALgt57KI5bvTc.IA5jlmGYRfUEXJw.a4HrV9lKfHgZ5Eq",
+    "phone": "9840000006",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:48:47.213Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:51:00.766Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:52:31.223Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T12:52:37.095Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:00.272Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:08.097Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:39.959Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.659Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:26:11.391Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:28:31.384Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:09:47.684Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:11:04.212Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:13:50.073Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:16:24.246Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:18:44.925Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null
+  },
+  {
+    "_id": "s2",
+    "createdAt": "2026-09-02T12:45:32.966Z",
+    "updatedAt": "2026-09-02T15:10:36.068Z",
+    "demoId": "s2",
+    "name": "Mina Craft Seller",
+    "email": "crafts@udyog.np",
+    "password": "$2b$10$zJDRdzgxALgt57KI5bvTc.IA5jlmGYRfUEXJw.a4HrV9lKfHgZ5Eq",
+    "phone": "9840000005",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:53:07.939Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:13:44.635Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.572Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:25:27.415Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:10:36.065Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "failedLoginAttempts": 0,
+    "lockUntil": null
+  },
+  {
+    "_id": "l5xy0fhx2",
+    "createdAt": "2026-09-02T12:28:29.595Z",
+    "updatedAt": "2026-09-02T15:11:27.837Z",
+    "name": "kunworr",
+    "email": "praj@G.com",
+    "password": "$2b$10$qYN/hh6UP3vLo4suekCasup4hdCDNuBok40EBOM4ZaHasFY3rNLFi",
+    "phone": "9856471526",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-02T12:28:29.758Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:32:12.512Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:38:31.559Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.985Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T15:11:27.835Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
     "_id": "x1jgl9o0k",
     "createdAt": "2026-08-11T16:50:50.611Z",
-    "updatedAt": "2026-08-11T17:26:42.452Z",
+    "updatedAt": "2026-09-02T12:38:17.174Z",
     "name": "kunwor",
     "email": "praj@G.np",
     "password": "$2b$10$ByK.lLRLQ2fOsF/zCcPIp.05iymj2nIbp0iH4jiTHtWB.WZw.3cyK",
@@ -48,6 +442,16 @@
         "timestamp": "2026-08-11T17:26:42.450Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:35:40.385Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:38:17.172Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
@@ -59,7 +463,7 @@
   {
     "_id": "pumkm7u12",
     "createdAt": "2026-08-11T16:14:08.855Z",
-    "updatedAt": "2026-08-11T17:09:26.030Z",
+    "updatedAt": "2026-09-02T15:17:00.779Z",
     "name": "kunwor",
     "email": "pra@G.com",
     "password": "$2b$10$7b2OGsq13ckOL.FEJyZbvO8CbWiOOMbs3HWO0ewQQMfzHCw1VWAl.",
@@ -80,6 +484,21 @@
         "timestamp": "2026-08-11T17:09:26.028Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:50:30.911Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:26:25.867Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:17:00.777Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
@@ -91,7 +510,7 @@
   {
     "_id": "ngkcoi63m",
     "createdAt": "2026-08-11T15:52:05.548Z",
-    "updatedAt": "2026-09-01T15:31:25.489Z",
+    "updatedAt": "2026-09-02T15:14:42.150Z",
     "name": "prajwal",
     "email": "praa@G.com",
     "password": "$2b$10$7q1iIHQr8/yoOppiFKKDEuP7WyjdTvgtb6cYhcsvvYlW76.bYyWCu",
@@ -192,6 +611,21 @@
         "timestamp": "2026-09-01T15:31:25.486Z",
         "ip": "::1",
         "agent": "axios/1.18.1"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:45.107Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:50.432Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T15:14:42.148Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
@@ -279,12 +713,47 @@
       {
         "timestamp": "2026-08-15T09:33:59.582Z",
         "ip": "::1"
+      },
+      {
+        "timestamp": "2026-09-02T12:53:07.787Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:33.002Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:14:44.484Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T14:28:47.147Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:09:00.096Z",
+        "ip": "::1",
+        "agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168"
+      },
+      {
+        "timestamp": "2026-09-02T15:12:32.411Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:14:08.971Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
     "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-08-15T09:33:59.585Z"
+    "updatedAt": "2026-09-02T15:14:08.974Z"
   },
   {
     "_id": "r1",
@@ -376,11 +845,41 @@
       {
         "timestamp": "2026-08-15T09:33:59.726Z",
         "ip": "::1"
+      },
+      {
+        "timestamp": "2026-09-02T12:24:10.506Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:30:04.362Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:50:03.482Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T12:59:20.550Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T14:13:28.888Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-02T15:15:19.384Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
     "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-08-15T09:33:59.730Z"
+    "updatedAt": "2026-09-02T15:15:19.386Z"
   }
 ]

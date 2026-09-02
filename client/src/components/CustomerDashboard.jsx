@@ -9,6 +9,7 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
   const [orders, setOrders] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [favorites, setFavorites] = useState({ products: [], businesses: [] });
+  const [customerReviews, setCustomerReviews] = useState([]);
   const [internalTab, setInternalTab] = useState('dashboard');
   const currentTab = activeTab ?? internalTab;
   const changeTab = (tab) => {
@@ -20,8 +21,9 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
     if (!tab) return 'dashboard';
     if (tab === 'dashboard') return 'dashboard';
     if (tab === 'settings' || tab === 'addresses') return 'profile';
-    if (tab === 'saved' || tab === 'reviews') return 'wishlist';
-    if (tab === 'wallet' || tab === 'cart') return 'orders';
+    if (tab === 'saved') return 'wishlist';
+    if (tab === 'reviews') return 'reviews';
+    if (tab === 'cart') return 'orders';
     return tab;
   };
   const activeView = resolveTab(currentTab);
@@ -62,6 +64,12 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
       // Fetch profile for wishlist details
       const pRes = await api.get('/api/auth/profile');
       setProfileData(pRes.data);
+      const reviewsRes = await api.get('/api/reviews/mine');
+      const reviews = Array.isArray(reviewsRes.data) ? reviewsRes.data : [];
+      setCustomerReviews(reviews.map((review) => ({
+        ...review,
+        businessName: businesses.find((business) => String(business._id) === String(review.businessId))?.name,
+      })));
 
       const wishlist = pRes.data.wishlist || {};
       const hasWishlistId = (items, id) => Array.isArray(items)
@@ -152,7 +160,7 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
     }
 
     try {
-      await api.post('/api/reviews', {
+      const response = await api.post('/api/reviews', {
         businessId,
         targetId: businessId,
         targetType: 'business',
@@ -160,7 +168,15 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
         comment,
       });
 
+      const submittedReview = response.data?.review;
+      if (submittedReview) {
+        setCustomerReviews((previous) => [{
+          ...submittedReview,
+          businessName: businesses.find((business) => String(business._id) === String(businessId))?.name,
+        }, ...previous.filter((review) => review._id !== submittedReview._id)]);
+      }
       setReviewForm((prev) => ({ ...prev, [order._id]: { rating: 5, comment: '' } }));
+      await fetchDashboardData();
       Swal.fire({ icon: 'success', title: 'Review Submitted', text: 'Thank you for sharing your feedback.' });
     } catch (err) {
       Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Unable to submit review.' });
@@ -194,7 +210,6 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
               <div className="customer-dashboard-grid">
                 <section className="customer-panel customer-recommendations"><div className="customer-section-heading"><h2>{translate('Recommended Businesses', 'सिफारिस गरिएका व्यवसाय')}</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-business-grid">{recommendedBusinesses.map((business) => <button type="button" key={business._id} onClick={() => onOpenBusiness?.(business._id)}><div className="customer-business-image">{businessImage(business) ? <img src={businessImage(business)} alt={business.name} /> : <FiHome />}</div><strong>{business.name}</strong><small><FiStar /> {business.rating || '4.8'} · {business.category}</small><span><FiMapPin /> {business.location || 'Kathmandu'}</span><em>View Business</em></button>)}{recommendedBusinesses.length === 0 && <div className="customer-empty">No businesses available yet.</div>}</div></section>
                 <section className="customer-panel customer-side-panel"><div className="customer-section-heading"><h2>Your Orders</h2><button type="button" onClick={() => onTabChange?.('orders')}>View All <FiChevronRight /></button></div>{recentOrders.map((order) => <button type="button" className="customer-order-row" key={order._id} onClick={() => onTabChange?.('orders')}><FiPackage /><span><strong>#{String(order._id).slice(-6)}</strong><small>{order.items?.[0]?.name || `${order.items?.length || 0} item(s)`}</small></span><b className={String(order.status).toLowerCase()}>{order.status || 'Pending'}</b><FiChevronRight /></button>)}{recentOrders.length === 0 && <div className="customer-empty">No orders yet.</div>}</section>
-                <section className="customer-panel customer-side-panel"><div className="customer-section-heading"><h2>Wallet</h2><button type="button" onClick={() => onTabChange?.('wallet')}>View All <FiChevronRight /></button></div><div className="customer-wallet"><small>Available Balance</small><strong>Rs. {Number(user?.walletBalance || user?.wallet?.balance || 0).toLocaleString('en-IN')}</strong><button type="button" onClick={() => onTabChange?.('wallet')}><FiCreditCard /> Manage Wallet</button></div></section>
               </div>
 
               <div className="customer-dashboard-grid customer-lower-grid"><section className="customer-panel customer-products"><div className="customer-section-heading"><h2>Popular Products</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-product-grid">{popularProducts.map((product) => <div className="customer-product-card" key={product._id}><button type="button" className="customer-product-open" onClick={() => onOpenProduct?.(product._id)}><div>{product.images?.[0] ? <img src={product.images[0]} alt={product.name} /> : '🛍️'}</div><strong>{product.name}</strong><small>{product.brand || 'Local Brand'}</small><b>Rs. {Number(product.price || 0).toLocaleString('en-IN')}</b></button><button type="button" className="customer-product-add" onClick={() => onAddToCart?.({ id: product._id, name: product.name, price: Number(product.price || 0), stock: product.stock, businessId: product.businessId })}><FiShoppingBag /> Add to Cart</button></div>)}{popularProducts.length === 0 && <div className="customer-empty">No products available yet.</div>}</div></section><section className="customer-panel customer-offers"><div className="customer-section-heading"><h2>Special Offers</h2><button type="button" onClick={() => onOpenDashboard?.('home')}>View All <FiChevronRight /></button></div><div className="customer-offer-card"><span>20% OFF</span><h3>Fresh local favourites</h3><p>Discover great deals from businesses near you.</p><button type="button" onClick={() => onOpenDashboard?.('home')}>Shop Now</button></div><div className="customer-ai"><FiBell /><div><strong>AI Recommendations</strong><p>Personalized local picks based on your activity.</p></div></div></section></div>
@@ -330,7 +345,34 @@ export default function CustomerDashboard({ user, lang, businesses = [], product
             </div>
           )}
 
-          {/* D. Wishlist Favorites list */}
+          {/* D. Customer reviews */}
+          {activeView === 'reviews' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-extrabold text-white">{translate('My Reviews', 'मेरा समीक्षा')}</h3>
+              {customerReviews.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500">
+                  {translate('You have not submitted any reviews yet.', 'तपाईंले अहिलेसम्म कुनै समीक्षा पेश गर्नुभएको छैन।')}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {customerReviews.map((review) => (
+                    <article key={review._id} className="rounded-3xl border border-slate-850 bg-slate-900/35 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="text-sm font-bold text-white">{review.businessName || review.business?.name || 'Business review'}</h4>
+                        <span className="text-amber-300">{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}</span>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-300">{review.comment}</p>
+                      <span className="mt-2 block text-[10px] text-slate-500">
+                        {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : ''}
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* E. Wishlist Favorites list */}
           {activeView === 'wishlist' && (
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Your Favorites', 'मनपर्ने वस्तुहरू')}</h3>

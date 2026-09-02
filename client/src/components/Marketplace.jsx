@@ -207,12 +207,25 @@ export default function Marketplace({
 
   useEffect(() => {
     let active = true;
-    Promise.all(verifiedBusinesses.slice(0, 6).map((business) => api.get(`/api/businesses/${business._id}`).then((res) => (
-      (res.data?.reviews || []).map((review) => ({ ...review, businessName: business.name }))
-    )).catch(() => []))).then((reviewGroups) => {
-      if (active) setCustomerReviews(reviewGroups.flat().filter((review) => review.comment).slice(0, 3));
-    });
-    return () => { active = false; };
+
+    const refreshReviews = async () => {
+      const reviewGroups = await Promise.all(verifiedBusinesses.map((business) => api.get(`/api/businesses/${business._id}`).then((res) => (
+        (res.data?.reviews || []).map((review) => ({ ...review, businessName: business.name }))
+      )).catch(() => [])));
+      if (active) {
+        const reviews = reviewGroups.flat()
+          .filter((review) => safeText(review.comment))
+          .sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
+        setCustomerReviews(reviews.slice(0, 3));
+      }
+    };
+
+    refreshReviews();
+    const refreshTimer = setInterval(refreshReviews, 5 * 60 * 1000);
+    return () => {
+      active = false;
+      clearInterval(refreshTimer);
+    };
   }, [businesses]);
 
   const activeSearchQuery = searchTrigger || searchQuery;
@@ -833,15 +846,6 @@ export default function Marketplace({
             </button>
           </section>
         </div>
-
-        <section id="about" className="homepage-stats mt-8 grid gap-3 sm:grid-cols-4">
-          {[
-            { value: verifiedBusinesses.length, label: 'Local Businesses', icon: <FiBriefcase /> },
-            { value: safeProducts.length, label: 'Products & Services', icon: <FiPackage /> },
-            { value: new Set(verifiedBusinesses.map((business) => business.location).filter(Boolean)).size, label: 'Locations Covered', icon: <FiMapPin /> },
-            { value: aiRecs.products.length + aiRecs.businesses.length, label: 'Personalized Picks', icon: <FiAward /> },
-          ].map((stat) => <div key={stat.label}><span>{stat.icon}</span><strong>{stat.value.toLocaleString('en-IN')}</strong><small>{stat.label}</small></div>)}
-        </section>
 
         <section id="contact" className="homepage-testimonials mt-8">
           <div className="customer-section-heading"><h2>{translate('What Our Customers Say', 'हाम्रा ग्राहकहरू के भन्छन्')}</h2><span className="text-xs text-gray-500">Real marketplace feedback</span></div>

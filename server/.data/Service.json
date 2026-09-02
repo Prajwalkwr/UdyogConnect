@@ -1,5 +1,101 @@
 [
   {
+    "_id": "s_v5",
+    "createdAt": "2026-09-02T12:45:02.056Z",
+    "updatedAt": "2026-09-02T12:45:02.056Z",
+    "businessId": "b6",
+    "name": "Plumbing Emergency Visit",
+    "description": "Same-day plumbing inspection and repair for homes in the Kathmandu Valley.",
+    "price": 1200,
+    "duration": 90,
+    "availability": true,
+    "slots": [
+      "09:00 - 11:00",
+      "13:00 - 15:00"
+    ],
+    "staff": [
+      "Nabin"
+    ],
+    "homeService": true
+  },
+  {
+    "_id": "s_v4",
+    "createdAt": "2026-09-02T12:45:02.051Z",
+    "updatedAt": "2026-09-02T12:45:02.051Z",
+    "businessId": "b5",
+    "name": "Custom Souvenir Gift Pack",
+    "description": "A curated Nepali craft gift pack prepared for events and visitors.",
+    "price": 1800,
+    "duration": 60,
+    "availability": true,
+    "slots": [
+      "10:00 - 12:00",
+      "14:00 - 16:00"
+    ],
+    "staff": [
+      "Bikash"
+    ],
+    "homeService": false
+  },
+  {
+    "_id": "s_v3",
+    "createdAt": "2026-09-02T12:45:02.045Z",
+    "updatedAt": "2026-09-02T12:45:02.045Z",
+    "businessId": "b4",
+    "name": "Monthly Grocery Delivery",
+    "description": "Scheduled delivery of fresh staples and spices around Bhaktapur.",
+    "price": 150,
+    "duration": 30,
+    "availability": true,
+    "slots": [
+      "08:00 - 10:00",
+      "16:00 - 18:00"
+    ],
+    "staff": [
+      "Asha"
+    ],
+    "homeService": true
+  },
+  {
+    "_id": "s_v2",
+    "createdAt": "2026-09-02T12:45:02.041Z",
+    "updatedAt": "2026-09-02T12:45:02.041Z",
+    "businessId": "b3",
+    "name": "Furniture Polish & Refinish",
+    "description": "Get your old wooden furniture repolished to look brand new.",
+    "price": 3500,
+    "duration": 120,
+    "availability": true,
+    "slots": [
+      "09:00 - 11:00",
+      "13:00 - 15:00"
+    ],
+    "staff": [
+      "Madan Lal"
+    ],
+    "homeService": true
+  },
+  {
+    "_id": "s_v1",
+    "createdAt": "2026-09-02T12:45:02.035Z",
+    "updatedAt": "2026-09-02T12:45:02.035Z",
+    "businessId": "b1",
+    "name": "Private Catering Service",
+    "description": "Hire our chefs for Newari feast catering at your home.",
+    "price": 5000,
+    "duration": 180,
+    "availability": true,
+    "slots": [
+      "12:00 - 15:00",
+      "17:00 - 20:00"
+    ],
+    "staff": [
+      "Chef Ram",
+      "Server Hari"
+    ],
+    "homeService": true
+  },
+  {
     "_id": "f5h047g7z",
     "createdAt": "2026-09-01T15:31:25.566Z",
     "updatedAt": "2026-09-01T15:31:25.566Z",

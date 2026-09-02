@@ -3,7 +3,7 @@ import {
   FiShoppingBag, FiCalendar, FiTrendingUp, FiPlus, FiTrash2,
   FiFileText, FiEdit3, FiCheckCircle, FiClock, FiStar,
   FiRefreshCw, FiXCircle, FiBell, FiTag, FiSettings,
-  FiPackage, FiDollarSign, FiAlertCircle, FiUpload, FiSave,
+  FiPackage, FiAlertCircle, FiUpload, FiSave,
   FiX, FiEye, FiMap, FiPhone, FiMail, FiInfo, FiTruck,
   FiArrowUp, FiArrowRight, FiExternalLink, FiGlobe, FiUsers,
   FiGrid, FiZap, FiMapPin, FiHelpCircle
@@ -15,8 +15,13 @@ import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
 import AccountProfileCard from './AccountProfileCard';
 
-/* ─── small helpers ─────────────────────────────────────────────── */
-const fmt = (n) => `Rs. ${Number(n || 0).toLocaleString()}`;
+const fmt = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN')}`;
+
+const getBusinessApprovalStatus = (business) => {
+  if (business?.approvalStatus === 'approved') return 'approved';
+  if (business?.approvalStatus === 'rejected' || business?.verified === 'rejected') return 'rejected';
+  return 'pending';
+};
 
 const statusColor = (s) => {
   const m = {
@@ -86,7 +91,7 @@ function TextAreaField({ label, ...props }) {
 /* ══════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════ */
-export default function SellerDashboard({ user, lang, activeTab, onTabChange, notifications = [] }) {
+export default function SellerDashboard({ user, lang, activeTab, onTabChange, onOpenBusiness, liveOrderTick = 0, notifications = [] }) {
   const t = (en, ne) => lang === 'en' ? en : ne;
 
   const [myBusiness, setMyBusiness]   = useState(null);
@@ -95,9 +100,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   const [pollingMsg, setPollingMsg]   = useState('');
   const offeringType = myBusiness?.offeringType || 'both';
   const requestedTab = activeTab ?? internalTab;
-  const currentTab = (offeringType === 'products' && requestedTab === 'services') || (offeringType === 'services' && requestedTab === 'products')
+  const resolvedTab = requestedTab === 'ratings' ? 'reviews' : requestedTab === 'settings' ? 'profile' : requestedTab;
+  const currentTab = (offeringType === 'products' && resolvedTab === 'services') || (offeringType === 'services' && resolvedTab === 'products')
     ? 'overview'
-    : requestedTab;
+    : resolvedTab;
   const changeTab = (tab) => {
     if (onTabChange) onTabChange(tab);
     setInternalTab(tab);
@@ -112,6 +118,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
 
   // Onboarding form
   const [bizForm, setBizForm] = useState({
+    name: '', category: 'Grocery', location: '', description: '', offeringType: 'both',
     hours: '09:00 - 18:00', contactEmail: '', phone: '',
     registrationNumber: '', panVatNumber: '', qrUrl: '',
     isOpen: true, deliveryAvailable: true, deliveryRadiusKm: '5',
@@ -154,10 +161,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
     if (!user) return;
     if (!silent) setLoading(true);
     try {
-      const bizRes = await api.get('/api/businesses');
-      // Match by user._id or user.id (handle both formats)
-      const userId = user._id || user.id;
-      const mine = bizRes.data.find((b) => b.ownerId === userId);
+      const bizRes = await api.get('/api/businesses/mine');
+      const mine = bizRes.data?.business;
 
       if (mine) {
         setMyBusiness(mine);
@@ -186,20 +191,25 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  useEffect(() => {
+    if (!user) return undefined;
+    const refreshTimer = setInterval(() => fetchAll(true), 60 * 1000);
+    return () => clearInterval(refreshTimer);
+  }, [fetchAll, user, liveOrderTick]);
+
   /* ── Poll every 15 s for status change after pending submission ── */
   useEffect(() => {
-    if (!myBusiness || myBusiness.verified !== 'pending') return;
+    if (!myBusiness || getBusinessApprovalStatus(myBusiness) !== 'pending') return;
 
     setPollingMsg('Checking approval status…');
     const interval = setInterval(async () => {
       try {
-        const res = await api.get('/api/businesses');
-        const userId = user?._id || user?.id;
-        const mine = res.data.find((b) => b.ownerId === userId);
-        if (mine && mine.verified !== myBusiness.verified) {
+        const res = await api.get('/api/businesses/mine');
+        const mine = res.data?.business;
+        if (mine && mine.approvalStatus !== myBusiness.approvalStatus) {
           setMyBusiness(mine);
           setPollingMsg('');
-          if (mine.verified === 'verified' || mine.verified === 'approved') {
+          if (mine.approvalStatus === 'approved') {
             Swal.fire({
               icon: 'success',
               title: '🎉 Business Approved!',
@@ -211,7 +221,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
       } catch { /* silent */ }
     }, 10000);
     return () => clearInterval(interval);
-  }, [myBusiness?.verified, user]);
+  }, [myBusiness?.approvalStatus, user]);
 
   /* ────────────────────────────────── HANDLERS ────────────────── */
 
@@ -219,6 +229,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
     e.preventDefault();
     if (!submitGuard.begin()) return;
     if (!bizForm.name || !bizForm.description || !bizForm.location) {
+      submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Missing Fields', text: 'Name, description, and location are required.' });
     }
     setIsSubmitting(true);
@@ -242,7 +253,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
         fd.append('qr', bizQr);
       }
 
-      await api.post('/api/businesses', fd, { headers: { ...createIdempotencyHeader('business-register') } });
+      const response = await api.post('/api/businesses', fd, { headers: { ...createIdempotencyHeader('business-register') } });
+      if (response.data?.business) setMyBusiness(response.data.business);
       Swal.fire({
         icon: 'success',
         title: t('Registration Submitted!', 'दर्ता विवरण पेश भयो!'),
@@ -474,6 +486,37 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   const totalRevenue    = completedOrders.reduce((s, o) => s + (o.total || 0), 0);
   const pendingOrders   = orders.filter(o => ['placed', 'preparing'].includes(o.status));
   const avgRating       = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : '—';
+  const customerCount = new Set(orders.map((order) => order.customerId || order.deliveryAddress?.email).filter(Boolean)).size;
+  const repeatCustomerCount = Object.values(orders.reduce((counts, order) => {
+    const customerId = order.customerId || order.deliveryAddress?.email;
+    if (customerId) counts[customerId] = (counts[customerId] || 0) + 1;
+    return counts;
+  }, {})).filter((count) => count > 1).length;
+  const currentPeriodStart = new Date();
+  currentPeriodStart.setDate(currentPeriodStart.getDate() - 30);
+  const previousPeriodStart = new Date(currentPeriodStart);
+  previousPeriodStart.setDate(previousPeriodStart.getDate() - 30);
+  const currentPeriodOrders = orders.filter((order) => new Date(order.createdAt || 0) >= currentPeriodStart);
+  const previousPeriodOrders = orders.filter((order) => {
+    const createdAt = new Date(order.createdAt || 0);
+    return createdAt >= previousPeriodStart && createdAt < currentPeriodStart;
+  });
+  const periodRevenue = (periodOrders) => periodOrders.filter((order) => order.status === 'completed' || order.paymentStatus === 'paid').reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const percentChange = (current, previous) => previous > 0 ? `${Math.round(((current - previous) / previous) * 100)}%` : current > 0 ? '+100%' : '0%';
+  const revenueChange = percentChange(periodRevenue(currentPeriodOrders), periodRevenue(previousPeriodOrders));
+  const orderChange = percentChange(currentPeriodOrders.length, previousPeriodOrders.length);
+  const orderItemCounts = orders.flatMap((order) => order.items || []).reduce((counts, item) => {
+    const key = item.productId || item.name;
+    if (key) counts[key] = (counts[key] || 0) + Number(item.quantity || 1);
+    return counts;
+  }, {});
+  const topProductIds = Object.entries(orderItemCounts).sort(([, first], [, second]) => second - first).map(([id]) => id);
+  const productSoldCount = (product) => orderItemCounts[product._id] || orderItemCounts[product.name] || 0;
+  const productOrders = orders.filter((order) => order.items?.some((item) => item.type !== 'service'));
+  const serviceOrders = orders.filter((order) => order.items?.some((item) => item.type === 'service'));
+  const orderTypeTotal = productOrders.length + serviceOrders.length || 1;
+  const productOrderPercent = Math.round((productOrders.length / orderTypeTotal) * 100);
+  const serviceOrderPercent = Math.round((serviceOrders.length / orderTypeTotal) * 100);
 
   /* ─ Loading ─ */
   if (loading) {
@@ -574,7 +617,9 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   /* ══════════════════════════════════════════════════════════════
      2. BUSINESS PENDING → Waiting Room
   ══════════════════════════════════════════════════════════════ */
-  if (myBusiness.verified === 'pending') {
+  const approvalStatus = getBusinessApprovalStatus(myBusiness);
+
+  if (approvalStatus === 'pending') {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <div className="rounded-3xl border border-amber-500/20 bg-amber-500/5 p-10">
@@ -611,16 +656,16 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   /* ══════════════════════════════════════════════════════════════
      3. BUSINESS REJECTED
   ══════════════════════════════════════════════════════════════ */
-  if (myBusiness.verified === 'rejected' || myBusiness.verified === 'suspended') {
+  if (approvalStatus === 'rejected') {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-10">
           <FiXCircle className="mx-auto h-14 w-14 text-rose-400 mb-4" />
           <h2 className="text-xl font-black text-white mb-2">
-            {myBusiness.verified === 'suspended' ? 'Business Suspended' : 'Registration Not Approved'}
+            Registration Not Approved
           </h2>
           <p className="text-sm text-slate-400">
-            {t('Your business registration was not approved. Please contact support or resubmit with correct documents.',
+            {myBusiness.rejectionReason || t('Your business registration was not approved. Please contact support or resubmit with correct documents.',
                'तपाईंको व्यवसाय दर्ता अनुमोदन भएन। कृपया समर्थनमा सम्पर्क गर्नुहोस् वा सहि कागजातसहित पुनः पेश गर्नुहोस्।')}
           </p>
         </div>
@@ -631,20 +676,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
   /* ══════════════════════════════════════════════════════════════
      4. FULL DASHBOARD (approved / verified)
   ══════════════════════════════════════════════════════════════ */
-  const tabs = [
-    { key: 'overview',   label: t('Overview',   'सिंहावलोकन'),   icon: <FiTrendingUp /> },
-    { key: 'orders',     label: t('Orders',      'अर्डर'),          icon: <FiShoppingBag /> },
-    { key: 'bookings',   label: t('Bookings',    'बुकिङ'),          icon: <FiCalendar /> },
-    ...(offeringType !== 'services' ? [{ key: 'products', label: t('Products', 'उत्पादन'), icon: <FiPackage /> }] : []),
-    ...(offeringType !== 'products' ? [{ key: 'services', label: t('Services', 'सेवाहरू'), icon: <FiFileText /> }] : []),
-    { key: 'reviews',    label: t('Reviews',     'समीक्षाहरू'),     icon: <FiStar /> },
-    { key: 'promos',     label: t('Promotions',  'प्रोमो'),         icon: <FiTag /> },
-  ];
-
   return (
     <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
       <main className="bg-[#f7f1e8] p-4 text-[#142835] sm:p-6">
-      {(currentTab === 'overview' || currentTab === 'analytics' || currentTab === 'settings' || currentTab === 'ratings') && (
+      {currentTab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
           {/* ─── 1. BUSINESS PROFILE HEADER ─── */}
@@ -703,7 +738,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                    onMouseLeave={e => { e.currentTarget.style.background = '#0B1A30'; }}>
                   <FiEdit3 style={{ width: 14, height: 14 }} /> {t('Edit Business Profile', 'प्रोफाइल सम्पादन')}
                 </button>
-                <button onClick={() => { window.open('/', '_blank'); }} style={{
+                <button onClick={() => onOpenBusiness?.(myBusiness._id)} style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '10px 20px', borderRadius: 12,
                   background: '#FFFFFF', color: '#0B1A30', border: '1px solid #E5E7EB',
@@ -723,10 +758,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
               {/* Stats Row */}
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${offeringType === 'both' ? 4 : 3}, 1fr)`, gap: 14 }}>
                 {[
-                  { icon: <FiShoppingBag />, label: t('Total Orders', 'कुल अर्डर'), value: orders.length, change: '+12%', color: '#3B82F6', bg: '#EFF6FF' },
-                  { icon: <FiDollarSign />, label: t('Total Revenue', 'कुल राजस्व'), value: fmt(totalRevenue), change: '+15%', color: '#059669', bg: '#ECFDF5' },
-                  ...(offeringType !== 'services' ? [{ icon: <FiPackage />, label: t('Products', 'उत्पादनहरू'), value: products.length, change: '+6%', color: '#F2B71D', bg: '#FFFBEB' }] : []),
-                  ...(offeringType !== 'products' ? [{ icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: '+25%', color: '#8B5CF6', bg: '#F5F3FF' }] : []),
+                  { icon: <FiShoppingBag />, label: t('Total Orders', 'कुल अर्डर'), value: orders.length, change: orderChange, color: '#3B82F6', bg: '#EFF6FF' },
+                  { icon: <span style={{ fontSize: 16, fontWeight: 800 }}>Rs.</span>, label: t('Total Revenue', 'कुल राजस्व'), value: fmt(totalRevenue), change: revenueChange, color: '#059669', bg: '#ECFDF5' },
+                  ...(offeringType !== 'services' ? [{ icon: <FiPackage />, label: t('Products', 'उत्पादनहरू'), value: products.length, change: `${products.length} active`, color: '#F2B71D', bg: '#FFFBEB' }] : []),
+                  ...(offeringType !== 'products' ? [{ icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: `${services.length} active`, color: '#8B5CF6', bg: '#F5F3FF' }] : []),
                 ].map((stat, idx) => (
                   <div key={idx} style={{
                     background: stat.bg, borderRadius: 16, padding: '18px 16px',
@@ -864,7 +899,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                   <div style={{ marginBottom: 12 }}>
                     <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Revenue', 'राजस्व')}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                      <span style={{ fontSize: 24, fontWeight: 800, color: '#0B1A30' }}>{fmt(totalRevenue || 12450)}</span>
+                      <span style={{ fontSize: 24, fontWeight: 800, color: '#0B1A30' }}>{fmt(totalRevenue)}</span>
                       <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '2px 6px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 2 }}>
                         <FiArrowUp style={{ width: 10, height: 10 }} /> 18%
                       </span>
@@ -879,7 +914,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                           const d = new Date(o.createdAt || Date.now());
                           return d.getDay() === (i + 1) % 7;
                         });
-                        return dayOrders.reduce((s, o) => s + (o.total || 0), 0);
+                        return dayOrders.filter((o) => o.status === 'completed' || o.paymentStatus === 'paid').reduce((s, o) => s + Number(o.total || 0), 0);
                       });
                       const maxVal = Math.max(...dayValues, 1);
                       return dayLabels.map((day, i) => (
@@ -912,9 +947,9 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                   <div style={{ position: 'relative', width: 140, height: 140, margin: '12px auto 0' }}>
                     <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
                       {(() => {
-                        const prodOrders = orders.filter(o => o.items?.some(i => i.type !== 'service')).length || Math.max(1, Math.round(orders.length * 0.7));
-                        const servOrders = orders.filter(o => o.items?.some(i => i.type === 'service')).length || Math.max(0, Math.round(orders.length * 0.2));
-                        const otherOrders = Math.max(0, orders.length - prodOrders - servOrders) || Math.max(0, Math.round(orders.length * 0.1));
+                        const prodOrders = productOrders.length;
+                        const servOrders = serviceOrders.length;
+                        const otherOrders = Math.max(0, orders.length - prodOrders - servOrders);
                         const total = prodOrders + servOrders + otherOrders || 1;
                         const segments = [
                           { pct: prodOrders / total, color: '#F2B71D' },
@@ -947,9 +982,9 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
                     {[
-                      { label: t('Products', 'उत्पादनहरू'), pct: '70%', color: '#F2B71D' },
-                      { label: t('Services', 'सेवाहरू'), pct: '20%', color: '#059669' },
-                      { label: t('Others', 'अन्य'), pct: '10%', color: '#3B82F6' },
+                      { label: t('Products', 'उत्पादनहरू'), pct: `${productOrderPercent}%`, color: '#F2B71D' },
+                      { label: t('Services', 'सेवाहरू'), pct: `${serviceOrderPercent}%`, color: '#059669' },
+                      { label: t('Others', 'अन्य'), pct: `${Math.max(0, 100 - productOrderPercent - serviceOrderPercent)}%`, color: '#3B82F6' },
                     ].map((item, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
                         <span style={{ width: 10, height: 10, borderRadius: '50%', background: item.color }} />
@@ -1090,8 +1125,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                 <div style={{ padding: '32px 0', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>{t('No products yet', 'अझैसम्म कुनै उत्पादन छैन')}</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {products.slice(0, 3).map((p, idx) => {
-                    const soldCount = orders.filter(o => o.items?.some(i => i.productId === p._id || i.name === p.name)).length || Math.max(10, 50 - idx * 15);
+                  {[...products].sort((first, second) => productSoldCount(second) - productSoldCount(first)).slice(0, 3).map((p, idx) => {
+                    const soldCount = productSoldCount(p);
                     return (
                       <div key={p._id} style={{
                         display: 'flex', alignItems: 'center', gap: 14,
@@ -1128,7 +1163,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                           fontSize: 11, fontWeight: 600, color: '#059669',
                           display: 'flex', alignItems: 'center', gap: 2,
                         }}>
-                          <FiArrowUp style={{ width: 10, height: 10 }} /> {12 - idx * 4}%
+                          <FiArrowUp style={{ width: 10, height: 10 }} /> {productSoldCount(p)} {t('sold', 'बिक्री')}
                         </span>
                       </div>
                     );
@@ -1148,10 +1183,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {[
-                  { icon: <FiUsers />, label: t('Customer Growth', 'ग्राहक वृद्धि'), value: '+20%', color: '#3B82F6' },
-                  { icon: <FiTrendingUp />, label: t('Sales Growth', 'बिक्री वृद्धि'), value: '+15%', color: '#059669' },
-                  { icon: <FiEye />, label: t('Product Views', 'उत्पादन दृश्य'), value: '+32%', color: '#8B5CF6' },
-                  { icon: <FiStar />, label: t('Repeat Customers', 'दोहोरिने ग्राहक'), value: '+18%', color: '#F2B71D' },
+                  { icon: <FiUsers />, label: t('Customers', 'ग्राहक'), value: customerCount, color: '#3B82F6' },
+                  { icon: <FiTrendingUp />, label: t('Sales Growth', 'बिक्री वृद्धि'), value: revenueChange, color: '#059669' },
+                  { icon: <FiEye />, label: t('Services Listed', 'सूचीकृत सेवाहरू'), value: services.length, color: '#8B5CF6' },
+                  { icon: <FiStar />, label: t('Repeat Customers', 'दोहोरिने ग्राहक'), value: repeatCustomerCount, color: '#F2B71D' },
                 ].map((kpi, idx) => (
                   <div key={idx} style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1171,45 +1206,6 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, no
                 ))}
               </div>
             </div>
-          </div>
-
-          {/* ─── 5. AI INSIGHTS BANNER ─── */}
-          <div style={{
-            background: 'linear-gradient(135deg, #0B1A30 0%, #1A2D47 100%)',
-            borderRadius: 18, padding: '24px 32px',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 20, flexWrap: 'wrap',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 14,
-                background: 'linear-gradient(135deg, #F2B71D, #D4A017)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <FiZap style={{ width: 22, height: 22, color: '#0B1A30' }} />
-              </div>
-              <div>
-                <h4 style={{ fontSize: 16, fontWeight: 700, color: '#FFFFFF', margin: 0 }}>
-                  {t('Grow Your Business Faster with UdyogConnect AI', 'UdyogConnect AI सँग तपाईंको व्यवसाय छिटो बढाउनुहोस्')}
-                </h4>
-                <p style={{ fontSize: 13, color: '#94A3B8', margin: '4px 0 0' }}>
-                  {t('Get smart insights, customer trends and personalized growth tips to take your business to the next level.', 'स्मार्ट अन्तर्दृष्टि, ग्राहक प्रवृत्ति र व्यक्तिगत विकास सुझावहरू प्राप्त गर्नुहोस्।')}
-                </p>
-              </div>
-            </div>
-            <button style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '12px 24px', borderRadius: 12,
-              background: 'linear-gradient(135deg, #F2B71D, #E0A615)',
-              color: '#0B1A30', border: 'none',
-              fontSize: 14, fontWeight: 700, cursor: 'pointer',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-              boxShadow: '0 4px 16px rgba(242,183,29,0.3)',
-            }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(242,183,29,0.4)'; }}
-               onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(242,183,29,0.3)'; }}>
-              <FiTrendingUp style={{ width: 16, height: 16 }} />
-              {t('Explore AI Insights', 'AI अन्तर्दृष्टि अन्वेषण गर्नुहोस्')} <FiArrowRight style={{ width: 14, height: 14 }} />
-            </button>
           </div>
 
         </div>

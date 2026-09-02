@@ -1,10 +1,14 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { containsItemById } from './utils/duplicateUtils';
 
+const readStoredCart = () => {
+  return [];
+};
+
 export const initialState = {
   user: null,
   businesses: [],
-  cart: [],
+  cart: readStoredCart(),
 };
 
 export function appReducer(state = initialState, action) {
@@ -13,6 +17,8 @@ export function appReducer(state = initialState, action) {
       return { ...state, user: action.payload };
     case 'SET_BUSINESSES':
       return { ...state, businesses: action.payload };
+    case 'SET_CART':
+      return { ...state, cart: Array.isArray(action.payload) ? action.payload : [] };
     case 'ADD_TO_CART': {
       const incomingItem = action.payload;
 

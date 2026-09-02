@@ -41,6 +41,86 @@ const DEMO_USERS = [
     loginHistory: [],
     isVerified: true,
   },
+  {
+    demoId: 's2',
+    name: 'Mina Craft Seller',
+    email: 'crafts@udyog.np',
+    password: DEMO_PASSWORD_HASH,
+    phone: '9840000005',
+    role: 'seller',
+    loyaltyPoints: 0,
+    profilePicture: '',
+    addresses: [],
+    paymentMethods: [],
+    wishlist: { products: [], services: [], businesses: [] },
+    twoFactorEnabled: false,
+    loginHistory: [],
+    isVerified: true,
+  },
+  {
+    demoId: 's3',
+    name: 'Suman Home Seller',
+    email: 'home@udyog.np',
+    password: DEMO_PASSWORD_HASH,
+    phone: '9840000006',
+    role: 'seller',
+    loyaltyPoints: 0,
+    profilePicture: '',
+    addresses: [],
+    paymentMethods: [],
+    wishlist: { products: [], services: [], businesses: [] },
+    twoFactorEnabled: false,
+    loginHistory: [],
+    isVerified: true,
+  },
+  {
+    demoId: 'demo-owner-b4',
+    name: 'Asha Spice Seller',
+    email: 'spice@udyog.np',
+    password: DEMO_PASSWORD_HASH,
+    phone: '9840000007',
+    role: 'seller',
+    loyaltyPoints: 0,
+    profilePicture: '',
+    addresses: [],
+    paymentMethods: [],
+    wishlist: { products: [], services: [], businesses: [] },
+    twoFactorEnabled: false,
+    loginHistory: [],
+    isVerified: true,
+  },
+  {
+    demoId: 'demo-owner-b5',
+    name: 'Bikash Lakeside Seller',
+    email: 'treasures@udyog.np',
+    password: DEMO_PASSWORD_HASH,
+    phone: '9840000008',
+    role: 'seller',
+    loyaltyPoints: 0,
+    profilePicture: '',
+    addresses: [],
+    paymentMethods: [],
+    wishlist: { products: [], services: [], businesses: [] },
+    twoFactorEnabled: false,
+    loginHistory: [],
+    isVerified: true,
+  },
+  {
+    demoId: 'demo-owner-b6',
+    name: 'Nabin Repair Seller',
+    email: 'repair@udyog.np',
+    password: DEMO_PASSWORD_HASH,
+    phone: '9840000009',
+    role: 'seller',
+    loyaltyPoints: 0,
+    profilePicture: '',
+    addresses: [],
+    paymentMethods: [],
+    wishlist: { products: [], services: [], businesses: [] },
+    twoFactorEnabled: false,
+    loginHistory: [],
+    isVerified: true,
+  },
   
   {
     name: 'Platform Admin',
@@ -262,6 +342,78 @@ const defaultBusinesses = [
     rating: 4.0,
     reviewCount: 0,
   },
+  {
+    _id: 'b4',
+    ownerId: 'demo-owner-b4',
+    name: 'Himalayan Spice Corner',
+    category: 'Grocery',
+    subcategory: 'Local groceries and spices',
+    location: 'Bhaktapur',
+    price: '100-2500',
+    description: 'Nepali spices, organic grains, lentils, and everyday household groceries sourced from local producers.',
+    contactEmail: 'hello@himalayanspice.np',
+    phone: '9841000004',
+    website: '',
+    hours: '07:00 - 20:00',
+    imageUrl: '',
+    latitude: 27.6710,
+    longitude: 85.4298,
+    approvalStatus: 'approved',
+    verified: 'verified',
+    isVerified: true,
+    approvedAt: new Date().toISOString(),
+    approvedBy: 'demo-admin',
+    rating: 4.7,
+    reviewCount: 0,
+  },
+  {
+    _id: 'b5',
+    ownerId: 'demo-owner-b5',
+    name: 'Pokhara Lakeside Treasures',
+    category: 'Gift Shop',
+    subcategory: 'Handmade crafts and souvenirs',
+    location: 'Pokhara',
+    price: '250-5000',
+    description: 'Handmade lokta paper, wool products, woodcraft, and thoughtful souvenirs from Nepali artisans.',
+    contactEmail: 'hello@lakesidetreasures.np',
+    phone: '9856000005',
+    website: '',
+    hours: '09:00 - 20:00',
+    imageUrl: '',
+    latitude: 28.2096,
+    longitude: 83.9596,
+    approvalStatus: 'approved',
+    verified: 'verified',
+    isVerified: true,
+    approvedAt: new Date().toISOString(),
+    approvedBy: 'demo-admin',
+    rating: 4.8,
+    reviewCount: 0,
+  },
+  {
+    _id: 'b6',
+    ownerId: 'demo-owner-b6',
+    name: 'Bagmati Home Repair',
+    category: 'Home Services',
+    subcategory: 'Plumbing and electrical repair',
+    location: 'Lalitpur',
+    price: '800-5000',
+    description: 'Reliable local plumbing, electrical, appliance repair, and home maintenance services across the valley.',
+    contactEmail: 'support@bagmatihomerepair.np',
+    phone: '9860000006',
+    website: '',
+    hours: '08:00 - 18:00',
+    imageUrl: '',
+    latitude: 27.6588,
+    longitude: 85.3247,
+    approvalStatus: 'approved',
+    verified: 'verified',
+    isVerified: true,
+    approvedAt: new Date().toISOString(),
+    approvedBy: 'demo-admin',
+    rating: 4.6,
+    reviewCount: 0,
+  },
 ];
 
 const defaultProducts = [
@@ -310,6 +462,18 @@ const defaultProducts = [
     images: [],
     availability: true,
   },
+  {
+    _id: 'p4', businessId: 'b4', name: 'Himalayan Turmeric Powder', category: 'Grocery', subcategory: 'Spices',
+    description: 'Stone-ground turmeric sourced from Nepali hill farms.', price: 220, discount: 0, stock: 40, sku: 'HSC-TURMERIC-04', brand: 'Himalayan Spice Corner', images: [], availability: true,
+  },
+  {
+    _id: 'p5', businessId: 'b5', name: 'Lokta Paper Journal', category: 'Gift Shop', subcategory: 'Stationery',
+    description: 'Handmade lokta paper journal crafted by Nepali artisans.', price: 450, discount: 5, stock: 25, sku: 'PLT-JOURNAL-05', brand: 'Pokhara Lakeside Treasures', images: [], availability: true,
+  },
+  {
+    _id: 'p6', businessId: 'b6', name: 'Home Electrical Safety Check', category: 'Home Services', subcategory: 'Electrical',
+    description: 'A professional inspection of household wiring and electrical fittings.', price: 1500, discount: 0, stock: 20, sku: 'BHR-SAFETY-06', brand: 'Bagmati Home Repair', images: [], availability: true,
+  },
 ];
 
 const defaultServices = [
@@ -337,6 +501,15 @@ const defaultServices = [
     staff: ['Madan Lal'],
     homeService: true,
   },
+  {
+    _id: 's_v3', businessId: 'b4', name: 'Monthly Grocery Delivery', description: 'Scheduled delivery of fresh staples and spices around Bhaktapur.', price: 150, duration: 30, availability: true, slots: ['08:00 - 10:00', '16:00 - 18:00'], staff: ['Asha'], homeService: true,
+  },
+  {
+    _id: 's_v4', businessId: 'b5', name: 'Custom Souvenir Gift Pack', description: 'A curated Nepali craft gift pack prepared for events and visitors.', price: 1800, duration: 60, availability: true, slots: ['10:00 - 12:00', '14:00 - 16:00'], staff: ['Bikash'], homeService: false,
+  },
+  {
+    _id: 's_v5', businessId: 'b6', name: 'Plumbing Emergency Visit', description: 'Same-day plumbing inspection and repair for homes in the Kathmandu Valley.', price: 1200, duration: 90, availability: true, slots: ['09:00 - 11:00', '13:00 - 15:00'], staff: ['Nabin'], homeService: true,
+  },
 ];
 
 const defaultCoupons = [
@@ -352,8 +525,38 @@ const seedDemoUsers = async () => {
   for (const userData of DEMO_USERS) {
     const existing = await db.User.findOne({ email: userData.email });
     if (!existing) {
-      await db.User.create({ ...userData });
+      const seedData = db.User.db
+        ? (({ demoId, ...data }) => data)(userData)
+        : { ...userData, _id: userData.demoId || undefined };
+      await db.User.create({ ...seedData });
     }
+  }
+};
+
+const seedDemoBusinesses = async () => {
+  if (!db.Business) return;
+  for (const businessData of defaultBusinesses) {
+    const existing = await db.Business.findOne({ name: businessData.name });
+    if (!existing) {
+      const seedData = db.Business.db ? (({ _id, ...data }) => data)(businessData) : businessData;
+      await db.Business.create({ ...seedData });
+    }
+  }
+};
+
+const seedDemoCatalog = async () => {
+  if (!db.Product || !db.Service) return;
+  for (const productData of defaultProducts) {
+    const business = await db.Business.findOne({ _id: productData.businessId });
+    const seedData = { ...productData, businessId: business?._id || productData.businessId };
+    const existing = await db.Product.findOne({ sku: productData.sku });
+    if (!existing) await db.Product.create(db.Product.db ? (({ _id, ...data }) => data)(seedData) : seedData);
+  }
+  for (const serviceData of defaultServices) {
+    const business = await db.Business.findOne({ _id: serviceData.businessId });
+    const seedData = { ...serviceData, businessId: business?._id || serviceData.businessId };
+    const existing = await db.Service.findOne({ name: serviceData.name, businessId: seedData.businessId });
+    if (!existing) await db.Service.create(db.Service.db ? (({ _id, ...data }) => data)(seedData) : seedData);
   }
 };
 
@@ -399,7 +602,12 @@ const initMongooseModels = async () => {
     qrUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid QR URL'] },
     latitude: { type: Number, default: 27.7007 },
     longitude: { type: Number, default: 85.3001 },
-    verified: { type: String, enum: ['pending', 'verified', 'approved', 'rejected', 'suspended'], default: 'pending' },
+    verified: { type: String, enum: ['pending', 'verified', 'approved', 'rejected', 'suspended'] },
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'] },
+    approvedAt: { type: Date, default: null },
+    approvedBy: { type: String, default: null, trim: true },
+    isVerified: { type: Boolean, default: false },
+    rejectionReason: { type: String, default: '', trim: true },
     documents: { type: Array, default: [] },
     rating: { type: Number, default: 5.0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
@@ -562,6 +770,8 @@ const initMongooseModels = async () => {
   db.SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
 
   await seedDemoUsers();
+  await seedDemoBusinesses();
+  await seedDemoCatalog();
   // Ensure indexes (unique constraints) are created
   try {
     await db.User.createIndexes();
@@ -571,14 +781,20 @@ const initMongooseModels = async () => {
   }
 };
 
-const initMockModels = () => {
-  const seededUsers = DEMO_USERS.map((user, index) => ({
-    _id: ['u1', 's1', 'r1', 'a1'][index],
-    ...user,
-  }));
+const initMockModels = async () => {
+  const legacyIds = {
+    'customer@udyog.np': 'u1',
+    'seller@udyog.np': 's1',
+    'admin@udyog.np': 'a1',
+  };
+  const seededUsers = DEMO_USERS.map((user) => {
+    const seededId = user.demoId || legacyIds[user.email];
+    return { ...user, ...(seededId ? { _id: seededId } : {}) };
+  });
 
   const userModel = new MockModel('User', seededUsers);
   db.User = userModel;
+  await seedDemoUsers();
 
   db.Business = new MockModel('Business', defaultBusinesses);
   db.Product = new MockModel('Product', defaultProducts);
@@ -696,6 +912,8 @@ const initMockModels = () => {
 
   db.Category = new MockModel('Category', defaultCategories);
   db.SystemSetting = new MockModel('SystemSetting', defaultSettings);
+  await seedDemoBusinesses();
+  await seedDemoCatalog();
 };
 
 let dbConnectionPromise = null;
@@ -744,7 +962,7 @@ async function connectDb() {
         }
         console.warn('Falling back to local JSON file DB for development only.');
         isMongo = false;
-        initMockModels();
+        await initMockModels();
         return false;
       }
     })();
@@ -756,7 +974,7 @@ async function connectDb() {
 
   // Initialize fallback mock DB (development only)
   isMongo = false;
-  initMockModels();
+  await initMockModels();
   return false;
 }
 

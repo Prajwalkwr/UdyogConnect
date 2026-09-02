@@ -8,6 +8,7 @@
     }
   ],
   "routes": [
+    { "src": "/api/(.*)", "dest": "https://udyogconnect.onrender.com/api/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }

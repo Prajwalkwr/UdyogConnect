@@ -6,7 +6,7 @@ import {
   FiHeart, FiStar, FiMapPin, FiCreditCard, FiUsers,
   FiPackage, FiTrendingUp, FiFileText, FiBriefcase,
   FiHome, FiMenu, FiX, FiChevronDown, FiZap, FiAward,
-  FiBarChart2, FiTag, FiTruck
+  FiTag, FiTruck
 } from 'react-icons/fi';
 import { getDashboardLabel } from '../utils/authFlow';
 
@@ -48,12 +48,9 @@ function UserAvatar({ user, name, size = 34, className = '' }) {
 const sellerNav = [
   { key: 'overview', label: 'Business Dashboard', icon: FiGrid },
   { key: 'profile', label: 'My Profile', icon: FiUser },
-  { key: 'products', label: 'Products', icon: FiPackage, countKey: 'productCount' },
-  { key: 'services', label: 'Services', icon: FiSettings, countKey: 'serviceCount' },
+  { key: 'catalog', label: 'Products & Services', icon: FiPackage, countKey: 'catalogCount' },
   { key: 'orders', label: 'Orders', icon: FiShoppingBag, countKey: 'orderCount' },
-  { key: 'reviews', label: 'Customers', icon: FiUsers },
   { key: 'ratings', label: 'Reviews & Ratings', icon: FiStar },
-  { key: 'analytics', label: 'Analytics', icon: FiBarChart2 },
   { key: 'promos', label: 'Marketing', icon: FiTag },
   { key: 'settings', label: 'Business Settings', icon: FiSettings },
 ];
@@ -61,11 +58,9 @@ const sellerNav = [
 const customerNav = [
   { key: 'dashboard', label: 'Dashboard', icon: FiGrid },
   { key: 'orders', label: 'My Orders', icon: FiShoppingBag },
-  { key: 'wishlist', label: 'My Wishlist', icon: FiHeart, countKey: 'wishlistCount' },
   { key: 'cart', label: 'My Cart', icon: FiShoppingCart, countKey: 'cartCount' },
   { key: 'saved', label: 'Saved Businesses', icon: FiStar },
   { key: 'reviews', label: 'Reviews', icon: FiStar },
-  { key: 'wallet', label: 'Wallet', icon: FiCreditCard },
   { key: 'profile', label: 'Settings', icon: FiSettings },
 ];
 
@@ -181,19 +176,6 @@ export default function Navbar({
               <FiGlobe className="h-3.5 w-3.5" />
               <span>{lang === 'en' ? 'EN' : 'ने'}</span>
               <FiChevronDown className="h-3 w-3 text-white/50" />
-            </button>
-
-            <button
-              onClick={() => onOpenDashboard('wishlist')}
-              className="relative rounded-lg border border-[#1E293B] bg-[#101E35] p-2 text-white transition hover:bg-[#1E293B] cursor-pointer"
-              aria-label="Wishlist"
-            >
-              <FiHeart className="h-4.5 w-4.5 text-[#F2B71D]" />
-              {user && counts.wishlistCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white">
-                  {counts.wishlistCount}
-                </span>
-              )}
             </button>
 
             <div className="relative">
