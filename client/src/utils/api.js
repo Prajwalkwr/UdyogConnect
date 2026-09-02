@@ -21,7 +21,7 @@ export function getApiUrl(path) {
 
 const api = axios.create({
   baseURL: getApiBaseUrl() || '', // Use the Vite proxy locally; deployments should provide VITE_API_URL.
-  timeout: 15000, // 15-second timeout for all API requests
+  timeout: 60000, // 60-second timeout to allow Render free tier backend to spin up
 });
 
 api.interceptors.request.use((config) => {
