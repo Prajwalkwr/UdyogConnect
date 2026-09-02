@@ -192,7 +192,7 @@ export default function Marketplace({
   const businessImage = (business) => business?.imageUrl || business?.logoUrl || business?.logo || business?.image || '';
   const safeProducts = (Array.isArray(products) ? products : []).filter((p) => {
     const parentBiz = Array.isArray(businesses) ? businesses.find((b) => b._id === p.businessId) : null;
-    return parentBiz && parentBiz.verified === 'verified';
+    return parentBiz && (parentBiz.verified === 'verified' || parentBiz.isVerified === true || parentBiz.verified === true);
   });
 
   // Filter for truly popular products: rating >= 4.0, sorted by rating
@@ -201,7 +201,7 @@ export default function Marketplace({
     .sort((a, b) => (b.rating || 0) - (a.rating || 0));
 
   const verifiedBusinesses = Array.isArray(businesses)
-    ? businesses.filter((b) => b?.verified === 'verified')
+    ? businesses.filter((b) => b?.verified === 'verified' || b?.isVerified === true || b?.verified === true)
     : [];
   const recommendationBusinesses = user && aiRecs.businesses.length > 0 ? aiRecs.businesses : verifiedBusinesses.slice(0, 3);
 
@@ -258,7 +258,7 @@ export default function Marketplace({
   // Apply filtering rules client-side (to complement server results)
   let filteredBizs = Array.isArray(businesses) ? [...businesses] : [];
   // Only show verified businesses to the buyer
-  filteredBizs = filteredBizs.filter(b => b.verified === 'verified');
+  filteredBizs = filteredBizs.filter(b => b.verified === 'verified' || b.isVerified === true || b.verified === true);
 
   // Category
   if (selectedCategory !== 'All') {
