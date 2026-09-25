@@ -14,6 +14,7 @@ import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitP
 import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
 import AccountProfileCard from './AccountProfileCard';
+import { validateBusinessForm, validateProductForm, validateServiceForm, validateImageFile } from '../utils/validation';
 
 const fmt = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -64,26 +65,28 @@ function SectionHeader({ title, children }) {
   );
 }
 
-function InputField({ label, ...props }) {
+function InputField({ label, error, ...props }) {
   return (
     <div>
       {label && <label className="block text-[11px] font-semibold text-slate-400 mb-1">{label}</label>}
       <input
         {...props}
-        className={`w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition ${props.className || ''}`}
+        className={`w-full rounded-xl border ${error ? 'border-rose-500' : 'border-slate-700'} bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition ${props.className || ''}`}
       />
+      {error && <span className="text-rose-400 text-xs mt-1 block">❌ {error}</span>}
     </div>
   );
 }
 
-function TextAreaField({ label, ...props }) {
+function TextAreaField({ label, error, ...props }) {
   return (
     <div>
       {label && <label className="block text-[11px] font-semibold text-slate-400 mb-1">{label}</label>}
       <textarea
         {...props}
-        className={`w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition resize-none ${props.className || ''}`}
+        className={`w-full rounded-xl border ${error ? 'border-rose-500' : 'border-slate-700'} bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition resize-none ${props.className || ''}`}
       />
+      {error && <span className="text-rose-400 text-xs mt-1 block">❌ {error}</span>}
     </div>
   );
 }
@@ -107,6 +110,22 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const changeTab = (tab) => {
     if (onTabChange) onTabChange(tab);
     setInternalTab(tab);
+  };
+
+  const toggleBusinessAvailability = async () => {
+    if (!myBusiness || isSubmitting) return;
+    const nextOpen = !availabilityMeta.isOpen;
+    setIsSubmitting(true);
+    try {
+      const response = await api.put(`/api/businesses/${myBusiness._id}`, { manualOpenOverride: nextOpen });
+      const updatedBusiness = response.data?.business || { ...myBusiness, manualOpenOverride: nextOpen };
+      setMyBusiness(updatedBusiness);
+      Swal.fire({ icon: 'success', title: nextOpen ? 'Business opened' : 'Business closed', timer: 1000, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Could not update business status.' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Catalog state
@@ -169,7 +188,12 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
         const detail = await api.get(`/api/businesses/${mine._id}`);
         setProducts(detail.data.products || []);
         setServices(detail.data.services || []);
-        setReviews(detail.data.reviews   || []);
+        setReviews((detail.data.reviews || [])
+          .filter((review) => review.targetType === 'business')
+          .map((review) => ({
+            ...review,
+            customerName: review.customerName || review.userName || review.user?.name || 'Customer',
+          })));
 
         const [ordRes, bkRes, cpRes] = await Promise.allSettled([
           api.get('/api/orders'),
@@ -190,6 +214,13 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   }, [user]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const handleReviewCreated = () => fetchAll(true);
+    window.addEventListener('review-created', handleReviewCreated);
+    return () => window.removeEventListener('review-created', handleReviewCreated);
+  }, [fetchAll, user]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -225,12 +256,108 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
   /* ────────────────────────────────── HANDLERS ────────────────── */
 
+  const handleResubmitBusiness = async (e) => {
+    e.preventDefault();
+    if (!submitGuard.begin()) return;
+    setIsSubmitting(true);
+    try {
+      const fd = new FormData();
+      Object.entries(profileForm).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') fd.append(k, v);
+      });
+
+      const uploadedFiles = [];
+      if (profileLogo) uploadedFiles.push(profileLogo);
+      if (profileCover) uploadedFiles.push(profileCover);
+      if (profileDoc) uploadedFiles.push(profileDoc);
+      if (profileQr) uploadedFiles.push(profileQr);
+
+      if (uploadedFiles.length > 0) {
+        const uploadedUrls = await uploadFilesToCloudinary(uploadedFiles);
+        let fileIndex = 0;
+        if (profileLogo) {
+          if (uploadedUrls[fileIndex]) fd.append('logoUrl', uploadedUrls[fileIndex]);
+          fd.append('logo', profileLogo);
+          fileIndex += 1;
+        }
+        if (profileCover) {
+          if (uploadedUrls[fileIndex]) fd.append('coverUrl', uploadedUrls[fileIndex]);
+          fd.append('cover', profileCover);
+          fileIndex += 1;
+        }
+        if (profileDoc) {
+          if (uploadedUrls[fileIndex]) fd.append('documentUrl', uploadedUrls[fileIndex]);
+          fd.append('document', profileDoc);
+          fileIndex += 1;
+        }
+        if (profileQr) {
+          if (uploadedUrls[fileIndex]) fd.append('qrUrl', uploadedUrls[fileIndex]);
+          fd.append('qr', profileQr);
+        }
+      }
+
+      const response = await api.put(`/api/businesses/${myBusiness._id}`, fd, {
+        headers: { ...createIdempotencyHeader('business-resubmit') },
+      });
+      const refreshed = response.data?.business || myBusiness;
+      setMyBusiness(refreshed);
+      setShowEditProfile(false);
+      setProfileLogo(null);
+      setProfileCover(null);
+      setProfileDoc(null);
+      setProfileQr(null);
+      Swal.fire({
+        icon: 'success',
+        title: 'Revision submitted',
+        text: 'Your updated business details are pending admin review again.',
+      });
+      await fetchAll();
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Unable to resubmit business.' });
+    } finally {
+      setIsSubmitting(false);
+      submitGuard.finish();
+    }
+  };
+
   const handleRegisterBusiness = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
-    if (!bizForm.name || !bizForm.description || !bizForm.location) {
+    const nepalLocations = ['kathmandu', 'lalitpur', 'patan', 'bhaktapur', 'pokhara', 'chitwan', 'bharatpur', 'biratnagar', 'butwal', 'dharan', 'nepalgunj', 'janakpur', 'hetauda', 'dhangadhi', 'itahari', 'lumbini', 'ilam', 'baglung', 'gorkha', 'nepal'];
+    const locationText = String(bizForm.location || '').toLowerCase();
+    const hoursValid = /^(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(bizForm.hours || '').trim());
+    const nameValid = /^[A-Za-z\s]+$/.test(String(bizForm.name || '').trim());
+    const emailValid = /^[A-Za-z0-9._%+-]+@gmail\.com$/i.test(String(bizForm.contactEmail || '').trim());
+    const phoneValid = /^(?:97|98)\d{8}$/.test(String(bizForm.phone || '').trim());
+    const radius = Number(bizForm.deliveryRadiusKm);
+    const deliveryEnabled = Boolean(bizForm.deliveryAvailable);
+    if (!bizForm.name || !bizForm.description || !bizForm.location || !bizForm.category || !bizForm.offeringType || !bizForm.contactEmail || !bizDoc) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Missing Fields', text: 'Name, description, and location are required.' });
+      return Swal.fire({ icon: 'warning', title: 'Missing Fields', text: 'Business details, email, phone, delivery radius, and certificate/document are required.' });
+    }
+    if (!nepalLocations.some((location) => locationText.includes(location))) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Location', text: 'Enter a valid Nepal business location, such as Kathmandu, Pokhara, or Lalitpur.' });
+    }
+    if (!hoursValid) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Business Hours', text: 'Use Nepal local time in HH:MM - HH:MM format, for example 09:00 - 18:00.' });
+    }
+    if (!phoneValid) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Phone Number', text: 'Phone number must be exactly 10 digits and start with 97 or 98.' });
+    }
+    if (!nameValid) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Business Name', text: 'Business name must contain only letters and spaces.' });
+    }
+    if (!emailValid) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Email', text: 'Contact email must be a Gmail address (example@gmail.com).' });
+    }
+    if (deliveryEnabled && (!Number.isInteger(radius) || radius < 1 || radius > 50)) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Delivery Radius', text: 'Delivery radius must be a whole number between 1 and 50 km.' });
     }
     setIsSubmitting(true);
     try {
@@ -557,21 +684,16 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel, Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value})} required />
-                <InputField label="Business Hours" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} />
+                  <InputField label="Business Hours (Nepal Time) *" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} pattern="(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d" required />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Catalog Type (What do you offer?)</label>
-                <select value={bizForm.offeringType} onChange={e => setBizForm({...bizForm, offeringType: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
-                  <option value="both">Products & Services</option>
-                  <option value="products">Products Only</option>
-                  <option value="services">Services Only</option>
-                </select>
+
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label="Contact Email" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} />
-                <InputField label="Phone Number" type="tel" placeholder="+977-98XXXXXXXX" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value})} />
+                <InputField label="Contact Email *" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} required />
+                <InputField label="Phone Number *" type="tel" placeholder="10 digits starting with 9" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} inputMode="numeric" pattern="9[0-9]{9}" maxLength={10} minLength={10} required />
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -591,16 +713,16 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   <input type="checkbox" checked={Boolean(bizForm.deliveryAvailable)} onChange={(e) => setBizForm({ ...bizForm, deliveryAvailable: e.target.checked })} className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-amber-500 accent-amber-400" />
                 </label>
                 <div className="md:col-span-2">
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Delivery radius (km)</label>
-                  <input type="number" min="1" max="50" value={bizForm.deliveryRadiusKm} onChange={(e) => setBizForm({ ...bizForm, deliveryRadiusKm: e.target.value })} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20" />
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Delivery radius (km){bizForm.deliveryAvailable ? ' *' : ''}</label>
+                  <input type="number" min="1" max="50" value={bizForm.deliveryRadiusKm} onChange={(e) => setBizForm({ ...bizForm, deliveryRadiusKm: e.target.value })} disabled={!bizForm.deliveryAvailable} required={bizForm.deliveryAvailable} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 disabled:cursor-not-allowed disabled:opacity-50" />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
                   <FiUpload className="inline mr-1.5" />{t('Business Certificate / Document', 'व्यवसाय प्रमाणपत्र')}
                 </label>
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setBizDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20" />
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setBizDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20" required />
                 {bizDoc && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizDoc.name}</p>}
               </div>
 
@@ -656,18 +778,91 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   /* ══════════════════════════════════════════════════════════════
      3. BUSINESS REJECTED
   ══════════════════════════════════════════════════════════════ */
-  if (approvalStatus === 'rejected') {
+  if (approvalStatus === 'rejected' || approvalStatus === 'revision_requested') {
+    const revisionMessage = myBusiness?.revisionReason || myBusiness?.rejectionReason || t('Your business registration was not approved. Please contact support or resubmit with correct documents.', 'तपाईंको व्यवसाय दर्ता अनुमोदन भएन। कृपया समर्थनमा सम्पर्क गर्नुहोस् वा सहि कागजातसहित पुनः पेश गर्नुहोस्।');
     return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-10">
+      <div className="mx-auto max-w-2xl px-4 py-16">
+        <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-8">
           <FiXCircle className="mx-auto h-14 w-14 text-rose-400 mb-4" />
-          <h2 className="text-xl font-black text-white mb-2">
-            Registration Not Approved
+          <h2 className="text-xl font-black text-white mb-2 text-center">
+            {approvalStatus === 'revision_requested' ? 'Revision Requested' : 'Registration Not Approved'}
           </h2>
-          <p className="text-sm text-slate-400">
-            {myBusiness.rejectionReason || t('Your business registration was not approved. Please contact support or resubmit with correct documents.',
-               'तपाईंको व्यवसाय दर्ता अनुमोदन भएन। कृपया समर्थनमा सम्पर्क गर्नुहोस् वा सहि कागजातसहित पुनः पेश गर्नुहोस्।')}
-          </p>
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-left">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-400 mb-2">Needs attention</p>
+            <p className="text-sm text-slate-300 leading-relaxed">{revisionMessage}</p>
+          </div>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setProfileForm({
+                  name: myBusiness.name,
+                  description: myBusiness.description,
+                  location: myBusiness.location,
+                  hours: myBusiness.hours,
+                  contactEmail: myBusiness.contactEmail,
+                  phone: myBusiness.phone || '',
+                  website: myBusiness.website || '',
+                  qrUrl: myBusiness.qrUrl || '',
+                  isOpen: myBusiness.isOpen !== false,
+                  deliveryAvailable: myBusiness.deliveryAvailable !== false,
+                  deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5,
+                  offeringType: myBusiness.offeringType || 'both',
+                });
+                setShowEditProfile(true);
+              }}
+              className="rounded-xl bg-amber-400 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 transition"
+            >
+              Update & Resubmit
+            </button>
+            <button
+              type="button"
+              onClick={() => fetchAll()}
+              className="rounded-xl border border-slate-700 px-5 py-2.5 text-xs font-semibold text-slate-300 hover:text-white transition"
+            >
+              Refresh Status
+            </button>
+          </div>
+
+          {showEditProfile && (
+            <form onSubmit={handleResubmitBusiness} className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-5 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InputField label="Business Name *" value={profileForm.name || ''} onChange={e => setProfileForm({...profileForm, name: e.target.value})} required />
+                <InputField label="Location *" value={profileForm.location || ''} onChange={e => setProfileForm({...profileForm, location: e.target.value})} required />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InputField label="Business Hours" value={profileForm.hours || ''} onChange={e => setProfileForm({...profileForm, hours: e.target.value})} placeholder="09:00 - 18:00" />
+                <InputField label="Website" type="url" value={profileForm.website || ''} onChange={e => setProfileForm({...profileForm, website: e.target.value})} placeholder="https://..." />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InputField label="Contact Email" type="email" value={profileForm.contactEmail || ''} onChange={e => setProfileForm({...profileForm, contactEmail: e.target.value})} />
+                <InputField label="Phone" type="tel" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
+              </div>
+              <TextAreaField label="Description" value={profileForm.description || ''} onChange={e => setProfileForm({...profileForm, description: e.target.value})} rows={4} />
+              <div className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1"><FiUpload className="inline mr-1" />Logo</label>
+                  <input type="file" accept="image/*" onChange={e => setProfileLogo(e.target.files[0])} className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1"><FiUpload className="inline mr-1" />Cover</label>
+                  <input type="file" accept="image/*" onChange={e => setProfileCover(e.target.files[0])} className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1"><FiUpload className="inline mr-1" />Document</label>
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setProfileDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" disabled={isSubmitting} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition disabled:opacity-60">
+                  <FiSave /> {isSubmitting ? 'Submitting...' : 'Resubmit Business'}
+                </button>
+                <button type="button" onClick={() => setShowEditProfile(false)} className="rounded-xl border border-slate-700 px-4 py-2 text-xs text-slate-400 hover:text-white transition">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -722,7 +917,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                       <FiMapPin style={{ width: 13, height: 13, color: '#F2B71D' }} /> {myBusiness.location}
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#57657A' }}>
-                      <FiStar style={{ width: 13, height: 13, color: '#F2B71D', fill: '#F2B71D' }} /> {myBusiness.rating || '4.8'} ({myBusiness.reviewCount || reviews.length} {t('reviews', 'समीक्षाहरू')})
+                      <FiStar style={{ width: 13, height: 13, color: '#F2B71D', fill: '#F2B71D' }} /> {myBusiness.rating ?? 0} ({myBusiness.reviewCount ?? reviews.length} {t('reviews', 'समीक्षाहरू')})
                     </span>
                   </div>
                 </div>
@@ -800,10 +995,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Business Status', 'व्यापार स्थिति')}</h4>
-                  <div style={{
+                  <button type="button" aria-label={availabilityMeta.isOpen ? 'Close business' : 'Open business'} onClick={toggleBusinessAvailability} disabled={isSubmitting} style={{
                     width: 40, height: 22, borderRadius: 11,
                     background: availabilityMeta.isOpen ? '#059669' : '#D1D5DB',
-                    position: 'relative', cursor: 'pointer', transition: 'background 0.3s',
+                    position: 'relative', cursor: isSubmitting ? 'wait' : 'pointer', transition: 'background 0.3s', border: 0, padding: 0,
                   }}>
                     <div style={{
                       width: 18, height: 18, borderRadius: '50%', background: '#FFFFFF',
@@ -811,7 +1006,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                       left: availabilityMeta.isOpen ? 20 : 2,
                       transition: 'left 0.3s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                     }} />
-                  </div>
+                  </button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
@@ -1213,7 +1408,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
       {/* ══════════════ ORDERS ══════════════ */}
       {currentTab === 'orders' && (
-        <div className="space-y-4">
+        <div className="seller-light-section space-y-4">
           <SectionHeader title={t(`Orders (${orders.length})`, `अर्डरहरू (${orders.length})`)} />
           {orders.length === 0 ? (
             <EmptyState icon={<FiShoppingBag />} msg={t('No orders yet.', 'अझैसम्म कुनै अर्डर छैन।')} />
@@ -1434,7 +1629,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
       {/* ══════════════ REVIEWS ══════════════ */}
       {currentTab === 'reviews' && (
-        <div className="space-y-4">
+        <div className="seller-light-section space-y-4">
           <SectionHeader title={t(`Customer Reviews (${reviews.length})`, `ग्राहक समीक्षाहरू (${reviews.length})`)}>
             <div className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
               <FiStar /> {avgRating} avg
@@ -1490,7 +1685,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
       {/* ══════════════ PROMOTIONS ══════════════ */}
       {currentTab === 'promos' && (
-        <div className="space-y-5">
+        <div className="seller-light-section space-y-5">
           <SectionHeader title={t('Promotional Offers', 'प्रचार प्रस्ताव')}>
             <button onClick={() => setShowAddPromo(!showAddPromo)} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-amber-300 transition">
               <FiPlus /> {t('Create Promo', 'प्रोमो बनाउनुहोस्')}
@@ -1538,7 +1733,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
       {/* ══════════════ PROFILE ══════════════ */}
       {currentTab === 'profile' && (
-        <div className="space-y-5">
+        <div className="seller-light-section space-y-5">
           <AccountProfileCard user={user} lang={lang} />
           <SectionHeader title={t('Business Profile', 'व्यवसाय प्रोफाइल')}>
             <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm({ name: myBusiness.name, description: myBusiness.description, location: myBusiness.location, hours: myBusiness.hours, contactEmail: myBusiness.contactEmail, phone: myBusiness.phone || '', website: myBusiness.website || '', qrUrl: myBusiness.qrUrl || '', isOpen: myBusiness.isOpen !== false, deliveryAvailable: myBusiness.deliveryAvailable !== false, deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5, offeringType: myBusiness.offeringType || 'both' }); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">

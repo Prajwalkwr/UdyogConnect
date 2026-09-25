@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { isValidNepalPhone } from '../utils/authFlow';
+import { validateCheckoutForm } from '../utils/validation';
 
 export default function CartCheckout({
   cart,
@@ -28,6 +29,7 @@ export default function CartCheckout({
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
   const [address, setAddress] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
@@ -129,18 +131,15 @@ export default function CartCheckout({
   const handlePlaceOrder = async (e) => {
     if (e) e.preventDefault();
     if (cart.length === 0) return;
-    if (!submitGuard.begin()) return;
-    if (!name || !email || !phone || !location || (!address && deliveryMethod === 'delivery')) {
-      Swal.fire({ icon: 'error', text: translate('Please fill all delivery contact fields, including your location.', 'कृपया सबै डेलिभरी विवरणहरू, साथै तपाईंको स्थान भर्नुहोस्।') });
-      submitGuard.finish();
+    setFieldErrors({});
+
+    const validation = validateCheckoutForm({ fullName: name, phone, address, city: location });
+    if (!validation.isValid) {
+      setFieldErrors(validation.errors);
       return;
     }
 
-    if (!isValidNepalPhone(phone)) {
-      Swal.fire({ icon: 'error', text: translate('Phone number must start with 9 and contain only digits.', 'फोन नम्बर 9 बाट सुरु हुनुपर्छ र अंक मात्र हुनुपर्छ।') });
-      submitGuard.finish();
-      return;
-    }
+    if (!submitGuard.begin()) return;
 
     if (paymentMethod === 'Card' && (!cardNumber || !cardExpiry || !cardCvc)) {
       Swal.fire({ icon: 'error', text: 'Please fill credit/debit card information.' });
@@ -302,52 +301,62 @@ export default function CartCheckout({
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">{translate('Delivery Details', 'डेलिभरी ठेगाना')}</h3>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    placeholder={translate('Full Name', 'पूरा नाम')}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    required
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    required
-                  />
+                  <div>
+                    <input
+                      type="text"
+                      placeholder={translate('Full Name', 'पूरा नाम')}
+                      value={name}
+                      onChange={(e) => { setName(e.target.value); setFieldErrors(prev => ({ ...prev, name: '' })); }}
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    />
+                    {fieldErrors.name && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.name}</span>}
+                  </div>
+                  <div>
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      value={email}
+                      onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })); }}
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    />
+                    {fieldErrors.email && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.email}</span>}
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <input
-                    type="tel"
-                    placeholder={translate('Phone Number', 'फोन नम्बर')}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    required
-                  />
-                  <input
-                    type="text"
-                    placeholder={translate('Location / City', 'स्थान / शहर')}
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    className="rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    required
-                  />
+                  <div>
+                    <input
+                      type="tel"
+                      placeholder={translate('Phone Number', 'फोन नम्बर')}
+                      value={phone}
+                      onChange={(e) => { setPhone(e.target.value); setFieldErrors(prev => ({ ...prev, phone: '' })); }}
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    />
+                    {fieldErrors.phone && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.phone}</span>}
+                  </div>
+                  <div>
+                    <input
+                      type="text"
+                      placeholder={translate('Location / City', 'स्थान / शहर')}
+                      value={location}
+                      onChange={(e) => { setLocation(e.target.value); setFieldErrors(prev => ({ ...prev, city: '' })); }}
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    />
+                    {fieldErrors.city && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.city}</span>}
+                  </div>
                 </div>
 
                 {deliveryMethod === 'delivery' && (
-                  <input
-                    type="text"
-                    placeholder={translate('Street Address / Landmark', 'सडक ठेगाना / स्थलचिन्ह')}
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="mt-4 w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    required
-                  />
+                  <div className="mt-4">
+                    <input
+                      type="text"
+                      placeholder={translate('Street Address / Landmark', 'सडक ठेगाना / स्थलचिन्ह')}
+                      value={address}
+                      onChange={(e) => { setAddress(e.target.value); setFieldErrors(prev => ({ ...prev, address: '' })); }}
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    />
+                    {fieldErrors.address && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.address}</span>}
+                  </div>
                 )}
               </div>
             </div>

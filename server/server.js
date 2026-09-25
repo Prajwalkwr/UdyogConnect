@@ -19,11 +19,31 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Chat, Notification, Coupon, AuditLog, Category, SystemSetting } = require('./db');
 const { getRegistrationUserDefaults } = require('./authHelpers');
+const {
+  validateRegistration,
+  validateLogin,
+  validateBusinessPayload,
+  validateProductPayload,
+  validateServicePayload,
+  validateReviewPayload,
+  validateOrderPayload,
+  validateFileUpload,
+} = require('./validationMiddleware');
 const nodemailer = require('nodemailer');
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const app = express();
+// Request timing middleware for performance monitoring
+app.use((req, res, next) => {
+  const startHrTime = process.hrtime();
+  res.on('finish', () => {
+    const elapsedHrTime = process.hrtime(startHrTime);
+    const elapsedMs = elapsedHrTime[0] * 1000 + elapsedHrTime[1] / 1e6;
+    console.log(`[PERF] ${req.method} ${req.originalUrl} - ${elapsedMs.toFixed(3)} ms`);
+  });
+  next();
+});
 const httpServer = http.createServer(app);
 const port = process.env.PORT || 3000;
 
@@ -229,20 +249,27 @@ const authenticateToken = async (req, res, next) => {
 };
 
 const getApprovalStatus = (business) => {
-  if (['pending', 'approved', 'rejected'].includes(business?.approvalStatus)) return business.approvalStatus;
+  if (['pending', 'approved', 'rejected', 'revision_requested'].includes(business?.approvalStatus)) return business.approvalStatus;
   if (business?.verified === 'approved' || business?.verified === 'verified') return 'approved';
   if (business?.verified === 'rejected' || business?.verified === 'suspended') return 'rejected';
+  if (business?.verified === 'revision_requested') return 'revision_requested';
   return 'pending';
 };
 
 const serializeBusiness = (business) => {
   const plain = typeof business?.toObject === 'function' ? business.toObject() : { ...business };
   const approvalStatus = getApprovalStatus(plain);
+  const normalizedVerified = approvalStatus === 'approved'
+    ? 'verified'
+    : approvalStatus === 'revision_requested'
+      ? 'pending'
+      : approvalStatus;
+
   return {
     ...plain,
     approvalStatus,
     isVerified: approvalStatus === 'approved',
-    verified: approvalStatus === 'approved' ? 'verified' : approvalStatus,
+    verified: normalizedVerified,
     imageUrl: plain.imageUrl || plain.logoUrl || plain.logo || plain.image || '',
   };
 };
@@ -256,6 +283,13 @@ app.use((req, res, next) => {
     return next();
   }
 
+  const now = Date.now();
+  for (const [key, value] of idempotencyStore.entries()) {
+    if ((value?.expiresAt || 0) <= now) {
+      idempotencyStore.delete(key);
+    }
+  }
+
   const cacheKey = `${method}:${req.path}:${req.user?.id || req.ip || 'anonymous'}:${idempotencyKey}`;
   const cached = idempotencyStore.get(cacheKey);
   if (cached) {
@@ -264,13 +298,13 @@ app.use((req, res, next) => {
 
   const originalJson = res.json.bind(res);
   res.json = (body) => {
-    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body });
+    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
     return originalJson(body);
   };
 
   const originalSend = res.send.bind(res);
   res.send = (body) => {
-    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body });
+    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
     return originalSend(body);
   };
 
@@ -406,36 +440,26 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 // ==================== AUTHENTICATION APIS ====================
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', validateRegistration, async (req, res) => {
   try {
     const { name, email, password, confirmPassword, phone, role } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Name, email, and password are required.' });
-    }
-
-    // Strong password check
-    if (password.length < 8 || !/\d/.test(password) || !/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long and contain at least one letter and one number.' });
-    }
-
-    if (confirmPassword && password !== confirmPassword) {
-      return res.status(400).json({ message: 'Passwords do not match.' });
-    }
-
-    if (phone && !/^9\d{8,10}$/.test(phone.trim())) {
-      return res.status(400).json({ message: 'Phone number must start with 9 and contain only digits.' });
-    }
 
     const UserMDL = User();
     const existing = await UserMDL.findOne({ email });
     if (existing) {
-      return res.status(400).json({ message: 'A user with this email already exists.' });
+      return res.status(409).json({
+        message: 'A user with this email already exists.',
+        errors: { email: 'A user with this email already exists.' }
+      });
     }
 
     if (phone) {
       const existingPhone = await UserMDL.findOne({ phone });
       if (existingPhone) {
-        return res.status(400).json({ message: 'A user with this phone number already exists.' });
+        return res.status(409).json({
+          message: 'A user with this phone number already exists.',
+          errors: { phone: 'A user with this phone number already exists.' }
+        });
       }
     }
 
@@ -457,8 +481,8 @@ app.post('/api/auth/register', async (req, res) => {
       wishlist: { products: [], services: [], businesses: [] },
       twoFactorEnabled: false,
       loginHistory: [],
-      isVerified: true,
-      verificationOtp: '',
+      isVerified: registrationDefaults.isVerified,
+      verificationOtp: registrationDefaults.isVerified ? '' : verificationOtp,
       failedLoginAttempts: 0,
       lockUntil: null,
       resetOtp: '',
@@ -466,18 +490,23 @@ app.post('/api/auth/register', async (req, res) => {
 
     console.log('User registered:', newUser._id, newUser.email);
 
-    // Create notification only when an OTP was generated
+    // Create notification safely
     if (verificationOtp) {
-      const NotificationMDL = Notification();
-      await NotificationMDL.create({
-        userId: newUser._id,
-        title: 'Verification OTP',
-        message: `Welcome to UdyogConnect! Your activation OTP code is: ${verificationOtp}`,
-        type: 'general',
-      });
+      try {
+        const NotificationMDL = Notification();
+        if (NotificationMDL) {
+          await NotificationMDL.create({
+            userId: String(newUser._id),
+            title: 'Verification OTP',
+            message: `Welcome to UdyogConnect! Your activation OTP code is: ${verificationOtp}`,
+            type: 'general',
+          });
+        }
+      } catch (notifErr) {
+        console.warn('Verification notification creation skipped:', notifErr && notifErr.message);
+      }
     }
 
-    // For non-production/dev convenience, return OTP in response when present (do not expose in real prod)
     const responsePayload = {
       success: true,
       isVerified: !!newUser.isVerified,
@@ -487,17 +516,19 @@ app.post('/api/auth/register', async (req, res) => {
     if (newUser.verificationOtp) responsePayload.otp = newUser.verificationOtp;
     res.status(201).json(responsePayload);
   } catch (err) {
-    // Handle duplicate key error (unique constraint) gracefully
     if (err && err.code === 11000) {
       console.warn('Registration duplicate key error:', err.message);
-      return res.status(409).json({ message: 'A user with this email or phone already exists.' });
+      return res.status(409).json({
+        message: 'A user with this email or phone already exists.',
+        errors: { email: 'A user with this email or phone already exists.' }
+      });
     }
-    console.error('Registration error:', err && err.message);
+    console.error('Registration error:', err && (err.stack || err.message));
     res.status(500).json({ message: 'Registration failed due to server error.' });
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', validateLogin, async (req, res) => {
   try {
     const body = req.body || {};
     const email = body.email || body.username || body.user || '';
@@ -519,11 +550,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
 
-    // Account verification removed
-    // if (!user.isVerified) {
-    //   console.log('Login blocked: account not verified for', email);
-    //   return res.status(400).json({ requireVerification: true, otp: user.verificationOtp || '' });
-    // }
+    if (!user.isVerified) {
+      console.log('Login blocked: account not verified for', email);
+      return res.status(400).json({ requireVerification: true, otp: user.verificationOtp || '' });
+    }
 
     // Check lockout status
     if (user.lockUntil && new Date(user.lockUntil) > new Date()) {
@@ -548,11 +578,6 @@ app.post('/api/auth/login', async (req, res) => {
       }
       await UserMDL.findByIdAndUpdate(user._id, { failedLoginAttempts: attempts, lockUntil });
       return res.status(400).json({ failedAttempts: attempts, message: msg });
-    }
-
-    // Allow newly registered users to log in immediately.
-    if (!user.isVerified) {
-      await UserMDL.findByIdAndUpdate(user._id, { isVerified: true, verificationOtp: '' });
     }
 
     // Reset login failures on success
@@ -647,7 +672,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     // Send notification
     const NotificationMDL = Notification();
     await NotificationMDL.create({
-      userId: user._id,
+      userId: String(user._id),
       title: 'Password Reset OTP',
       message: `Your password reset request code is: ${resetOtp}`,
       type: 'general',
@@ -990,13 +1015,34 @@ app.get('/api/businesses/:id', async (req, res) => {
 app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
     const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm } = req.body;
-    if (!name || !category || !location || !description) {
-      return res.status(400).json({ message: 'All required fields are needed.' });
+    if (!name || !category || !location || !description || !contactEmail || !phone || !hours || !offeringType) {
+      return res.status(400).json({ message: 'Business name, category, Nepal location, description, email, phone, hours, and catalog type are required.' });
     }
 
-    // Phone must contain only digits and valid phone characters
-    if (phone && !/^[+\d\s\-()]{7,15}$/.test(String(phone).trim())) {
-      return res.status(400).json({ message: 'Phone number must contain only digits and valid characters (+, -, spaces).' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(contactEmail).trim())) {
+      return res.status(400).json({ message: 'A valid business email address is required.' });
+    }
+    if (!/^9\d{9}$/.test(String(phone).trim())) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits and start with 9.' });
+    }
+    const nepalLocations = ['kathmandu', 'lalitpur', 'patan', 'bhaktapur', 'pokhara', 'chitwan', 'bharatpur', 'biratnagar', 'butwal', 'dharan', 'nepalgunj', 'janakpur', 'hetauda', 'dhangadhi', 'itahari', 'lumbini', 'ilam', 'baglung', 'gorkha', 'nepal'];
+    if (!nepalLocations.some((city) => String(location).toLowerCase().includes(city))) {
+      return res.status(400).json({ message: 'Business location must be a valid location in Nepal.' });
+    }
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(hours).trim())) {
+      return res.status(400).json({ message: 'Business hours must use HH:MM - HH:MM format in Nepal local time.' });
+    }
+    if (!['products', 'services', 'both'].includes(String(offeringType))) {
+      return res.status(400).json({ message: 'A valid catalog type is required.' });
+    }
+    const deliveryEnabled = deliveryAvailable === true || deliveryAvailable === 'true';
+    if (deliveryEnabled && (!Number.isInteger(Number(deliveryRadiusKm)) || Number(deliveryRadiusKm) < 1 || Number(deliveryRadiusKm) > 50)) {
+      return res.status(400).json({ message: 'Delivery radius must be a whole number between 1 and 50 km.' });
+    }
+
+    const hasDocument = Boolean(req.files?.document?.[0] || req.body.documentUrl);
+    if (!hasDocument) {
+      return res.status(400).json({ message: 'Business Certificate / Document is required.' });
     }
 
     // Business name must be unique across all businesses
@@ -1093,6 +1139,8 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       return res.status(403).json({ message: 'Unauthorized profile edit.' });
     }
 
+    const resetStatusOnResubmission = req.user.role === 'seller' && ['rejected', 'revision_requested', 'pending'].includes(String(biz.approvalStatus || ''));
+
     const removeLogo = req.body.removeLogo === 'true' || req.body.removeLogo === true;
     let logoUrl = req.body.logoUrl || '';
     let coverUrl = req.body.coverUrl || '';
@@ -1118,7 +1166,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       'name', 'category', 'subcategory', 'location', 'price', 'description',
       'contactEmail', 'phone', 'website', 'hours', 'latitude', 'longitude',
       'registrationNumber', 'panVatNumber', 'deliveryAvailable', 'offeringType',
-      'isOpen', 'deliveryRadiusKm',
+      'isOpen', 'manualOpenOverride', 'deliveryRadiusKm',
     ];
     const updateData = Object.fromEntries(editableFields
       .filter((field) => req.body[field] !== undefined)
@@ -1128,6 +1176,9 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     }
     if (typeof updateData.isOpen !== 'undefined') {
       updateData.isOpen = updateData.isOpen === 'true' || updateData.isOpen === true;
+    }
+    if (typeof updateData.manualOpenOverride !== 'undefined') {
+      updateData.manualOpenOverride = updateData.manualOpenOverride === 'true' || updateData.manualOpenOverride === true;
     }
     if (typeof updateData.deliveryRadiusKm !== 'undefined') {
       updateData.deliveryRadiusKm = Number(updateData.deliveryRadiusKm || 5);
@@ -1189,6 +1240,19 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       updateData.qrUrl = qrUrl;
     }
 
+    if (resetStatusOnResubmission) {
+      updateData.approvalStatus = 'pending';
+      updateData.verified = 'pending';
+      updateData.isVerified = false;
+      updateData.approvedAt = null;
+      updateData.approvedBy = null;
+      updateData.rejectionReason = '';
+      updateData.revisionStatus = 'resubmitted';
+      updateData.revisionReason = '';
+      updateData.revisionRequestedAt = null;
+      updateData.revisionRequestedBy = null;
+    }
+
     const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData, { new: true });
     res.json({ success: true, business: serializeBusiness(updated) });
   } catch (err) {
@@ -1236,7 +1300,7 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
       }
 
       await NotificationMDL.create({
-        userId: biz.ownerId,
+        userId: String(biz.ownerId),
         title: notificationTitle,
         message: notificationMsg,
         type: 'admin'
@@ -1422,6 +1486,12 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
     if (!business) {
       return res.status(404).json({ message: 'Business not found.' });
     }
+
+    // Security Check: Business Ownership
+    if (req.user.role !== 'admin' && String(business.ownerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'Access denied: You do not own this business.' });
+    }
+
     if (business.offeringType === 'services') {
       return res.status(400).json({ message: 'This business is configured to offer services only. Products cannot be added.' });
     }
@@ -1451,7 +1521,6 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       imgUrl = await processImageUpload(req.file);
     }
 
-    // Accept direct image URLs from client
     if (!imgUrl && req.body.imageUrl) imgUrl = req.body.imageUrl;
 
     const newProd = await ProductMDL.create({
@@ -1484,7 +1553,16 @@ app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin'])
     if (stock !== undefined && parseInt(stock) < 0) return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
 
     const ProductMDL = Product();
-    const updated = await ProductMDL.findByIdAndUpdate(req.params.id, req.body);
+    const product = await ProductMDL.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(product.businessId);
+    if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
+      return res.status(403).json({ message: 'Access denied: You do not own this product or business.' });
+    }
+
+    const updated = await ProductMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, product: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update product.' });
@@ -1494,6 +1572,15 @@ app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin'])
 app.delete('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
   try {
     const ProductMDL = Product();
+    const product = await ProductMDL.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(product.businessId);
+    if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
+      return res.status(403).json({ message: 'Access denied: You do not own this product or business.' });
+    }
+
     await ProductMDL.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
@@ -1516,18 +1603,24 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
     if (!business) {
       return res.status(404).json({ message: 'Business not found.' });
     }
+
+    // Security Check: Business Ownership
+    if (req.user.role !== 'admin' && String(business.ownerId) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'Access denied: You do not own this business.' });
+    }
+
     if (business.offeringType === 'products') {
       return res.status(400).json({ message: 'This business is configured to offer products only. Services cannot be added.' });
     }
 
     // Validate no negative numbers
     const parsedServicePrice = parseFloat(price);
-    const parsedDuration = duration ? parseInt(duration) : 60;
+    const parsedDuration = (duration !== undefined && duration !== null && duration !== '') ? parseInt(duration) : 60;
     if (isNaN(parsedServicePrice) || parsedServicePrice < 0) {
       return res.status(400).json({ message: 'Service price cannot be negative.' });
     }
-    if (parsedDuration < 0) {
-      return res.status(400).json({ message: 'Service duration cannot be negative.' });
+    if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      return res.status(400).json({ message: 'Service duration must be a positive number.' });
     }
 
     const existingService = await ServiceMDL.findOne({
@@ -1560,7 +1653,16 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
 app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
   try {
     const ServiceMDL = Service();
-    const updated = await ServiceMDL.findByIdAndUpdate(req.params.id, req.body);
+    const service = await ServiceMDL.findById(req.params.id);
+    if (!service) return res.status(404).json({ message: 'Service not found.' });
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(service.businessId);
+    if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
+      return res.status(403).json({ message: 'Access denied: You do not own this service or business.' });
+    }
+
+    const updated = await ServiceMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, service: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update service.' });
@@ -1570,6 +1672,15 @@ app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin'])
 app.delete('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
   try {
     const ServiceMDL = Service();
+    const service = await ServiceMDL.findById(req.params.id);
+    if (!service) return res.status(404).json({ message: 'Service not found.' });
+
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(service.businessId);
+    if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
+      return res.status(403).json({ message: 'Access denied: You do not own this service or business.' });
+    }
+
     await ServiceMDL.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
@@ -2233,12 +2344,20 @@ app.delete('/api/reviews/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/reviews', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single('image'), async (req, res) => {
   try {
     const { businessId, targetId, targetType, rating, comment } = req.body;
     const ReviewMDL = Review();
     const BusinessMDL = Business();
     const UserMDL = User();
+
+    // Prevent business owners from reviewing their own business or products
+    if (businessId) {
+      const biz = await BusinessMDL.findById(businessId);
+      if (biz && String(biz.ownerId) === String(req.user.id)) {
+        return res.status(403).json({ message: 'You cannot review your own business or products.' });
+      }
+    }
 
     let imgUrl = '';
     if (req.file) {
@@ -2251,10 +2370,10 @@ app.post('/api/reviews', authenticateToken, upload.single('image'), async (req, 
       customerId: req.user.id,
       customerName: buyer ? buyer.name : 'Valued Customer',
       businessId,
-      targetId,
-      targetType,
+      targetId: targetId || businessId,
+      targetType: targetType || 'business',
       rating: parseInt(rating),
-      comment,
+      comment: String(comment).trim(),
       images: imgUrl ? [imgUrl] : [],
       reported: false,
     });
@@ -2475,24 +2594,53 @@ app.post('/api/ai/chatbot', async (req, res) => {
 });
 
 // Location-based recommendations
+// Location-based recommendations
 app.get('/api/ai/recommendations', authenticateToken, async (req, res) => {
   try {
     const BusinessMDL = Business();
     const ProductMDL = Product();
     const ServiceMDL = Service();
     const OrderMDL = Order();
+    const ReviewMDL = Review();
 
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
     const viewedProductIds = String(req.query.viewedProductIds || '').split(',').filter(Boolean);
     const viewedBusinessIds = String(req.query.viewedBusinessIds || '').split(',').filter(Boolean);
 
+    // Determine if we have enough user activity for personalized recommendations
+    const myOrders = await OrderMDL.find({ customerId: req.user.id, status: 'completed' });
+    const activityCount = myOrders.length + viewedProductIds.length + viewedBusinessIds.length;
+    const hasSufficientData = activityCount >= 3; // simple threshold
+
+    // Load raw data
     const allBusinesses = await BusinessMDL.find({});
     const businesses = allBusinesses.filter((b) => b.verified === 'verified' || b.verified === 'approved' || !b.verified);
     const products = await ProductMDL.find({});
     const services = await ServiceMDL.find({});
-    const myOrders = await OrderMDL.find({ customerId: req.user.id });
 
+    // Helper to compute average rating from reviews
+    const calculateAverageRating = (revs) => {
+      const count = revs.length;
+      if (count === 0) return { average: 0, count };
+      const total = revs.reduce((s, r) => s + r.rating, 0);
+      return { average: Math.round((total / count) * 10) / 10, count };
+    };
+
+    // Enrich businesses and products with live rating data
+    const enrichWithRating = async (items, type) => {
+      return Promise.all(items.map(async (item) => {
+        const revFilter = type === 'business' ? { businessId: item._id } : { targetId: item._id, targetType: type };
+        const revs = await ReviewMDL.find(revFilter);
+        const { average, count } = calculateAverageRating(revs);
+        return { ...item, rating: average, reviewCount: count };
+      }));
+    };
+    const businessesRated = await enrichWithRating(businesses, 'business');
+    const productsRated = await enrichWithRating(products, 'product');
+    const servicesRated = services; // services have no rating
+
+    // Distance helper (assumes calculateDistance function exists globally)
     const withDistance = (list) => {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return list;
       return list.map((b) => {
@@ -2501,45 +2649,55 @@ app.get('/api/ai/recommendations', authenticateToken, async (req, res) => {
       });
     };
 
-    const nearby = withDistance(businesses)
+    const nearby = withDistance(businessesRated)
       .filter((b) => b.distanceVal == null || b.distanceVal <= 15)
       .sort((a, b) => (a.distanceVal ?? 999) - (b.distanceVal ?? 999))
       .slice(0, 6);
 
     const popularNearYou = [...nearby].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6);
 
-    let recommendedBizs = [...businesses].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6);
+    // Base generic recommendations (used when not enough data)
+    let recommendedBizs = [...businessesRated].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6);
     let recommendedProds = [];
-    let recommendedServices = services.filter((s) => s.availability !== false).slice(0, 6);
+    let recommendedServices = servicesRated.filter((s) => s.availability !== false).slice(0, 6);
 
-    const itemsBought = myOrders.flatMap((o) => o.items || []);
-    if (itemsBought.length > 0) {
-      const matchName = itemsBought[0].name;
-      const matchingProd = products.find((p) => p.name === matchName);
-      if (matchingProd) {
-        recommendedProds = products.filter((p) => p.category === matchingProd.category && p._id !== matchingProd._id).slice(0, 6);
-        recommendedBizs = businesses.filter((b) => b.category === matchingProd.category).slice(0, 6).concat(recommendedBizs).filter((b, i, arr) => arr.findIndex((x) => x._id === b._id) === i).slice(0, 6);
+    // Personalized recommendation logic – only when we have enough activity
+    if (hasSufficientData) {
+      const itemsBought = myOrders.flatMap((o) => o.items || []);
+      if (itemsBought.length > 0) {
+        const firstItemName = itemsBought[0].name;
+        const matchingProd = productsRated.find((p) => p.name === firstItemName);
+        if (matchingProd) {
+          // Product recommendations based on the category of the first purchased item
+          recommendedProds = productsRated.filter((p) => p.category === matchingProd.category && p._id.toString() !== matchingProd._id.toString()).slice(0, 6);
+          // Business recommendations based on matching category
+          recommendedBizs = businessesRated.filter((b) => b.category === matchingProd.category)
+            .concat(recommendedBizs)
+            .filter((b, i, arr) => arr.findIndex((x) => x._id.toString() === b._id.toString()) === i)
+            .slice(0, 6);
+        }
       }
     }
 
+    // Fallbacks for products when personalized list is empty
     if (recommendedProds.length === 0) {
-      recommendedProds = products.filter((p) => p.discount > 0).slice(0, 6);
+      recommendedProds = productsRated.filter((p) => p.discount > 0).slice(0, 6);
     }
     if (recommendedProds.length === 0) {
-      recommendedProds = products.slice(0, 6);
+      recommendedProds = productsRated.slice(0, 6);
     }
 
-    const viewedProducts = products.filter((p) => viewedProductIds.includes(String(p._id)));
+    const viewedProducts = productsRated.filter((p) => viewedProductIds.includes(String(p._id)));
     const viewedCategories = new Set(viewedProducts.map((p) => p.category).filter(Boolean));
     const becauseYouViewed = viewedCategories.size
-      ? products.filter((p) => viewedCategories.has(p.category) && !viewedProductIds.includes(String(p._id))).slice(0, 6)
-      : products.slice(0, 6);
+      ? productsRated.filter((p) => viewedCategories.has(p.category) && !viewedProductIds.includes(String(p._id))).slice(0, 6)
+      : productsRated.slice(0, 6);
 
-    const youMayAlsoLike = products
-      .filter((p) => !recommendedProds.some((r) => r._id === p._id))
+    const youMayAlsoLike = productsRated
+      .filter((p) => !recommendedProds.some((r) => r._id.toString() === p._id.toString()))
       .slice(0, 6);
 
-    const viewedBusinesses = businesses.filter((b) => viewedBusinessIds.includes(String(b._id)));
+    const viewedBusinesses = businessesRated.filter((b) => viewedBusinessIds.includes(String(b._id)));
 
     res.json({
       businesses: recommendedBizs,
@@ -2550,8 +2708,10 @@ app.get('/api/ai/recommendations', authenticateToken, async (req, res) => {
       becauseYouViewed,
       youMayAlsoLike,
       viewedBusinesses,
+      personalized: hasSufficientData,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Failed to fetch recommendations.' });
   }
 });
@@ -2695,19 +2855,30 @@ app.post('/api/admin/businesses/:id/request-info', authenticateToken, requireRol
     const biz = await BusinessMDL.findById(req.params.id);
     if (!biz) return res.status(404).json({ message: 'Business not found.' });
 
+    const revisionMessage = String(message || 'Please provide additional documents or details for your business verification.').trim();
     const ownerId = biz.ownerId;
-    await NotificationMDL.create({ userId: ownerId, title: 'Admin: Request for more info', message: message || 'Please provide additional documents or details for your business verification.', type: 'admin' });
+    await NotificationMDL.create({
+      userId: String(ownerId),
+      title: 'Admin: Revision requested',
+      message: revisionMessage,
+      type: 'admin',
+      read: false,
+    });
 
-    // Ensure business stays in pending state and record audit
-    await BusinessMDL.findByIdAndUpdate(req.params.id, {
-      approvalStatus: 'pending',
+    const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, {
+      approvalStatus: 'revision_requested',
       verified: 'pending',
       isVerified: false,
       approvedAt: null,
       approvedBy: null,
-    });
+      rejectionReason: '',
+      revisionStatus: 'requested',
+      revisionReason: revisionMessage,
+      revisionRequestedAt: new Date(),
+      revisionRequestedBy: String(req.user.id),
+    }, { new: true });
 
-    res.json({ success: true });
+    res.json({ success: true, business: serializeBusiness(updated) });
   } catch (err) {
     console.error('Request info error', err);
     res.status(500).json({ message: 'Failed to request information from business.' });
@@ -2728,7 +2899,7 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
     const users = await UserMDL.find({});
     for (const u of users) {
       await NotificationMDL.create({
-        userId: u._id,
+        userId: String(u._id),
         title: title || 'Admin Announcement',
         message,
         type: 'admin',
@@ -2749,7 +2920,8 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
 app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {
     const NotificationMDL = Notification();
-    const list = await NotificationMDL.find({ userId: req.user.id });
+    const list = await NotificationMDL.find({ userId: String(req.user.id) });
+    list.sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
     res.json(list);
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve notifications.' });
@@ -2759,7 +2931,7 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
 app.put('/api/notifications/read', authenticateToken, async (req, res) => {
   try {
     const NotificationMDL = Notification();
-    const list = await NotificationMDL.find({ userId: req.user.id });
+    const list = await NotificationMDL.find({ userId: String(req.user.id) });
     for (let n of list) {
       await NotificationMDL.findByIdAndUpdate(n._id, { read: true });
     }

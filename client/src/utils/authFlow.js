@@ -24,7 +24,7 @@ export function getDashboardLabel(role, lang = 'en') {
 
 export function isValidNepalPhone(phone) {
   const value = String(phone || '').trim();
-  return /^9\d{8,10}$/.test(value);
+  return /^9\d{9}$/.test(value);
 }
 
 export function isCouponExpired(expiryDate) {

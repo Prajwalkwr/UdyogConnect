@@ -47,7 +47,6 @@ function UserAvatar({ user, name, size = 34, className = '' }) {
 /* ─── Role-based sidebar nav configs ──────────────── */
 const sellerNav = [
   { key: 'overview', label: 'Business Dashboard', icon: FiGrid },
-  { key: 'profile', label: 'My Profile', icon: FiUser },
   { key: 'catalog', label: 'Products & Services', icon: FiPackage, countKey: 'catalogCount' },
   { key: 'orders', label: 'Orders', icon: FiShoppingBag, countKey: 'orderCount' },
   { key: 'ratings', label: 'Reviews & Ratings', icon: FiStar },
@@ -71,8 +70,6 @@ const adminNav = [
   { key: 'products', label: 'Products', icon: FiPackage },
   { key: 'services', label: 'Services', icon: FiTruck },
   { key: 'orders', label: 'Orders', icon: FiShoppingBag },
-  { key: 'payments', label: 'Payments', icon: FiCreditCard },
-  { key: 'reports', label: 'Reports', icon: FiFileText },
   { key: 'settings', label: 'Settings', icon: FiSettings },
 ];
 
@@ -84,6 +81,7 @@ export default function Navbar({
   lang,
   setLang,
   onOpenDashboard,
+  onSearch,
   onOpenChat,
   notifications,
   onClearNotifications,
@@ -97,8 +95,7 @@ export default function Navbar({
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
-  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState('Kathmandu, Nepal');
+  const [globalSearch, setGlobalSearch] = useState('');
   const location = useLocation();
 
   const safeNotifications = Array.isArray(notifications) ? notifications : [];
@@ -163,12 +160,6 @@ export default function Navbar({
           </div>
 
           <div className="public-nav-actions flex items-center gap-3 sm:gap-4">
-            <div className="relative hidden sm:block">
-              <button type="button" onClick={() => setLocationMenuOpen(!locationMenuOpen)} className="flex items-center gap-1 rounded-full border border-[#2D496E] bg-[#102744] px-3 py-2 text-[10px] font-semibold text-white" title="Choose location">
-                <FiMapPin className="text-[#F2B71D]" /> {selectedLocation} <FiChevronDown className="text-white/50" />
-              </button>
-              {locationMenuOpen && <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-[#2D496E] bg-[#102744] p-1 shadow-xl">{['Kathmandu, Nepal', 'Lalitpur, Nepal', 'Bhaktapur, Nepal'].map((location) => <button type="button" key={location} onClick={() => { setSelectedLocation(location); setLocationMenuOpen(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-[10px] text-white hover:bg-[#1B3A61] hover:text-[#F2B71D]">{location}</button>)}</div>}
-            </div>
             <button
               onClick={() => setLang(lang === 'en' ? 'ne' : 'en')}
               className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#101E35] px-3 py-2 text-xs font-semibold text-[#F2B71D] transition hover:bg-[#1E293B] cursor-pointer"
@@ -455,16 +446,22 @@ export default function Navbar({
         </button>
 
         {/* Search */}
-        <div style={{ flex: 1, maxWidth: 480 }} className="hidden lg:block">
+        <div style={{ flex: 1, maxWidth: 520 }} className="hidden lg:block">
           <div style={{ position: 'relative' }}>
             <FiSearch style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
             <input
               type="text"
               placeholder={translate('Search users, businesses...', 'प्रयोगकर्ता, व्यवसाय खोज्नुहोस्...')}
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onSearch?.(globalSearch);
+              }}
+              className="dashboard-global-search"
               style={{
-                width: '100%', borderRadius: 9999, border: '1px solid #E5E7EB',
-                background: '#F9FAFB', padding: '10px 16px 10px 40px',
-                fontSize: 13, color: '#1A1A2E', outline: 'none',
+                width: '100%', borderRadius: 9999, border: '1px solid #CBD5E1',
+                background: '#FFFFFF', padding: '11px 16px 11px 40px',
+                fontSize: 13, color: '#102341', outline: 'none',
               }}
             />
           </div>

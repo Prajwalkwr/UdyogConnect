@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { useDispatch } from 'react-redux';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
+import { validateReviewForm, validateImageFile } from '../utils/validation';
 
 export default function DetailsModal({
   businessId,
@@ -141,6 +142,29 @@ export default function DetailsModal({
       return;
     }
 
+    if (businessData?.business?.ownerId && String(businessData.business.ownerId) === String(user.id)) {
+      Swal.fire({ icon: 'warning', text: translate('Business owners cannot review their own business.', 'व्यवसाय मालिकहरूले आफ्नै व्यवसायमा समीक्षा दिन सक्दैनन्।') });
+      submitGuard.finish();
+      return;
+    }
+
+    const reviewValidation = validateReviewForm({ rating: reviewRating, comment: reviewComment });
+    if (!reviewValidation.isValid) {
+      const firstErr = Object.values(reviewValidation.errors)[0];
+      Swal.fire({ icon: 'warning', title: 'Invalid Review', text: firstErr });
+      submitGuard.finish();
+      return;
+    }
+
+    if (reviewImage) {
+      const imgErr = validateImageFile(reviewImage);
+      if (imgErr) {
+        Swal.fire({ icon: 'warning', title: 'Invalid Image File', text: imgErr });
+        submitGuard.finish();
+        return;
+      }
+    }
+
     try {
       const formData = new FormData();
       formData.append('businessId', businessData.business._id);
@@ -164,7 +188,7 @@ export default function DetailsModal({
       setReviewImage(null);
       fetchBusinessDetails(businessData.business._id);
     } catch (err) {
-      Swal.fire({ icon: 'error', text: 'Failed to upload review.' });
+      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Failed to upload review.' });
     } finally {
       setIsSubmitting(false);
       submitGuard.finish();

@@ -78,6 +78,8 @@ function App() {
   const [authMode, setAuthMode] = useState('login');
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [marketplaceCategory, setMarketplaceCategory] = useState('All');
+  const [marketplaceSearch, setMarketplaceSearch] = useState('');
 
   // Dashboard active tab (driven from sidebar)
   const [dashboardTab, setDashboardTab] = useState(null);
@@ -190,7 +192,10 @@ function App() {
   }, [dispatch]);
 
   const fetchNotifications = () => {
-    if (!localStorage.getItem('token')) {
+    const token = localStorage.getItem('token');
+    const requestUser = readStoredJson('user', null);
+    const requestUserId = String(requestUser?._id || requestUser?.id || '');
+    if (!token || !requestUserId) {
       setNotifications([]);
       return;
     }
@@ -198,11 +203,16 @@ function App() {
     api
       .get('/api/notifications')
       .then((res) => {
+        const currentUser = readStoredJson('user', null);
+        const currentUserId = String(currentUser?._id || currentUser?.id || '');
+        if (currentUserId !== requestUserId || localStorage.getItem('token') !== token) return;
         const notificationsData = Array.isArray(res.data) ? res.data : [];
         setNotifications(notificationsData);
       })
       .catch(() => {
-        setNotifications([]);
+        const currentUser = readStoredJson('user', null);
+        const currentUserId = String(currentUser?._id || currentUser?.id || '');
+        if (currentUserId === requestUserId) setNotifications([]);
       });
   };
 
@@ -277,7 +287,14 @@ function App() {
   };
 
   const handleOpenDashboard = (view) => {
-    if (view === 'home') navigate('/');
+    if (typeof view === 'string' && view.startsWith('category:')) {
+      setMarketplaceCategory(view.slice('category:'.length));
+      navigate('/');
+    }
+    else if (view === 'home') {
+      setMarketplaceCategory('All');
+      navigate('/');
+    }
     else if (view === 'checkout') setCartOpen(true);
     else if (view === 'wishlist') {
       if (!user) {
@@ -299,6 +316,17 @@ function App() {
       else if (user.role === 'seller') navigate('/business');
       else navigate('/customer');
     }
+  };
+
+  const handleMarketplaceSearch = (query) => {
+    setMarketplaceCategory('All');
+    const nextQuery = String(query || '').trim();
+    setMarketplaceSearch(nextQuery);
+    if (user?.role === 'customer' && location.pathname.startsWith('/customer')) {
+      setDashboardTab('dashboard');
+      return;
+    }
+    navigate('/');
   };
 
   const handleOpenBusinessProfile = (businessId) => {
@@ -360,6 +388,7 @@ function App() {
         lang={lang}
         setLang={setLang}
         onOpenDashboard={handleOpenDashboard}
+        onSearch={handleMarketplaceSearch}
         onOpenChat={() => {}}
         notifications={notifications}
         onClearNotifications={handleClearNotifications}
@@ -430,6 +459,8 @@ function App() {
                   user={user}
                   businesses={businesses}
                   products={products}
+                  initialCategory={marketplaceCategory}
+                  initialSearchQuery={marketplaceSearch}
                   lang={lang}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={handleOpenBusinessProfile}
@@ -449,6 +480,8 @@ function App() {
                     user={user}
                     businesses={businesses}
                     products={products}
+                    initialCategory={marketplaceCategory}
+                    initialSearchQuery={marketplaceSearch}
                     lang={lang}
                     onOpenProduct={(id) => setSelectedProductId(id)}
                     onOpenBusiness={handleOpenBusinessProfile}
@@ -489,6 +522,7 @@ function App() {
                   onOpenBusiness={handleOpenBusinessProfile}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
+                  searchQuery={marketplaceSearch}
                   activeTab={dashboardTab}
                   onTabChange={setDashboardTab}
                 />

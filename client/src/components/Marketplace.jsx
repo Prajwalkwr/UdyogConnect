@@ -15,6 +15,8 @@ export default function Marketplace({
   onAddToCart,
   onOpenDashboard,
   onToggleWishlist,
+  initialCategory = 'All',
+  initialSearchQuery = '',
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTrigger, setSearchTrigger] = useState('');
@@ -29,6 +31,24 @@ export default function Marketplace({
   const [aiRecs, setAiRecs] = useState({ businesses: [], products: [] });
   const [customerReviews, setCustomerReviews] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    const categoryAliases = {
+      'Food & Restaurant': 'Restaurants',
+      Fashion: 'Clothing',
+      'Beauty & Health': 'Beauty Salon',
+      'Home & Kitchen': 'Home Services',
+      Services: 'Home Services',
+      More: 'All',
+    };
+    setSelectedCategory(categoryAliases[initialCategory] || initialCategory || 'All');
+  }, [initialCategory]);
+
+  useEffect(() => {
+    const query = String(initialSearchQuery || '');
+    setSearchQuery(query);
+    setSearchTrigger(query);
+  }, [initialSearchQuery]);
 
   // Countdown timer for Flash Sales
   const [timeLeft, setTimeLeft] = useState('');
@@ -221,9 +241,11 @@ export default function Marketplace({
     };
 
     refreshReviews();
+    window.addEventListener('review-created', refreshReviews);
     const refreshTimer = setInterval(refreshReviews, 5 * 60 * 1000);
     return () => {
       active = false;
+      window.removeEventListener('review-created', refreshReviews);
       clearInterval(refreshTimer);
     };
   }, [businesses]);
@@ -600,8 +622,8 @@ export default function Marketplace({
                         <h4 className="truncate text-sm font-bold text-[#0B1A30]">{b.name}</h4>
                         <div className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
                           <FiStar className="h-3 w-3 fill-[#F2B71D] text-[#F2B71D]" />
-                          <span className="font-bold text-[#0B1A30]">{b.rating || '4.8'}</span>
-                          <span>({b.reviewCount || 120} reviews)</span>
+                          <span className="font-bold text-[#0B1A30]">{b.rating ?? 0}</span>
+                          <span>({b.reviewCount ?? 0} reviews)</span>
                         </div>
                       </div>
                     </div>
@@ -680,7 +702,7 @@ export default function Marketplace({
                         </div>
                         <div className="inline-flex items-center gap-1 rounded-full bg-[#FFF5D6] px-2 py-0.5 text-xs font-bold text-[#E0A615]">
                           <FiStar className="h-3.5 w-3.5 fill-[#F2B71D] text-[#F2B71D]" /> 
-                          <span>{biz.rating || '4.6'}</span>
+                          <span>{biz.rating ?? 0}</span>
                         </div>
                       </div>
 
@@ -764,87 +786,6 @@ export default function Marketplace({
               )}
             </div>
           </aside>
-        </div>
-
-        {/* Why Choose & stats widgets */}
-        <div id="why-choose" className="mt-10 grid gap-6 md:grid-cols-2">
-          {/* Why Choose UdyogConnect */}
-          <section className="rounded-[20px] border border-[#F0EAD6] bg-[#FFFBF0] p-6 shadow-sm">
-            <div className="flex items-center gap-3.5 mb-5">
-              <span className="text-3xl">💡</span>
-              <div>
-                <h3 className="text-base font-bold text-[#0B1A30]">{translate('Why Choose UdyogConnect?', 'UdyogConnect किन रोज्ने?')}</h3>
-                <p className="text-xs text-gray-500">Smart • Trusted • Local</p>
-              </div>
-            </div>
-
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
-                <span className="text-xl">🛡️</span>
-                <div>
-                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Verified Businesses', 'प्रमाणित पसलहरू')}</h4>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Trust only verified local shops', 'प्रमाणित पसलहरूमा विश्वास गर्नुहोस्')}</p>
-                </div>
-              </div>
-              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
-                <span className="text-xl">🤝</span>
-                <div>
-                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Local Support', 'स्थानीय समर्थन')}</h4>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Support your local economy', 'आफ्नो स्थानीय अर्थतन्त्रलाई टेवा दिनुहोस्')}</p>
-                </div>
-              </div>
-              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
-                <span className="text-xl">🏷️</span>
-                <div>
-                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Best Deals', 'सर्वोत्तम सौदे')}</h4>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Exclusive offers just for you', 'तपाईंका लागि मात्रै विशेष अफरहरू')}</p>
-                </div>
-              </div>
-              <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] flex items-start gap-3">
-                <span className="text-xl">🚀</span>
-                <div>
-                  <h4 className="text-xs font-bold text-[#0B1A30]">{translate('Fast & Easy', 'द्रुत र सहज')}</h4>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{translate('Shop, order and track easily', 'सजिलै किनमेल गर्नुहोस् र ट्र्याक गर्नुहोस्')}</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Stats & Explore */}
-          <section className="rounded-[20px] border border-[#F0EAD6] bg-[#FFFBF0] p-6 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-3.5 mb-4">
-                <span className="text-3xl">📍</span>
-                <div>
-                  <h3 className="text-base font-bold text-[#0B1A30]">{translate('My Local Business', 'मेरो स्थानीय व्यवसाय')}</h3>
-                  <p className="text-xs text-gray-500">{translate('Find businesses near your location', 'आफ्नो स्थान नजिकैका पसलहरू खोज्नुहोस्')}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 grid-cols-3 mb-5">
-                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">{verifiedBusinesses.length.toLocaleString('en-IN')}</p>
-                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Local Businesses</p>
-                </div>
-                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">{(new Set(verifiedBusinesses.map((business) => business.ownerId).filter(Boolean)).size || 0).toLocaleString('en-IN')}</p>
-                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Happy Customers</p>
-                </div>
-                <div className="bg-white rounded-xl p-3 border border-[#F0EAD6] text-center">
-                  <p className="text-lg font-bold text-[#E0A615]">{new Set(verifiedBusinesses.map((business) => business.location).filter(Boolean)).size.toLocaleString('en-IN')}</p>
-                  <p className="text-[9px] font-semibold text-gray-500 mt-0.5">Cities Covered</p>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setSelectedCategory('All')}
-              className="w-full bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] font-bold py-3.5 px-6 rounded-full flex items-center justify-center gap-2 cursor-pointer transition"
-            >
-              <span>Explore Nearby</span>
-              <span>&rarr;</span>
-            </button>
-          </section>
         </div>
 
         <section id="contact" className="homepage-testimonials mt-8">

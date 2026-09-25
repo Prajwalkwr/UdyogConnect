@@ -44,8 +44,8 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
     }
   }, [user, liveOrderTick]);
 
-  const fetchAdminData = async () => {
-    setLoading(true);
+  const fetchAdminData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       // Fetch platform stats
       const statsRes = await api.get('/api/admin/analytics');
@@ -94,9 +94,19 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
     }
   };
 
-  const handleVerifyBusiness = async (bizId, nextStatus) => {
+  useEffect(() => {
+    if (!user) return undefined;
+    const refreshTimer = setInterval(() => fetchAdminData(true), 30000);
+    return () => clearInterval(refreshTimer);
+  }, [user]);
+  const handleVerifyBusiness = async (bizId, nextStatus, customReason = '') => {
     try {
-      await api.put(`/api/businesses/${bizId}/verify`, { status: nextStatus });
+      const reason = customReason || '';
+      await api.put(`/api/businesses/${bizId}/verify`, {
+        status: nextStatus,
+        rejectionReason: nextStatus === 'rejected' ? reason : '',
+        revisionReason: nextStatus === 'revision_requested' ? reason : '',
+      });
       Swal.fire({
         icon: 'success',
         title: translate('Status Updated', 'अवस्था परिवर्तन भयो'),
@@ -104,7 +114,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
       });
       fetchAdminData();
     } catch (e) {
-      Swal.fire({ icon: 'error', text: 'Action failed.' });
+      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'Action failed.' });
     }
   };
 
@@ -372,8 +382,8 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   return (
     <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
       {/* Admin Dashboard Content */}
-      <main className="p-4 sm:p-6 text-[#142835]">
-            <div className="mt-10 space-y-6">
+      <main className="admin-light-dashboard p-4 sm:p-6 text-[#142835]">
+            <div className="mt-0 space-y-6">
           {currentTab === 'dashboard' && (
             <div className="admin-overview">
               <div className="admin-overview-heading">
@@ -422,7 +432,7 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
               <div className="admin-bottom-grid">
                 <section className="admin-panel"><div className="admin-panel-heading"><h2>Recent Reviews</h2><button type="button" onClick={() => goTo('reviews')}>View All <FiChevronRight /></button></div><div className="review-list">{reviews.slice(0, 3).map((review) => <button type="button" key={review._id} onClick={() => goTo('reviews')}><FiStar /><span><strong>{review.customerName || 'Customer'}</strong><small>{review.comment || 'No comment provided.'}</small></span><b>{review.rating || 0}/5</b></button>)}{reviews.length === 0 && <div className="admin-empty">No reviews yet.</div>}</div></section>
                 <section className="admin-panel"><div className="admin-panel-heading"><h2>Pending Verifications</h2><button type="button" onClick={() => goTo('businesses')}>View All <FiChevronRight /></button></div><div className="verification-list">{pendingBusinesses.map((business) => <div key={business._id}><span><strong>{business.name}</strong><small>{business.category || 'Business'} · {business.location || 'Location pending'}</small></span><button type="button" onClick={() => handleVerifyBusiness(business._id, 'verified')}>Verify</button></div>)}{pendingBusinesses.length === 0 && <div className="admin-empty">All businesses are verified.</div>}</div></section>
-                <section className="admin-panel"><div className="admin-panel-heading"><h2>Admin Quick Actions</h2></div><div className="admin-quick-actions"><button type="button" onClick={() => goTo('businesses')}><FiBriefcase />Add New Business</button><button type="button" onClick={() => goTo('users')}><FiUsers />Manage Users</button><button type="button" onClick={() => goTo('reviews')}><FiFlag />Review Reports <b>{reportedReviews.length}</b></button><button type="button" onClick={() => goTo('payments')}><FiCreditCard />Payment Records</button><button type="button" onClick={() => goTo('settings')}><FiSettings />System Settings</button><button type="button" onClick={() => goTo('products')}><FiPackage />Content Management</button></div></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Admin Quick Actions</h2></div><div className="admin-quick-actions"><button type="button" onClick={() => goTo('businesses')}><FiBriefcase />Add New Business</button><button type="button" onClick={() => goTo('users')}><FiUsers />Manage Users</button><button type="button" onClick={() => goTo('reviews')}><FiFlag />Review Reports <b>{reportedReviews.length}</b></button><button type="button" onClick={() => goTo('settings')}><FiSettings />System Settings</button><button type="button" onClick={() => goTo('products')}><FiPackage />Content Management</button></div></section>
               </div>
             </div>
           )}
@@ -463,7 +473,35 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
                             Approve Shop
                           </button>
                           <button
-                            onClick={() => handleVerifyBusiness(biz._id, 'rejected')}
+                            onClick={async () => {
+                              const { value: reason } = await Swal.fire({
+                                title: 'Request revision',
+                                input: 'textarea',
+                                inputLabel: 'What needs correction?',
+                                inputPlaceholder: 'Please explain the missing or incorrect details.',
+                                showCancelButton: true,
+                              });
+                              if (reason !== undefined) {
+                                await handleVerifyBusiness(biz._id, 'revision_requested', reason || 'Please correct the listed information and resubmit.');
+                              }
+                            }}
+                            className="rounded-lg bg-amber-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-amber-400 transition"
+                          >
+                            Request Revision
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const { value: reason } = await Swal.fire({
+                                title: 'Decline business',
+                                input: 'textarea',
+                                inputLabel: 'Reason for rejection',
+                                inputPlaceholder: 'Describe why the submission is not acceptable.',
+                                showCancelButton: true,
+                              });
+                              if (reason !== undefined) {
+                                await handleVerifyBusiness(biz._id, 'rejected', reason || 'Business registration was not approved.');
+                              }
+                            }}
                             className="rounded-lg bg-rose-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-rose-600 transition"
                           >
                             Decline Shop
@@ -653,27 +691,6 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
             </div>
           )}
 
-          {currentTab === 'payments' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Payments & Settlement', 'भुक्तानी र सेटलमेन्ट')}</h3>
-              <div className="space-y-3">
-                {orders.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">No payment records are available yet.</div>
-                ) : orders.map((order) => (
-                  <div key={order._id} className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-white text-sm">Order #{order._id?.slice(-6) || 'N/A'}</div>
-                        <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total NPR {order.total || 0}</div>
-                      </div>
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">{order.status || 'paid'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* F. Moderation & fake reviews resolver */}
           {currentTab === 'reviews' && (
             <div className="space-y-4">
@@ -709,35 +726,6 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
                   ))}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* G. Financial reports downloads */}
-          {currentTab === 'reports' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Platform Reports Exporter', 'वित्तीय रिपोर्ट निकासी')}</h3>
-
-              <div className="grid gap-4 sm:grid-cols-3">
-                {[
-                  { key: 'sales', title: 'Sales Performance Report', desc: 'CSV containing all orders subtotal, coupon usage, and totals.' },
-                  { key: 'tax', title: 'Tax & VAT Collection Ledger', desc: 'Tax invoice registry calculating 13% tax collection details.' },
-                  { key: 'users', title: 'Registered Users Registry', desc: 'List of all customers, sellers, and riders with details.' },
-                ].map((rep) => (
-                  <div key={rep.key} className="rounded-3xl border border-slate-800 bg-slate-900/40 p-5 flex flex-col justify-between">
-                    <div>
-                      <h4 className="font-bold text-slate-200 text-sm">{rep.title}</h4>
-                      <p className="text-[10px] text-slate-450 mt-1 leading-relaxed">{rep.desc}</p>
-                    </div>
-                    <button
-                      onClick={() => handleDownloadReport(rep.key)}
-                      className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-400 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300"
-                    >
-                      <FiDownload />
-                      <span>Export CSV</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

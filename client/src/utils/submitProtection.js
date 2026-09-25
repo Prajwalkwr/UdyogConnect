@@ -13,14 +13,19 @@ export function createSubmissionGuard() {
     isLocked() {
       return locked;
     },
-    async runAsync(callback) {
+    async runExclusive(callback) {
       if (!this.begin()) return false;
       try {
         await callback();
+        return true;
+      } catch (error) {
+        throw error;
       } finally {
         this.finish();
       }
-      return true;
+    },
+    async runAsync(callback) {
+      return this.runExclusive(callback);
     },
   };
 }

@@ -10,9 +10,7 @@ function Stars({ value }) {
       ))}
     </span>
   );
-}
-
-export default function ReviewsPanel({
+}export default function ReviewsPanel({
   rating,
   count,
   distribution,
@@ -20,6 +18,7 @@ export default function ReviewsPanel({
   preview,
   draft,
   setDraft,
+  isSubmitting,
   onSubmit,
 }) {
   const list = preview ? reviews.slice(0, 1) : reviews;
@@ -83,7 +82,9 @@ export default function ReviewsPanel({
             onChange={(event) => setDraft((current) => ({ ...current, comment: event.target.value }))}
           />
           <div className="bp-modal-actions">
-            <button type="submit" className="bp-btn bp-btn-gold">Post Review</button>
+            <button type="submit" className="bp-btn bp-btn-gold" disabled={isSubmitting}>
+            {isSubmitting ? 'Posting...' : 'Post Review'}
+          </button>
           </div>
         </form>
       )}

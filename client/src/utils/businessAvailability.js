@@ -23,8 +23,9 @@ export function getBusinessAvailabilityMeta(business = {}, now = new Date()) {
     return currentMinutes >= hours.start || currentMinutes <= hours.end;
   })() : true;
 
-  const isOpen = business.isOpen !== undefined ? Boolean(business.isOpen) : isOpenByHours;
-  const effectiveIsOpen = business.isOpen === undefined ? isOpenByHours : isOpen;
+  const effectiveIsOpen = business.manualOpenOverride !== null && business.manualOpenOverride !== undefined
+    ? Boolean(business.manualOpenOverride)
+    : isOpenByHours;
 
   return {
     isOpen: effectiveIsOpen,

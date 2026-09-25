@@ -254,6 +254,15 @@
   transition: transform 0.35s ease;
 }
 
+.bp-product-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
 .bp-product:hover .bp-product-media img {
   transform: scale(1.08);
 }

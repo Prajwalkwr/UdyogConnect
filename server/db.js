@@ -603,13 +603,17 @@ const initMongooseModels = async () => {
     latitude: { type: Number, default: 27.7007 },
     longitude: { type: Number, default: 85.3001 },
     verified: { type: String, enum: ['pending', 'verified', 'approved', 'rejected', 'suspended'] },
-    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'] },
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected', 'revision_requested'] },
     approvedAt: { type: Date, default: null },
     approvedBy: { type: String, default: null, trim: true },
     isVerified: { type: Boolean, default: false },
     rejectionReason: { type: String, default: '', trim: true },
+    revisionStatus: { type: String, enum: ['none', 'requested', 'in_review', 'resubmitted'], default: 'none' },
+    revisionReason: { type: String, default: '', trim: true },
+    revisionRequestedAt: { type: Date, default: null },
+    revisionRequestedBy: { type: String, default: null, trim: true },
     documents: { type: Array, default: [] },
-    rating: { type: Number, default: 5.0, min: 0, max: 5 },
+    rating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
     registrationNumber: { type: String, default: '', trim: true },
     panVatNumber: { type: String, default: '', trim: true },
@@ -618,6 +622,7 @@ const initMongooseModels = async () => {
     commissionRate: { type: Number, default: 10, min: 0, max: 100 },
     offeringType: { type: String, enum: ['products', 'services', 'both'], default: 'both' },
     isOpen: { type: Boolean, default: true },
+    manualOpenOverride: { type: Boolean, default: null },
     deliveryAvailable: { type: Boolean, default: true },
     deliveryRadiusKm: { type: Number, default: 5, min: 0 },
   }, { timestamps: true });
@@ -926,6 +931,9 @@ async function connectDb() {
 
   if (process.env.MONGODB_URI) {
     if (mongoose.connection.readyState === 1) {
+      if (!db.User || !db.Business) {
+        await initMongooseModels();
+      }
       console.log('MongoDB connection already established. Reusing existing connection.');
       return true;
     }
@@ -974,27 +982,38 @@ async function connectDb() {
 
   // Initialize fallback mock DB (development only)
   isMongo = false;
-  await initMockModels();
+  if (!db.User || !db.Business) {
+    await initMockModels();
+  }
   return false;
 }
+
+const getModel = (name) => {
+  if (!db[name]) {
+    try {
+      initMockModels();
+    } catch (_) {}
+  }
+  return db[name];
+};
 
 module.exports = {
   connectDb,
   getIsMongo: () => isMongo,
   db,
   // Helper to dynamically return correct models
-  User: () => db.User,
-  Business: () => db.Business,
-  Product: () => db.Product,
-  Service: () => db.Service,
-  Order: () => db.Order,
-  Booking: () => db.Booking,
-  Review: () => db.Review,
-  Chat: () => db.Chat,
-  Notification: () => db.Notification,
-  Coupon: () => db.Coupon,
-  AuditLog: () => db.AuditLog,
-  Category: () => db.Category,
-  SystemSetting: () => db.SystemSetting,
-  SupportTicket: () => db.SupportTicket,
+  User: () => getModel('User'),
+  Business: () => getModel('Business'),
+  Product: () => getModel('Product'),
+  Service: () => getModel('Service'),
+  Order: () => getModel('Order'),
+  Booking: () => getModel('Booking'),
+  Review: () => getModel('Review'),
+  Chat: () => getModel('Chat'),
+  Notification: () => getModel('Notification'),
+  Coupon: () => getModel('Coupon'),
+  AuditLog: () => getModel('AuditLog'),
+  Category: () => getModel('Category'),
+  SystemSetting: () => getModel('SystemSetting'),
+  SupportTicket: () => getModel('SupportTicket'),
 };

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle } from 'react-icons/fi';
+import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle, FiEye, FiEyeOff } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { isValidNepalPhone } from '../utils/authFlow';
+
+import { validateRegistrationForm, validateLoginForm } from '../utils/validation';
 
 const getAuthErrorMessage = (err, fallback = 'Authentication operation failed.') => {
   return err?.response?.data?.message || err?.response?.statusText || err?.message || fallback;
@@ -17,12 +19,19 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
 
   useEffect(() => {
-    if (isOpen) setMode(initialMode);
+    if (isOpen) {
+      setMode(initialMode);
+      setFieldErrors({});
+      setError('');
+    }
   }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
@@ -31,12 +40,26 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
     return lang === 'en' ? enText : neText;
   };
 
-
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!submitGuard.begin()) return;
     setError('');
+    setFieldErrors({});
+
+    if (mode === 'signup') {
+      const validation = validateRegistrationForm({ name, email, phone, password, confirmPassword });
+      if (!validation.isValid) {
+        setFieldErrors(validation.errors);
+        return;
+      }
+    } else if (mode === 'login') {
+      const validation = validateLoginForm({ email, password });
+      if (!validation.isValid) {
+        setFieldErrors(validation.errors);
+        return;
+      }
+    }
+
+    if (!submitGuard.begin()) return;
     setLoading(true);
 
     try {
@@ -52,20 +75,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         onAuthSuccess(response.data);
         onClose();
       } else if (mode === 'signup') {
-        if (password !== confirmPassword) {
-          setError(translate('Passwords do not match.', 'पासवर्डहरू मिल्दैनन्।'));
-          setLoading(false);
-          submitGuard.finish();
-          return;
-        }
-
-        if (phone && !isValidNepalPhone(phone)) {
-          setError(translate('Phone number must start with 9 and contain only digits.', 'फोन नम्बर 9 बाट सुरु हुनुपर्छ र अंक मात्र हुनुपर्छ।'));
-          setLoading(false);
-          submitGuard.finish();
-          return;
-        }
-
         await api.post('/api/auth/register', { name, email, password, confirmPassword, phone, role }, { headers: createIdempotencyHeader('auth-register') });
         Swal.fire({
           icon: 'success',
@@ -85,6 +94,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         setMode('login');
       }
     } catch (err) {
+      const serverFieldErrors = err?.response?.data?.errors;
+      if (serverFieldErrors && typeof serverFieldErrors === 'object') {
+        setFieldErrors(serverFieldErrors);
+      }
       setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
@@ -98,8 +111,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(7, 20, 35, 0.48)', padding: 16, backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      overflowY: 'auto', background: 'rgba(7, 20, 35, 0.48)', padding: '24px 16px', backdropFilter: 'blur(4px)',
     }}>
       <div style={{
         position: 'relative', width: '100%', maxWidth: 860,
@@ -107,7 +120,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         borderRadius: 24, background: '#FFFFFF',
         border: '1px solid #E7E0D6',
         boxShadow: '0 24px 80px rgba(15, 23, 42, 0.18)',
-        overflow: 'hidden',
+        overflow: 'hidden', margin: 'auto 0',
       }}>
         <div style={{
           background: 'linear-gradient(180deg, #091c2e 0%, #0d2943 100%)',
@@ -154,6 +167,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         <div style={{ position: 'relative', background: '#fff', padding: '30px 28px 24px' }}>
           <button
             onClick={onClose}
+            type="button"
+            aria-label="Close signup dialog"
             style={{
               position: 'absolute', top: 16, right: 16,
               background: 'none', border: 'none', cursor: 'pointer',
@@ -162,15 +177,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
           >
             <FiX style={{ width: 20, height: 20 }} />
           </button>
-
-          {mode === 'signup' && (
-            <div style={{ position: 'absolute', top: 16, right: 48, fontSize: 12, color: '#9CA3AF' }}>
-              Already have an account?{' '}
-              <button onClick={() => setMode('login')} style={{ color: '#F2B71D', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
-                Login
-              </button>
-            </div>
-          )}
 
           <div style={{ marginTop: 12, marginBottom: 20 }}>
             <h2 style={{ fontSize: 30, fontWeight: 800, color: '#1A1A2E', margin: 0 }}>
@@ -235,10 +241,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   type="text"
                   placeholder={role === 'seller' ? 'Enter your business name' : translate('Full Name', 'पूरा नाम')}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); setFieldErrors(prev => ({ ...prev, name: '' })); }}
                   className={inputClass}
-                  required
                 />
+                {fieldErrors.name && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.name}</p>}
               </div>
             )}
 
@@ -252,26 +258,29 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   type="email"
                   placeholder={translate('Email address', 'इमेल ठेगाना')}
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })); }}
                   className={inputClass}
-                  required
                 />
+                {fieldErrors.email && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.email}</p>}
               </div>
             )}
 
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
-                  {translate('Phone Number', 'फोन नम्बर')}
+                  {translate('Phone Number *', 'फोन नम्बर *')}
                 </label>
                 <FiPhone style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
                   type="tel"
-                  placeholder={translate('Phone Number (Optional)', 'फोन नम्बर (ऐच्छिक)')}
+                  placeholder={translate('10-digit number starting with 9', '9 बाट सुरु हुने 10 अंकको नम्बर')}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setFieldErrors(prev => ({ ...prev, phone: '' })); }}
                   className={inputClass}
+                  inputMode="numeric"
+                  maxLength={10}
                 />
+                {fieldErrors.phone && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.phone}</p>}
               </div>
             )}
 
@@ -282,13 +291,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 </label>
                 <FiLock style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder={translate('Enter your password', 'पासवर्ड राख्नुहोस्')}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={inputClass}
-                  required
+                  onChange={(e) => { setPassword(e.target.value); setFieldErrors(prev => ({ ...prev, password: '' })); }}
+                  className={`${inputClass} pr-12`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? translate('Hide password', 'पासवर्ड लुकाउनुहोस्') : translate('Show password', 'पासवर्ड देखाउनुहोस्')}
+                  style={{ position: 'absolute', top: 31, right: 10, padding: 8, border: 0, background: 'transparent', color: '#6B7280', cursor: 'pointer' }}
+                >
+                  {showPassword ? <FiEyeOff /> : <FiEye />}
+                </button>
+                {fieldErrors.password && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.password}</p>}
               </div>
             )}
 
@@ -299,13 +316,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 </label>
                 <FiLock style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   placeholder={translate('Confirm Password', 'पासवर्ड पुष्टि गर्नुहोस्')}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={inputClass}
-                  required
+                  onChange={(e) => { setConfirmPassword(e.target.value); setFieldErrors(prev => ({ ...prev, confirmPassword: '' })); }}
+                  className={`${inputClass} pr-12`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((visible) => !visible)}
+                  aria-label={showConfirmPassword ? translate('Hide password', 'पासवर्ड लुकाउनुहोस्') : translate('Show password', 'पासवर्ड देखाउनुहोस्')}
+                  style={{ position: 'absolute', top: 31, right: 10, padding: 8, border: 0, background: 'transparent', color: '#6B7280', cursor: 'pointer' }}
+                >
+                  {showConfirmPassword ? <FiEyeOff /> : <FiEye />}
+                </button>
+                {fieldErrors.confirmPassword && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.confirmPassword}</p>}
               </div>
             )}
 
@@ -368,14 +393,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   {translate('Sign Up', 'दर्ता गर्नुहोस्')}
                 </button>
               </p>
-            ) : (
-              <p style={{ color: '#9CA3AF', margin: 0 }}>
-                {translate('Already have an account?', 'पहिल्यै खाता छ?')}{' '}
-                <button onClick={() => setMode('login')} style={{ fontWeight: 700, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer' }}>
-                  {translate('Sign In', 'लगइन')}
-                </button>
-              </p>
-            )}
+            ) : null}
           </div>
 
           {mode === 'signup' && (

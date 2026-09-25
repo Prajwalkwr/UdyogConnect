@@ -1,5 +1,679 @@
 [
   {
+    "_id": "sqvl4iinu",
+    "createdAt": "2026-09-11T12:32:48.084Z",
+    "updatedAt": "2026-09-11T12:32:48.084Z",
+    "name": "8732h",
+    "email": "pro@1.com",
+    "password": "$2b$10$6YPt8hTKf.j/b3Vlk5HrcOQp8Ni6JxLS6YjFvGTtoc4owQm.dgGGO",
+    "phone": "9852634151",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "283333",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "qptjn607d",
+    "createdAt": "2026-09-11T12:28:29.965Z",
+    "updatedAt": "2026-09-11T12:28:29.965Z",
+    "name": "123",
+    "email": "100@100.com",
+    "password": "$2b$10$ZKdwGdX5K6RQOQWa0xZ3qOj2Gs/4PKoX8/FZo597/mkOEHC4Y6v2C",
+    "phone": "9852634175",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "380095",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "y06qjoe5f",
+    "createdAt": "2026-09-11T12:24:46.683Z",
+    "updatedAt": "2026-09-11T12:24:46.969Z",
+    "name": "Exp User",
+    "email": "expuser+1789129486564@example.com",
+    "password": "$2b$10$QhrF5RgAmn5BXkQoSjvwHeBZzhqY3vpyOUHBWwb9ccs9nBMtxSt62",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T12:24:46.820Z",
+        "ip": "::ffff:127.0.0.1"
+      },
+      {
+        "timestamp": "2026-09-11T12:24:46.967Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "w02r6jwx1",
+    "createdAt": "2026-09-11T12:24:46.548Z",
+    "updatedAt": "2026-09-11T12:24:46.548Z",
+    "name": "Dup User",
+    "email": "dupuser+1789129486419@example.com",
+    "password": "$2b$10$Q.cIgWgd25dJ5wWD.TaqzOV0/f0uRnVp6pCsluwvFHlKcYcr/Tjkq",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "371004",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "m7g0xvbsx",
+    "createdAt": "2026-09-11T12:24:45.750Z",
+    "updatedAt": "2026-09-11T12:24:46.402Z",
+    "name": "Lock User",
+    "email": "lockuser+1789129485600@example.com",
+    "password": "$2b$10$BtBZ3iW7YH5vWJ4OupXaNO8uXBCfStFI9QR8DcfO0zyX9cRA0y8wu",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 5,
+    "lockUntil": "2026-09-11T12:29:46.400Z",
+    "resetOtp": ""
+  },
+  {
+    "_id": "s94use17z",
+    "createdAt": "2026-09-11T12:24:45.334Z",
+    "updatedAt": "2026-09-11T12:24:45.492Z",
+    "name": "Reviewer Cust",
+    "email": "cust_review_1789129485197@example.com",
+    "password": "$2b$10$JtHJ/iXWwUQbDaFqMgZS9e8sebm.hw3dz05..lxOqxcgEZFZBYCQG",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T12:24:45.489Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "i90rnvv1y",
+    "createdAt": "2026-09-11T12:24:45.230Z",
+    "updatedAt": "2026-09-11T12:24:45.581Z",
+    "name": "Forgot User",
+    "email": "forgotuser+1789129485076@example.com",
+    "password": "$2b$10$z.W40CMjYN8BaEnWvqiay.Oi7LcYLpayAllJHnqEoj.bwxKF1wikC",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T12:24:45.578Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "q5ije8iem",
+    "createdAt": "2026-09-11T12:24:45.225Z",
+    "updatedAt": "2026-09-11T12:24:45.225Z",
+    "name": "Admin Live",
+    "email": "adminlive+1789129485071@example.com",
+    "password": "$2b$10$BsQKSIaAYXr6B31zrzfdLeiUn4xLXuDH06oef3Pw2XHheljuxbyVS",
+    "phone": "",
+    "role": "admin",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "554063",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "o299osm3d",
+    "createdAt": "2026-09-11T12:24:45.085Z",
+    "updatedAt": "2026-09-11T12:24:45.085Z",
+    "name": "User One",
+    "email": "dup_1789129484500@example.com",
+    "password": "$2b$10$AzvOPozm/i4rTgK0i4.Ydem91LaUP0gJKApZeeikMLy/252FCkCYm",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "m4wsrs3fv",
+    "createdAt": "2026-09-11T12:24:45.019Z",
+    "updatedAt": "2026-09-11T12:24:45.019Z",
+    "name": "Test User",
+    "email": "testuser+1789129484263@example.com",
+    "password": "$2b$10$kh1TO7VnxXfFvRSQDroq..K.zt1W.Vwn16GoET9ASF1EpFseOXHJm",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "406783",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "bijixmv2f",
+    "createdAt": "2026-09-11T12:23:11.614Z",
+    "updatedAt": "2026-09-11T12:23:11.614Z",
+    "name": "123",
+    "email": "123@123.com",
+    "password": "$2b$10$drh4wOCWs5oo8T99Ez/Zwe1eNDLtl/oeqpdHZKkMz3TV8T6pdSSQW",
+    "phone": "9852634152",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": false,
+    "verificationOtp": "935744",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "e1ak4l2pi",
+    "createdAt": "2026-09-11T06:12:32.199Z",
+    "updatedAt": "2026-09-11T06:14:23.208Z",
+    "name": "123",
+    "email": "111@111.com",
+    "password": "$2b$10$3vd8P.W7.y51n8QuvL2ghumdu9Cw6i8p2sfCaUB7mSoQTID5qwB/i",
+    "phone": "9632514785",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:12:32.436Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:14:23.205Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "hzucgp008",
+    "createdAt": "2026-09-11T06:11:18.352Z",
+    "updatedAt": "2026-09-11T06:11:18.485Z",
+    "name": "Reviewer Cust",
+    "email": "cust_review_1789107078226@example.com",
+    "password": "$2b$10$.IZ9nx5J2heKm/6D6UpxsO7DdtnfoT3LlPo5W9qr2OOFEJb8RgPXu",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:11:18.482Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "ob98hffjc",
+    "createdAt": "2026-09-11T06:11:18.159Z",
+    "updatedAt": "2026-09-11T06:11:18.159Z",
+    "name": "User One",
+    "email": "dup_1789107077721@example.com",
+    "password": "$2b$10$Hs.lu2EyMvAjKKdFOq7DZu/7xt3CnhcsbcaInTcl1DhFu9z4T4Zvm",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "lh4g5o4kc",
+    "createdAt": "2026-09-11T06:10:22.607Z",
+    "updatedAt": "2026-09-11T06:10:22.767Z",
+    "name": "Seller 2",
+    "email": "seller2_1789107022477@example.com",
+    "password": "$2b$10$WJ47KBh.ZThinSOdb6ZZFO7llpuTeO4c9qIRO/pPMCEao/9MqG0/q",
+    "phone": "9849992222",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:10:22.763Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "6gqm5sxy3",
+    "createdAt": "2026-09-11T06:10:22.159Z",
+    "updatedAt": "2026-09-11T06:10:22.336Z",
+    "name": "Seller 1",
+    "email": "seller1_1789107022031@example.com",
+    "password": "$2b$10$NVKHfd4b2onejePM/voNv..my1ra1gBdFH.7ySSPX5HWEBHtco1HS",
+    "phone": "9849991111",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:10:22.334Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "t3lqcq6az",
+    "createdAt": "2026-09-11T06:10:21.664Z",
+    "updatedAt": "2026-09-11T06:10:21.838Z",
+    "name": "Review Owner Seller",
+    "email": "seller_review_1789107021511@example.com",
+    "password": "$2b$10$a6qaasA7pBcNJx3ygtdGoOuhaahDahPOqVp7msWzkUaQNKPQ4j71S",
+    "phone": "9845556677",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:10:21.836Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "21739qm4a",
+    "createdAt": "2026-09-11T06:10:21.354Z",
+    "updatedAt": "2026-09-11T06:10:21.500Z",
+    "name": "Reviewer Cust",
+    "email": "cust_review_1789107021224@example.com",
+    "password": "$2b$10$AekHX0B6buSp45JIQJs6ku4fHT7dBQa4yvxKCe9vbr1jmC2V.w.iy",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:10:21.497Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "1e7o5j1vv",
+    "createdAt": "2026-09-11T06:10:20.854Z",
+    "updatedAt": "2026-09-11T06:10:21.021Z",
+    "name": "Seller User",
+    "email": "seller_1789107020714@example.com",
+    "password": "$2b$10$gZR.Po6MuVzhSuLziaPJ2OeAlMwRsGIf57bQHoyd.ohFPh6O2VDHq",
+    "phone": "9841112233",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-11T06:10:21.018Z",
+        "ip": "::ffff:127.0.0.1"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "07a3hflpk",
+    "createdAt": "2026-09-11T06:10:20.685Z",
+    "updatedAt": "2026-09-11T06:10:20.685Z",
+    "name": "User One",
+    "email": "dup_1789107020038@example.com",
+    "password": "$2b$10$ImVMO1tGRDcs9C8MAXijCuL/KpidqBbsdJJG61aKYc5JNXpSP60vy",
+    "phone": "",
+    "role": "customer",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "npf2bgbhf",
+    "createdAt": "2026-09-07T03:44:08.251Z",
+    "updatedAt": "2026-09-07T03:48:14.208Z",
+    "name": "12312312",
+    "email": "123@123",
+    "password": "$2b$10$pw2W/jbDdR6v0jC3m7DTs.T2DwgkTgsRFv.1VCaEShxZvKiK7OB7C",
+    "phone": "9111111111",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-07T03:44:08.419Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:46:49.782Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:47:42.265Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:48:14.206Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
+    "_id": "vnkq03nhy",
+    "createdAt": "2026-09-06T17:32:36.141Z",
+    "updatedAt": "2026-09-06T17:47:22.361Z",
+    "name": "kun",
+    "email": "kun@G.com",
+    "password": "$2b$10$62oJxQFgi.bjQ5muIkPNmeAIG/e6fwHoMZ5tARfwF1ABxjCFmUSAW",
+    "phone": "9856231452",
+    "role": "seller",
+    "loyaltyPoints": 0,
+    "profilePicture": "",
+    "addresses": [],
+    "paymentMethods": [],
+    "wishlist": {
+      "products": [],
+      "services": [],
+      "businesses": []
+    },
+    "twoFactorEnabled": false,
+    "loginHistory": [
+      {
+        "timestamp": "2026-09-06T17:32:36.308Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:34:36.686Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:44:08.291Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:47:22.359Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      }
+    ],
+    "isVerified": true,
+    "verificationOtp": "",
+    "failedLoginAttempts": 0,
+    "lockUntil": null,
+    "resetOtp": ""
+  },
+  {
     "_id": "24d6i1s3y",
     "createdAt": "2026-09-02T12:58:25.333Z",
     "updatedAt": "2026-09-02T12:59:45.278Z",
@@ -192,7 +866,7 @@
   {
     "_id": "s3",
     "createdAt": "2026-09-02T12:45:32.970Z",
-    "updatedAt": "2026-09-02T15:18:44.928Z",
+    "updatedAt": "2026-09-11T12:33:07.484Z",
     "demoId": "s3",
     "name": "Suman Home Seller",
     "email": "home@udyog.np",
@@ -284,6 +958,16 @@
         "timestamp": "2026-09-02T15:18:44.925Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:20:44.218Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T12:33:07.481Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
@@ -293,7 +977,7 @@
   {
     "_id": "s2",
     "createdAt": "2026-09-02T12:45:32.966Z",
-    "updatedAt": "2026-09-02T15:10:36.068Z",
+    "updatedAt": "2026-09-11T12:26:47.176Z",
     "demoId": "s2",
     "name": "Mina Craft Seller",
     "email": "crafts@udyog.np",
@@ -333,6 +1017,26 @@
       },
       {
         "timestamp": "2026-09-02T15:10:36.065Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T16:55:18.716Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:28:16.052Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:45:16.855Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T12:26:47.173Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
@@ -463,20 +1167,23 @@
   {
     "_id": "pumkm7u12",
     "createdAt": "2026-08-11T16:14:08.855Z",
-    "updatedAt": "2026-09-02T15:17:00.779Z",
+    "updatedAt": "2026-09-11T07:12:01.775Z",
     "name": "kunwor",
     "email": "pra@G.com",
     "password": "$2b$10$7b2OGsq13ckOL.FEJyZbvO8CbWiOOMbs3HWO0ewQQMfzHCw1VWAl.",
     "phone": "",
     "role": "customer",
-    "loyaltyPoints": 0,
+    "loyaltyPoints": 10,
     "profilePicture": "",
     "addresses": [],
     "paymentMethods": [],
     "wishlist": {
       "products": [],
       "services": [],
-      "businesses": []
+      "businesses": [
+        "p0oxnspqg",
+        "atj5s5pxr"
+      ]
     },
     "twoFactorEnabled": false,
     "loginHistory": [
@@ -499,6 +1206,76 @@
         "timestamp": "2026-09-02T15:17:00.777Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T16:02:34.069Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T16:48:32.857Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T16:50:28.183Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:43:14.303Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:46:38.105Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:47:48.973Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:49:48.553Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:27:25.429Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:28:33.409Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:50:08.549Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:35:42.073Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:46:12.686Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T07:11:13.763Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T07:12:01.771Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
@@ -510,7 +1287,7 @@
   {
     "_id": "ngkcoi63m",
     "createdAt": "2026-08-11T15:52:05.548Z",
-    "updatedAt": "2026-09-02T15:14:42.150Z",
+    "updatedAt": "2026-09-11T10:57:40.099Z",
     "name": "prajwal",
     "email": "praa@G.com",
     "password": "$2b$10$7q1iIHQr8/yoOppiFKKDEuP7WyjdTvgtb6cYhcsvvYlW76.bYyWCu",
@@ -624,6 +1401,31 @@
       },
       {
         "timestamp": "2026-09-02T15:14:42.148Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T16:55:09.148Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:20:51.562Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:31:46.854Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T10:38:39.833Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T10:57:40.097Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
@@ -875,11 +1677,81 @@
         "timestamp": "2026-09-02T15:15:19.384Z",
         "ip": "::ffff:127.0.0.1",
         "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:03:16.663Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:31:27.993Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:34:21.526Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:48:05.757Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-06T17:48:52.245Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:42:41.263Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:47:13.078Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-07T03:47:26.814Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:13:56.643Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:14:13.404Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:29:00.450Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T06:39:00.814Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T07:11:07.417Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+      },
+      {
+        "timestamp": "2026-09-11T12:33:19.167Z",
+        "ip": "::ffff:127.0.0.1",
+        "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
       }
     ],
     "isVerified": true,
     "failedLoginAttempts": 0,
     "lockUntil": null,
-    "updatedAt": "2026-09-02T15:15:19.386Z"
+    "updatedAt": "2026-09-11T12:33:19.169Z"
   }
 ]

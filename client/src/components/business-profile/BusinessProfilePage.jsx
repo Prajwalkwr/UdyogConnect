@@ -55,6 +55,7 @@ export default function BusinessProfilePage({
   const [chat, setChat] = useState([{ from: 'them', text: 'Namaste! How can Cafe XYZ help you today?' }]);
   const [draftMessage, setDraftMessage] = useState('');
   const [reviewDraft, setReviewDraft] = useState({ rating: 5, comment: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const submitGuard = useMemo(() => createSubmissionGuard(), []);
   const openMeta = isOpenNow();
 
@@ -231,17 +232,38 @@ export default function BusinessProfilePage({
       Swal.fire({ icon: 'warning', text: 'Please write a short review.' });
       return;
     }
-    const nextReview = {
-      _id: `local-${Date.now()}`,
-      userName: user?.name || user?.fullName || 'You',
-      rating: reviewDraft.rating,
-      comment: reviewDraft.comment,
-      createdAt: new Date().toISOString(),
-      imageUrl: profile.business.imageUrl,
-    };
-    setProfile((current) => ({ ...current, reviews: [nextReview, ...current.reviews] }));
-    setReviewDraft({ rating: 5, comment: '' });
-    Swal.fire({ icon: 'success', title: 'Review posted', timer: 1200, showConfirmButton: false });
+    if (!submitGuard.begin()) return;
+    try {
+      const response = await api.post('/api/reviews', {
+        businessId: profile.business._id,
+        targetId: profile.business._id,
+        targetType: 'business',
+        rating: reviewDraft.rating,
+        comment: reviewDraft.comment.trim(),
+      });
+      const savedReview = response.data?.review;
+      const nextReview = {
+        ...savedReview,
+        userName: savedReview?.userName || savedReview?.customerName || user?.name || user?.fullName || 'You',
+        rating: Number(savedReview?.rating ?? reviewDraft.rating),
+        comment: savedReview?.comment || reviewDraft.comment.trim(),
+        createdAt: savedReview?.createdAt || new Date().toISOString(),
+        imageUrl: savedReview?.imageUrl || profile.business.imageUrl,
+      };
+      setProfile((current) => ({
+        ...current,
+        reviews: [nextReview, ...current.reviews.filter((review) => review._id !== nextReview._id)],
+        business: { ...current.business, reviewCount: (current.business.reviewCount ?? current.reviews.length) + 1 },
+      }));
+      window.dispatchEvent(new CustomEvent('review-created', { detail: { businessId: profile.business._id } }));
+      setReviewDraft({ rating: 5, comment: '' });
+      Swal.fire({ icon: 'success', title: 'Review posted', timer: 1200, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Could not post review.' });
+    } finally {
+      submitGuard.finish();
+      setIsSubmitting(false);
+    }
   };
 
   const sendContact = (event) => {
@@ -378,6 +400,7 @@ export default function BusinessProfilePage({
                   draft={reviewDraft}
                   setDraft={setReviewDraft}
                   onSubmit={submitReview}
+                  isSubmitting={isSubmitting}
                 />
               </div>
             )}

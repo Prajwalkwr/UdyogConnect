@@ -1,5 +1,167 @@
 [
   {
+    "_id": "ra82e1w6i",
+    "createdAt": "2026-09-11T12:32:48.089Z",
+    "updatedAt": "2026-09-11T12:32:48.089Z",
+    "userId": "sqvl4iinu",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 283333",
+    "type": "general"
+  },
+  {
+    "_id": "x8h5jp2fl",
+    "createdAt": "2026-09-11T12:28:29.970Z",
+    "updatedAt": "2026-09-11T12:28:29.970Z",
+    "userId": "qptjn607d",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 380095",
+    "type": "general"
+  },
+  {
+    "_id": "lsxn97weg",
+    "createdAt": "2026-09-11T12:24:46.686Z",
+    "updatedAt": "2026-09-11T12:24:46.686Z",
+    "userId": "y06qjoe5f",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 169114",
+    "type": "general"
+  },
+  {
+    "_id": "dg4tuzwf3",
+    "createdAt": "2026-09-11T12:24:46.551Z",
+    "updatedAt": "2026-09-11T12:24:46.551Z",
+    "userId": "w02r6jwx1",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 371004",
+    "type": "general"
+  },
+  {
+    "_id": "o0t4c9f01",
+    "createdAt": "2026-09-11T12:24:45.754Z",
+    "updatedAt": "2026-09-11T12:24:45.754Z",
+    "userId": "m7g0xvbsx",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 243892",
+    "type": "general"
+  },
+  {
+    "_id": "910qh1z5t",
+    "createdAt": "2026-09-11T12:24:45.275Z",
+    "updatedAt": "2026-09-11T12:24:45.275Z",
+    "userId": "i90rnvv1y",
+    "title": "Password Reset OTP",
+    "message": "Your password reset request code is: 820155",
+    "type": "general"
+  },
+  {
+    "_id": "eb5c8w0wg",
+    "createdAt": "2026-09-11T12:24:45.234Z",
+    "updatedAt": "2026-09-11T12:24:45.234Z",
+    "userId": "i90rnvv1y",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 856378",
+    "type": "general"
+  },
+  {
+    "_id": "c6cc82lx7",
+    "createdAt": "2026-09-11T12:24:45.228Z",
+    "updatedAt": "2026-09-11T12:24:45.228Z",
+    "userId": "q5ije8iem",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 554063",
+    "type": "general"
+  },
+  {
+    "_id": "uvozepek6",
+    "createdAt": "2026-09-11T12:24:45.024Z",
+    "updatedAt": "2026-09-11T12:24:45.024Z",
+    "userId": "m4wsrs3fv",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 406783",
+    "type": "general"
+  },
+  {
+    "_id": "wh84ymg1y",
+    "createdAt": "2026-09-11T12:23:11.621Z",
+    "updatedAt": "2026-09-11T12:23:11.621Z",
+    "userId": "bijixmv2f",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 935744",
+    "type": "general"
+  },
+  {
+    "_id": "ptpq1j0lg",
+    "createdAt": "2026-09-11T06:29:21.087Z",
+    "updatedAt": "2026-09-11T06:29:21.087Z",
+    "userId": "6gqm5sxy3",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"Biz 1 1789107022350\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "sk19cy80t",
+    "createdAt": "2026-09-11T06:14:17.669Z",
+    "updatedAt": "2026-09-11T06:14:17.669Z",
+    "userId": "e1ak4l2pi",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"123\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "ifef0iyss",
+    "createdAt": "2026-09-11T06:12:32.211Z",
+    "updatedAt": "2026-09-11T06:12:32.211Z",
+    "userId": "e1ak4l2pi",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 453376",
+    "type": "general"
+  },
+  {
+    "_id": "5gey7p5mm",
+    "createdAt": "2026-09-07T03:47:31.983Z",
+    "updatedAt": "2026-09-07T03:47:31.983Z",
+    "userId": "npf2bgbhf",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"123\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "yyqa93137",
+    "createdAt": "2026-09-07T03:44:08.256Z",
+    "updatedAt": "2026-09-07T03:44:08.256Z",
+    "userId": "npf2bgbhf",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 969885",
+    "type": "general"
+  },
+  {
+    "_id": "6fwalxd45",
+    "createdAt": "2026-09-06T17:34:25.407Z",
+    "updatedAt": "2026-09-06T17:34:25.407Z",
+    "userId": "vnkq03nhy",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"hamro cafe \" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "6jqpqqhuc",
+    "createdAt": "2026-09-06T17:32:36.145Z",
+    "updatedAt": "2026-09-06T17:32:36.145Z",
+    "userId": "vnkq03nhy",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 148500",
+    "type": "general"
+  },
+  {
+    "_id": "jtknfj3dm",
+    "createdAt": "2026-09-06T17:31:35.813Z",
+    "updatedAt": "2026-09-06T17:31:35.813Z",
+    "userId": "ngkcoi63m",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"chiya kham\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
     "_id": "6avid2ujg",
     "createdAt": "2026-09-02T12:59:24.034Z",
     "updatedAt": "2026-09-02T12:59:24.034Z",
@@ -217,7 +379,7 @@
   {
     "_id": "olz430g2s",
     "createdAt": "2026-07-23T13:52:30.907Z",
-    "updatedAt": "2026-07-23T13:52:30.908Z",
+    "updatedAt": "2026-09-06T17:10:44.546Z",
     "userId": "r1",
     "title": "Business Approved",
     "message": "Congratulations! Your business \"clothes\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
@@ -227,7 +389,7 @@
   {
     "_id": "3qzgvos9n",
     "createdAt": "2026-07-23T13:49:03.313Z",
-    "updatedAt": "2026-07-23T13:49:03.313Z",
+    "updatedAt": "2026-09-06T17:10:44.550Z",
     "userId": "r1",
     "title": "Business Approved",
     "message": "Congratulations! Your business \"clothes\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
@@ -416,8 +578,9 @@
     "title": "System Alert",
     "message": "New user registrations pending admin review.",
     "type": "admin",
-    "read": false,
-    "createdAt": "2026-08-15T07:00:00.000Z"
+    "read": true,
+    "createdAt": "2026-08-15T07:00:00.000Z",
+    "updatedAt": "2026-09-06T17:10:44.553Z"
   },
   {
     "_id": "n6",
@@ -425,7 +588,8 @@
     "title": "Business Verification Pending",
     "message": "There are 5 businesses awaiting verification.",
     "type": "admin",
-    "read": false,
-    "createdAt": "2026-08-15T06:00:00.000Z"
+    "read": true,
+    "createdAt": "2026-08-15T06:00:00.000Z",
+    "updatedAt": "2026-09-06T17:10:44.555Z"
   }
 ]
