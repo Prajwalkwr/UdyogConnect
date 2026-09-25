@@ -3,14 +3,17 @@ import { Star } from 'lucide-react';
 import { timeAgo } from './cafeDemo';
 
 function Stars({ value }) {
+  const filled = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
   return (
     <span className="bp-rating" style={{ color: '#f2b71d' }}>
       {Array.from({ length: 5 }).map((_, index) => (
-        <Star key={index} size={14} fill={index < Math.round(value) ? '#f2b71d' : 'transparent'} stroke="#f2b71d" />
+        <Star key={index} size={14} fill={index < filled ? '#f2b71d' : 'transparent'} stroke="#f2b71d" />
       ))}
     </span>
   );
-}export default function ReviewsPanel({
+}
+
+export default function ReviewsPanel({
   rating,
   count,
   distribution,
@@ -21,42 +24,53 @@ function Stars({ value }) {
   isSubmitting,
   onSubmit,
 }) {
-  const list = preview ? reviews.slice(0, 1) : reviews;
+  const reviewCount = Number(count) || (Array.isArray(reviews) ? reviews.length : 0);
+  const list = preview ? (Array.isArray(reviews) ? reviews.slice(0, 1) : []) : (Array.isArray(reviews) || []);
+  const score = reviewCount > 0 ? Number(rating || 0) : 0;
+  const bars = reviewCount > 0
+    ? (distribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 })
+    : { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
 
   return (
     <div>
       <div className="bp-reviews">
         <div className="bp-score">
-          <strong>{Number(rating || 0).toFixed(1)}</strong>
-          <Stars value={rating} />
-          <div style={{ marginTop: 6, color: '#6b7280', fontSize: 12 }}>{count} Reviews</div>
+          <strong>{score.toFixed(1)}</strong>
+          <Stars value={score} />
+          <div style={{ marginTop: 6, color: '#6b7280', fontSize: 12 }}>{reviewCount} Reviews</div>
         </div>
         <div className="bp-bars">
           {[5, 4, 3, 2, 1].map((star) => (
             <div className="bp-bar-row" key={star}>
               <span>{star} ★</span>
-              <div className="bp-bar"><span style={{ width: `${distribution[star] || 0}%` }} /></div>
-              <b>{distribution[star] || 0}%</b>
+              <div className="bp-bar"><span style={{ width: `${bars[star] || 0}%` }} /></div>
+              <b>{bars[star] || 0}%</b>
             </div>
           ))}
         </div>
         <div className="bp-review-list">
-          {list.map((review) => (
-            <article className="bp-review-card" key={review._id}>
-              <div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span className="bp-avatar">{String(review.userName || 'C').charAt(0).toUpperCase()}</span>
-                  <div>
-                    <strong style={{ display: 'block', fontSize: 13 }}>{review.userName}</strong>
-                    <small style={{ color: '#9ca3af' }}>{timeAgo(review.createdAt)}</small>
+          {list.length === 0 ? (
+            <div className="bp-empty" style={{ gridColumn: '1 / -1' }}>
+              No customer reviews yet. Be the first to share your experience.
+            </div>
+          ) : (
+            list.map((review) => (
+              <article className="bp-review-card" key={review._id}>
+                <div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span className="bp-avatar">{String(review.userName || 'C').charAt(0).toUpperCase()}</span>
+                    <div>
+                      <strong style={{ display: 'block', fontSize: 13 }}>{review.userName}</strong>
+                      <small style={{ color: '#9ca3af' }}>{timeAgo(review.createdAt)}</small>
+                    </div>
                   </div>
+                  <div style={{ margin: '8px 0 6px' }}><Stars value={review.rating} /></div>
+                  <p style={{ margin: 0, fontSize: 13, color: '#374151' }}>{review.comment}</p>
                 </div>
-                <div style={{ margin: '8px 0 6px' }}><Stars value={review.rating} /></div>
-                <p style={{ margin: 0, fontSize: 13, color: '#374151' }}>{review.comment}</p>
-              </div>
-              {review.imageUrl ? <img src={review.imageUrl} alt="" /> : <div />}
-            </article>
-          ))}
+                {review.imageUrl ? <img src={review.imageUrl} alt="" loading="lazy" decoding="async" /> : <div />}
+              </article>
+            ))
+          )}
         </div>
       </div>
 
@@ -83,8 +97,8 @@ function Stars({ value }) {
           />
           <div className="bp-modal-actions">
             <button type="submit" className="bp-btn bp-btn-gold" disabled={isSubmitting}>
-            {isSubmitting ? 'Posting...' : 'Post Review'}
-          </button>
+              {isSubmitting ? 'Posting...' : 'Post Review'}
+            </button>
           </div>
         </form>
       )}

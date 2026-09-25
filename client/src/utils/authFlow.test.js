@@ -40,8 +40,10 @@ describe('getDashboardLabel', () => {
 });
 
 describe('phone and coupon validation', () => {
-  it('requires Nepal mobile numbers to start with 9', () => {
+  it('requires Nepal mobile numbers to start with 97 or 98', () => {
     expect(isValidNepalPhone('9841234567')).toBe(true);
+    expect(isValidNepalPhone('9741234567')).toBe(true);
+    expect(isValidNepalPhone('9612345678')).toBe(false);
     expect(isValidNepalPhone('1234567890')).toBe(false);
     expect(isValidNepalPhone('+9779841234567')).toBe(false);
   });

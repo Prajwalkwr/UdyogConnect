@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle, FiEye, FiEyeOff } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
-import { isValidNepalPhone } from '../utils/authFlow';
-
 import { validateRegistrationForm, validateLoginForm } from '../utils/validation';
 
 const getAuthErrorMessage = (err, fallback = 'Authentication operation failed.') => {
-  return err?.response?.data?.message || err?.response?.statusText || err?.message || fallback;
+  const data = err?.response?.data;
+  if (data?.requireVerification) {
+    return data.message || 'Account verification required. Please verify your account to continue.';
+  }
+  return getApiErrorMessage(err, fallback);
 };
+
+async function completeLogin(email, password, headers) {
+  try {
+    return await api.post('/api/auth/login', { email, password }, { headers });
+  } catch (err) {
+    const data = err?.response?.data;
+    if (data?.requireVerification && data.otp) {
+      await api.post('/api/auth/verify', { email: data.email || email, otp: data.otp }, {
+        headers: createIdempotencyHeader('auth-verify'),
+      });
+      return api.post('/api/auth/login', { email, password }, {
+        headers: createIdempotencyHeader('auth-login-after-verify'),
+      });
+    }
+    throw err;
+  }
+}
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initialMode = 'login' }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
@@ -46,15 +65,17 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
     setFieldErrors({});
 
     if (mode === 'signup') {
-      const validation = validateRegistrationForm({ name, email, phone, password, confirmPassword });
+      const validation = validateRegistrationForm({ name, email, phone, password, confirmPassword, role });
       if (!validation.isValid) {
         setFieldErrors(validation.errors);
+        setError(Object.values(validation.errors)[0] || 'Please fix the highlighted fields.');
         return;
       }
     } else if (mode === 'login') {
       const validation = validateLoginForm({ email, password });
       if (!validation.isValid) {
         setFieldErrors(validation.errors);
+        setError(Object.values(validation.errors)[0] || 'Please enter your email and password.');
         return;
       }
     }
@@ -64,7 +85,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
 
     try {
       if (mode === 'login') {
-        const response = await api.post('/api/auth/login', { email, password }, { headers: createIdempotencyHeader('auth-login') });
+        const response = await completeLogin(email, password, createIdempotencyHeader('auth-login'));
         Swal.fire({
           icon: 'success',
           title: translate('Welcome Back!', 'स्वागत छ!'),
@@ -75,17 +96,38 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         onAuthSuccess(response.data);
         onClose();
       } else if (mode === 'signup') {
-        await api.post('/api/auth/register', { name, email, password, confirmPassword, phone, role }, { headers: createIdempotencyHeader('auth-register') });
+        const registerResponse = await api.post(
+          '/api/auth/register',
+          { name, email, password, confirmPassword, phone, role },
+          { headers: createIdempotencyHeader('auth-register') }
+        );
+
+        let authPayload = registerResponse.data;
+
+        // Prefer session returned by register; otherwise verify OTP (when required) then login.
+        if (!authPayload?.token) {
+          if (authPayload?.otp && !authPayload?.isVerified) {
+            await api.post(
+              '/api/auth/verify',
+              { email, otp: authPayload.otp },
+              { headers: createIdempotencyHeader('auth-verify') }
+            );
+          }
+          const loginResponse = await completeLogin(email, password, createIdempotencyHeader('auth-auto-login'));
+          authPayload = loginResponse.data;
+        }
+
         Swal.fire({
           icon: 'success',
           title: translate('Success!', 'सफल भयो!'),
-          text: translate('Registration completed.', 'दर्ता पूरा भयो।'),
+          text: translate('Registration completed. You are now signed in.', 'दर्ता पूरा भयो। तपाईं लगइन हुनुभयो।'),
         });
-        // Auto-login after successful registration
-        const loginResponse = await api.post('/api/auth/login', { email, password }, { headers: createIdempotencyHeader('auth-auto-login') });
-        onAuthSuccess(loginResponse.data);
+        onAuthSuccess(authPayload);
         onClose();
       } else if (mode === 'forgot') {
+        await api.post('/api/auth/forgot-password', { emailOrPhone: email }, {
+          headers: createIdempotencyHeader('auth-forgot'),
+        });
         Swal.fire({
           icon: 'info',
           title: translate('Reset Link Sent', 'लिङ्क पठाइयो'),
@@ -239,9 +281,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 <FiUser style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
                   type="text"
-                  placeholder={role === 'seller' ? 'Enter your business name' : translate('Full Name', 'पूरा नाम')}
+                  placeholder={role === 'seller' ? 'Enter your business name (letters only)' : translate('Full Name', 'पूरा नाम')}
                   value={name}
-                  onChange={(e) => { setName(e.target.value); setFieldErrors(prev => ({ ...prev, name: '' })); }}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ');
+                    setName(cleaned);
+                    setFieldErrors((prev) => ({ ...prev, name: '' }));
+                  }}
                   className={inputClass}
                 />
                 {fieldErrors.name && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.name}</p>}
@@ -256,9 +302,17 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 <FiMail style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
                   type="email"
-                  placeholder={translate('Email address', 'इमेल ठेगाना')}
+                  placeholder={role === 'seller' ? 'words@number.com (e.g. shop@123.com)' : translate('Email address', 'इमेल ठेगाना')}
                   value={email}
-                  onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })); }}
+                  onChange={(e) => {
+                    let next = e.target.value.trim();
+                    if (role === 'seller' && mode === 'signup') {
+                      // Allow only letters, @, digits, and one dot in domain (words@number.tld)
+                      next = next.replace(/[^A-Za-z0-9@.]/g, '');
+                    }
+                    setEmail(next);
+                    setFieldErrors((prev) => ({ ...prev, email: '' }));
+                  }}
                   className={inputClass}
                 />
                 {fieldErrors.email && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.email}</p>}
@@ -273,12 +327,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 <FiPhone style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
                 <input
                   type="tel"
-                  placeholder={translate('10-digit number starting with 9', '9 बाट सुरु हुने 10 अंकको नम्बर')}
+                  placeholder={translate('10 digits starting with 97 or 98', '97 वा 98 बाट सुरु हुने 10 अंक')}
                   value={phone}
                   onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setFieldErrors(prev => ({ ...prev, phone: '' })); }}
                   className={inputClass}
                   inputMode="numeric"
                   maxLength={10}
+                  pattern="^(97|98)[0-9]{8}$"
                 />
                 {fieldErrors.phone && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.phone}</p>}
               </div>

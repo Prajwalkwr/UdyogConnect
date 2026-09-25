@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCreditCard, FiCheckCircle, FiTag, FiX } from 'react-icons/fi';
+import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCheckCircle, FiTag, FiX } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
-import { isValidNepalPhone } from '../utils/authFlow';
 import { validateCheckoutForm } from '../utils/validation';
+import { NEPAL_PLACES } from '../utils/nepalPlaces';
 
 export default function CartCheckout({
   cart,
@@ -23,18 +23,13 @@ export default function CartCheckout({
 
   // Form State
   const [deliveryMethod, setDeliveryMethod] = useState('delivery'); // 'delivery' | 'pickup'
-  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'Card' | 'QR'
+  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'QR'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
   const [address, setAddress] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
-
-  // Card fields
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvc, setCardCvc] = useState('');
 
   // QR Modal
   const [showQrModal, setShowQrModal] = useState(false);
@@ -49,9 +44,10 @@ export default function CartCheckout({
 
   useEffect(() => {
     if (user) {
-      setName(user.name || '');
+      const cleanedName = String(user.name || '').replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ').trim();
+      setName(cleanedName);
       setEmail(user.email || '');
-      setPhone(user.phone || '');
+      setPhone(String(user.phone || '').replace(/\D/g, '').slice(0, 10));
       if (user.addresses && user.addresses.length > 0) {
         setLocation(user.addresses[0].location || '');
         setAddress(user.addresses[0].address || '');
@@ -133,19 +129,20 @@ export default function CartCheckout({
     if (cart.length === 0) return;
     setFieldErrors({});
 
-    const validation = validateCheckoutForm({ fullName: name, phone, address, city: location });
+    const validation = validateCheckoutForm({
+      fullName: name,
+      email,
+      phone,
+      address,
+      city: location,
+      deliveryMethod,
+    });
     if (!validation.isValid) {
       setFieldErrors(validation.errors);
       return;
     }
 
     if (!submitGuard.begin()) return;
-
-    if (paymentMethod === 'Card' && (!cardNumber || !cardExpiry || !cardCvc)) {
-      Swal.fire({ icon: 'error', text: 'Please fill credit/debit card information.' });
-      submitGuard.finish();
-      return;
-    }
 
     if (paymentMethod === 'QR' && !showQrModal) {
       setShowQrModal(true);
@@ -172,17 +169,6 @@ export default function CartCheckout({
       );
 
       const placedOrder = response.data.order;
-
-      // For card payments, create a Stripe Checkout session and redirect the user.
-      if (paymentMethod === 'Card') {
-        const sessResp = await api.post('/api/payment/create-session', { orderId: placedOrder._id });
-        if (sessResp.data && sessResp.data.url) {
-          // Redirect to Stripe Checkout
-          window.location.href = sessResp.data.url;
-          return;
-        }
-        throw new Error('Failed to initiate card payment.');
-      }
 
       // QR simulated validation (instant)
       if (paymentMethod === 'QR') {
@@ -304,9 +290,15 @@ export default function CartCheckout({
                   <div>
                     <input
                       type="text"
-                      placeholder={translate('Full Name', 'पूरा नाम')}
+                      required
+                      autoComplete="name"
+                      placeholder={translate('Full Name *', 'पूरा नाम *')}
                       value={name}
-                      onChange={(e) => { setName(e.target.value); setFieldErrors(prev => ({ ...prev, name: '' })); }}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ');
+                        setName(cleaned);
+                        setFieldErrors((prev) => ({ ...prev, name: '' }));
+                      }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
                     />
                     {fieldErrors.name && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.name}</span>}
@@ -314,7 +306,9 @@ export default function CartCheckout({
                   <div>
                     <input
                       type="email"
-                      placeholder="Email"
+                      required
+                      autoComplete="email"
+                      placeholder="Email *"
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })); }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
@@ -327,9 +321,17 @@ export default function CartCheckout({
                   <div>
                     <input
                       type="tel"
-                      placeholder={translate('Phone Number', 'फोन नम्बर')}
+                      required
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      maxLength={10}
+                      placeholder={translate('Phone Number *', 'फोन नम्बर *')}
                       value={phone}
-                      onChange={(e) => { setPhone(e.target.value); setFieldErrors(prev => ({ ...prev, phone: '' })); }}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setPhone(digits);
+                        setFieldErrors((prev) => ({ ...prev, phone: '' }));
+                      }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
                     />
                     {fieldErrors.phone && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.phone}</span>}
@@ -337,11 +339,19 @@ export default function CartCheckout({
                   <div>
                     <input
                       type="text"
-                      placeholder={translate('Location / City', 'स्थान / शहर')}
+                      required
+                      list="nepal-places-list"
+                      autoComplete="address-level2"
+                      placeholder={translate('Location / City * (Nepal)', 'स्थान / शहर * (नेपाल)')}
                       value={location}
                       onChange={(e) => { setLocation(e.target.value); setFieldErrors(prev => ({ ...prev, city: '' })); }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
                     />
+                    <datalist id="nepal-places-list">
+                      {NEPAL_PLACES.map((place) => (
+                        <option key={place} value={place} />
+                      ))}
+                    </datalist>
                     {fieldErrors.city && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.city}</span>}
                   </div>
                 </div>
@@ -350,7 +360,9 @@ export default function CartCheckout({
                   <div className="mt-4">
                     <input
                       type="text"
-                      placeholder={translate('Street Address / Landmark', 'सडक ठेगाना / स्थलचिन्ह')}
+                      required
+                      autoComplete="street-address"
+                      placeholder={translate('Street Address / Landmark *', 'सडक ठेगाना / स्थलचिन्ह *')}
                       value={address}
                       onChange={(e) => { setAddress(e.target.value); setFieldErrors(prev => ({ ...prev, address: '' })); }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
@@ -394,7 +406,6 @@ export default function CartCheckout({
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {[
                       { value: 'COD', label: 'Cash / COD' },
-                      { value: 'Card', label: 'Credit Card' },
                       { value: 'QR', label: 'QR Scan' },
                     ].map((pay) => (
                       <button
@@ -409,40 +420,6 @@ export default function CartCheckout({
                     ))}
                   </div>
                 </div>
-
-                {paymentMethod === 'Card' && (
-                  <div className="mt-5 rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] p-4 space-y-3">
-                    <div className="relative">
-                      <FiCreditCard className="absolute left-3 top-3 text-slate-500" />
-                      <input
-                        type="text"
-                        placeholder="Card Number"
-                        maxLength="16"
-                        value={cardNumber}
-                        onChange={(e) => setCardNumber(e.target.value)}
-                        className="w-full rounded-xl border border-[#e8dfd0] bg-white py-2 pl-9 pr-3 text-xs text-[#1a1a2e] placeholder:text-slate-400"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        placeholder="MM/YY"
-                        maxLength="5"
-                        value={cardExpiry}
-                        onChange={(e) => setCardExpiry(e.target.value)}
-                        className="w-full rounded-xl border border-[#e8dfd0] bg-white py-2 px-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 text-center"
-                      />
-                      <input
-                        type="password"
-                        placeholder="CVC"
-                        maxLength="3"
-                        value={cardCvc}
-                        onChange={(e) => setCardCvc(e.target.value)}
-                        className="w-full rounded-xl border border-[#e8dfd0] bg-white py-2 px-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 text-center"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 <div className="mt-5 rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] p-4 text-xs text-slate-500 space-y-2">
                   <div className="flex justify-between">

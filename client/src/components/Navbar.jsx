@@ -6,7 +6,7 @@ import {
   FiHeart, FiStar, FiMapPin, FiCreditCard, FiUsers,
   FiPackage, FiTrendingUp, FiFileText, FiBriefcase,
   FiHome, FiMenu, FiX, FiChevronDown, FiZap, FiAward,
-  FiTag, FiTruck
+  FiTag, FiTruck, FiMic
 } from 'react-icons/fi';
 import { getDashboardLabel } from '../utils/authFlow';
 
@@ -57,10 +57,13 @@ const sellerNav = [
 const customerNav = [
   { key: 'dashboard', label: 'Dashboard', icon: FiGrid },
   { key: 'orders', label: 'My Orders', icon: FiShoppingBag },
-  { key: 'cart', label: 'My Cart', icon: FiShoppingCart, countKey: 'cartCount' },
+  { key: 'cart', label: 'My Cart', icon: FiShoppingCart, countKey: 'cartCount', badgeTone: 'danger' },
+  { key: 'wishlist', label: 'Wishlist', icon: FiHeart, countKey: 'wishlistCount', badgeTone: 'danger' },
   { key: 'saved', label: 'Saved Businesses', icon: FiStar },
-  { key: 'reviews', label: 'Reviews', icon: FiStar },
-  { key: 'profile', label: 'Settings', icon: FiSettings },
+  { key: 'reviews', label: 'Reviews & Ratings', icon: FiAward },
+  { key: 'wallet', label: 'My Wallet', icon: FiCreditCard },
+  { key: 'addresses', label: 'Addresses', icon: FiMapPin },
+  { key: 'settings', label: 'Settings', icon: FiSettings },
 ];
 
 const adminNav = [
@@ -123,76 +126,108 @@ export default function Navbar({
 
   const navItems = getNavItems();
 
-  // ── If NOT on a dashboard route, render a light top navbar ──
+  const openHomeOrDashboard = () => {
+    if (!user || user.role === 'customer') onOpenDashboard('home');
+    else onOpenDashboard('dashboard');
+  };
+
+  const openAccountArea = () => {
+    if (!user) {
+      onOpenAuth?.('login');
+      return;
+    }
+    if (user.role === 'customer') onOpenDashboard('account');
+    else onOpenDashboard('dashboard');
+  };
+
+  // ── If NOT on a dashboard route, render marketplace-style top navbar ──
   if (!isDashboardRoute || !user) {
     return (
-      <header className="sticky top-0 z-40 bg-[#0B1A30] text-white shadow-md border-b border-[#0B1A30]">
-        <div className="public-nav-row mx-auto flex h-[76px] max-w-[1480px] items-center justify-between gap-3 px-3 sm:px-4 lg:px-6">
+      <header className="sticky top-0 z-40 border-b border-[#D9CFC0] bg-[#F7F1E8]/95 text-[#2C2118] shadow-[0_4px_24px_rgba(44,33,24,0.06)] backdrop-blur-md">
+        <div className="public-nav-row mx-auto flex h-[76px] w-full items-center justify-between gap-3 px-3 sm:px-5 lg:px-8">
           <button
-            onClick={() => onOpenDashboard(user ? 'dashboard' : 'home')}
+            onClick={openHomeOrDashboard}
             className="flex items-center gap-3 rounded-full bg-transparent p-0 text-left cursor-pointer"
             aria-label="UdyogConnect home"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#F2B71D] to-[#E0A615] text-[#0B1A30] shadow-md shadow-[#F2B71D]/10">
-              <FiHome className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#5C3D2E] text-[#F7F1E8] shadow-sm">
+              <FiShoppingBag className="h-5 w-5" />
             </div>
             <div className="public-nav-brand leading-none">
-              <div className="text-[1.15rem] font-black tracking-[-0.02em] text-[#F2B71D]">UdyogConnect</div>
-              <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em] text-[#A0A3BD]">Shop Local • Support Local</div>
+              <div className="text-[1.35rem] font-semibold tracking-[-0.02em] text-[#5C3D2E]" style={{ fontFamily: 'var(--font-display)' }}>UdyogConnect</div>
+              <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-[#7A6A5C]">Shop Local • Support Local</div>
             </div>
           </button>
 
-          <nav className="public-nav-links hidden items-center gap-5 lg:flex" aria-label="Primary navigation">
-            {['Home', 'Businesses', 'Products', 'Services', 'About', 'Contact'].map((item) => (
-              <button key={item} type="button" onClick={() => item === 'Home' ? onOpenDashboard(user ? 'dashboard' : 'home') : document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' })} className="border-0 bg-transparent text-[11px] font-semibold text-white/80 transition hover:text-[#F2B71D] cursor-pointer">{item}</button>
+          <nav className="public-nav-links hidden items-center gap-6 xl:flex" aria-label="Primary navigation">
+            {['Home', 'Businesses', 'Products', 'Community', 'Contact'].map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => {
+                  if (item === 'Home') openHomeOrDashboard();
+                  else document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="border-0 bg-transparent text-[13px] font-medium text-[#3F2A1F] transition hover:text-[#C9A227] cursor-pointer"
+              >
+                {item}
+              </button>
             ))}
           </nav>
 
-          <div className="hidden flex-1 justify-center md:flex px-4 xl:px-6">
-            <div className="relative w-full max-w-[550px]">
-              <FiSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8] h-4 w-4" />
+          <div className="hidden flex-1 justify-center md:flex px-3 xl:px-5 max-w-md lg:max-w-lg">
+            <div className="relative w-full">
+              <FiSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7A6A5C] h-4 w-4" />
               <input
                 type="text"
-                placeholder={translate('Search products, services or businesses...', 'उत्पादन, सेवा वा पसल खोज्नुहोस्...')}
-                className="w-full rounded-lg border border-[#1E293B] bg-[#101E35] py-2.5 pl-11 pr-4 text-sm text-white placeholder:text-[#94A3B8] outline-none transition focus:border-[#F2B71D] focus:ring-1 focus:ring-[#F2B71D]"
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && onSearch) {
+                    onSearch(globalSearch);
+                    openHomeOrDashboard();
+                  }
+                }}
+                placeholder={translate('Search...', 'खोज्नुहोस्...')}
+                className="w-full rounded-full border border-[#D9CFC0] bg-white py-2.5 pl-11 pr-11 text-sm text-[#2C2118] placeholder:text-[#9A8B7C] outline-none transition focus:border-[#C9A227] focus:ring-1 focus:ring-[#C9A227]/40"
               />
+              <FiMic className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[#7A6A5C] h-4 w-4" />
             </div>
           </div>
 
-          <div className="public-nav-actions flex items-center gap-3 sm:gap-4">
+          <div className="public-nav-actions flex items-center gap-2 sm:gap-3">
             <button
               onClick={() => setLang(lang === 'en' ? 'ne' : 'en')}
-              className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#101E35] px-3 py-2 text-xs font-semibold text-[#F2B71D] transition hover:bg-[#1E293B] cursor-pointer"
+              className="hidden sm:flex items-center gap-1 rounded-full border border-[#D9CFC0] bg-white px-3 py-2 text-xs font-semibold text-[#5C3D2E] transition hover:border-[#C9A227] cursor-pointer"
             >
               <FiGlobe className="h-3.5 w-3.5" />
               <span>{lang === 'en' ? 'EN' : 'ने'}</span>
-              <FiChevronDown className="h-3 w-3 text-white/50" />
             </button>
 
             <div className="relative">
               <button
                 onClick={() => { setShowNotifMenu(!showNotifMenu); setShowProfileMenu(false); }}
-                className="relative rounded-lg border border-[#1E293B] bg-[#101E35] p-2 text-white transition hover:bg-[#1E293B] cursor-pointer"
+                className="relative rounded-full border border-[#D9CFC0] bg-white p-2.5 text-[#5C3D2E] transition hover:border-[#C9A227] cursor-pointer"
                 aria-label="Notifications"
               >
-                <FiBell className="h-4.5 w-4.5 text-white" />
+                <FiBell className="h-4 w-4" />
                 {unreadNotifs.length > 0 ? (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E0A615] px-1 text-[8px] font-bold text-[#0B1A30]">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-white">
                     {unreadNotifs.length}
                   </span>
                 ) : null}
               </button>
 
               {showNotifMenu && (
-                <div className="absolute right-0 top-full mt-3 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border border-[#F0EAD6] bg-white text-[#0B1A30] shadow-xl z-50 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-[#FFFBF0]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                <div className="absolute right-0 top-full mt-3 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border border-[#D9CFC0] bg-white text-[#2C2118] shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#EFE8DE] bg-[#F7F1E8]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A6A5C]">
                       {translate('Notifications', 'सूचनाहरू')}
                     </span>
                     {unreadNotifs.length > 0 && (
                       <button
                         onClick={onClearNotifications}
-                        className="text-[10px] font-bold text-[#E0A615] hover:text-[#0B1A30] bg-transparent border-none cursor-pointer"
+                        className="text-[10px] font-bold text-[#C9A227] hover:text-[#5C3D2E] bg-transparent border-none cursor-pointer"
                       >
                         {translate('Mark read', 'पढिएको')}
                       </button>
@@ -200,19 +235,19 @@ export default function Navbar({
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {safeNotifications.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-xs text-gray-400">
+                      <div className="px-4 py-8 text-center text-xs text-[#9A8B7C]">
                         {translate('No new notifications', 'कुनै नयाँ सूचना छैन')}
                       </div>
                     ) : (
                       safeNotifications.map((notif) => (
                         <div
                           key={notif._id}
-                          className={`px-4 py-2.5 border-b border-gray-50 last:border-none transition hover:bg-gray-50 ${
-                            !notif.read ? 'bg-[#FFFBF0]' : ''
+                          className={`px-4 py-2.5 border-b border-[#F3EDE3] last:border-none transition hover:bg-[#F7F1E8] ${
+                            !notif.read ? 'bg-[#FFF8E8]' : ''
                           }`}
                         >
-                          <p className="text-xs font-bold text-[#0B1A30]">{notif.title}</p>
-                          <p className="text-[10px] text-gray-500 mt-0.5">{notif.message}</p>
+                          <p className="text-xs font-bold text-[#2C2118]">{notif.title}</p>
+                          <p className="text-[10px] text-[#7A6A5C] mt-0.5">{notif.message}</p>
                         </div>
                       ))
                     )}
@@ -223,12 +258,12 @@ export default function Navbar({
 
             <button
               onClick={() => onOpenDashboard('checkout')}
-              className="relative rounded-lg border border-[#1E293B] bg-[#101E35] p-2 text-white transition hover:bg-[#1E293B] cursor-pointer"
+              className="relative rounded-full border border-[#D9CFC0] bg-white p-2.5 text-[#5C3D2E] transition hover:border-[#C9A227] cursor-pointer"
               aria-label="Cart"
             >
-              <FiShoppingCart className="h-4.5 w-4.5 text-white" />
+              <FiShoppingCart className="h-4 w-4" />
               {cartCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F2B71D] px-1 text-[8px] font-bold text-[#0B1A30]">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-white">
                   {cartCount}
                 </span>
               )}
@@ -236,10 +271,10 @@ export default function Navbar({
 
             {user ? (
               <button
-                onClick={() => onOpenDashboard('dashboard')}
-                className="flex items-center gap-2 rounded-lg border border-[#1E293B] bg-[#101E35] px-2.5 py-1.5 text-left transition hover:bg-[#1E293B] cursor-pointer"
+                onClick={openAccountArea}
+                className="flex items-center gap-2 rounded-full border border-[#D9CFC0] bg-white px-2.5 py-1.5 text-left transition hover:border-[#C9A227] cursor-pointer"
               >
-                <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#F2B71D] to-[#E0A615] text-xs font-bold text-[#0B1A30]">
+                <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-[#5C3D2E] text-xs font-bold text-white">
                   {user?.profilePicture ? (
                     <img src={user.profilePicture} alt={displayName} className="h-full w-full object-cover" />
                   ) : (
@@ -247,37 +282,70 @@ export default function Navbar({
                   )}
                 </div>
                 <div className="hidden sm:block">
-                  <div className="text-[10px] font-bold text-white">{displayFirstName}</div>
-                  <div className="text-[8px] text-[#A0A3BD]">{roleLabel}</div>
+                  <div className="text-[10px] font-bold text-[#2C2118]">{displayFirstName}</div>
+                  <div className="text-[8px] text-[#7A6A5C]">{roleLabel}</div>
                 </div>
               </button>
             ) : (
               <div className="hidden items-center gap-2 sm:flex">
-                <button onClick={() => onOpenAuth('login')} className="rounded-lg border border-[#526783] bg-transparent px-4 py-2 text-[11px] font-bold text-white transition hover:border-[#F2B71D] cursor-pointer">Login</button>
-                <button onClick={() => onOpenAuth('signup')} className="rounded-lg bg-[#F2B71D] px-4 py-2 text-[11px] font-bold text-[#0B1A30] transition hover:bg-[#E0A615] cursor-pointer">Register</button>
+                <button
+                  onClick={() => onOpenAuth('signup')}
+                  className="rounded-full bg-[#C9A227] px-5 py-2.5 text-[12px] font-bold text-white shadow-sm transition hover:bg-[#B8921F] cursor-pointer"
+                >
+                  Register
+                </button>
+                <button
+                  onClick={() => onOpenAuth('login')}
+                  className="rounded-full bg-[#5C3D2E] px-5 py-2.5 text-[12px] font-bold text-white transition hover:bg-[#3F2A1F] cursor-pointer"
+                >
+                  Login
+                </button>
               </div>
             )}
-            <button type="button" onClick={() => setPublicMenuOpen(!publicMenuOpen)} className="flex rounded-lg border border-[#2D496E] bg-[#102744] p-2 text-white lg:hidden" aria-label="Open navigation"><FiMenu /></button>
+            <button type="button" onClick={() => setPublicMenuOpen(!publicMenuOpen)} className="flex rounded-full border border-[#D9CFC0] bg-white p-2.5 text-[#5C3D2E] xl:hidden" aria-label="Open navigation"><FiMenu /></button>
           </div>
         </div>
 
         {publicMenuOpen && (
-          <nav className="border-t border-[#1E3553] bg-[#0B1A30] px-4 py-3 lg:hidden" aria-label="Mobile navigation">
+          <nav className="border-t border-[#D9CFC0] bg-[#F7F1E8] px-4 py-3 xl:hidden" aria-label="Mobile navigation">
             <div className="grid grid-cols-2 gap-2">
-              {['Home', 'Businesses', 'Products', 'Services', 'About', 'Contact'].map((item) => <button key={item} type="button" onClick={() => { setPublicMenuOpen(false); item === 'Home' ? onOpenDashboard(user ? 'dashboard' : 'home') : document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' }); }} className="rounded-lg px-3 py-2 text-left text-xs font-semibold text-white/80 hover:bg-[#102744] hover:text-[#F2B71D]">{item}</button>)}
+              {['Home', 'Businesses', 'Products', 'Community', 'Contact'].map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setPublicMenuOpen(false);
+                    if (item === 'Home') openHomeOrDashboard();
+                    else document.getElementById(item.toLowerCase())?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="rounded-lg px-3 py-2 text-left text-xs font-semibold text-[#3F2A1F] hover:bg-white hover:text-[#C9A227]"
+                >
+                  {item}
+                </button>
+              ))}
             </div>
-            {!user && <div className="mt-2 flex gap-2"><button onClick={() => onOpenAuth('login')} className="flex-1 rounded-lg border border-[#526783] py-2 text-xs font-bold text-white">Login</button><button onClick={() => onOpenAuth('signup')} className="flex-1 rounded-lg bg-[#F2B71D] py-2 text-xs font-bold text-[#0B1A30]">Register</button></div>}
+            {!user && (
+              <div className="mt-2 flex gap-2">
+                <button onClick={() => onOpenAuth('signup')} className="flex-1 rounded-full bg-[#C9A227] py-2 text-xs font-bold text-white">Register</button>
+                <button onClick={() => onOpenAuth('login')} className="flex-1 rounded-full bg-[#5C3D2E] py-2 text-xs font-bold text-white">Login</button>
+              </div>
+            )}
           </nav>
         )}
 
-        <div className="border-t border-[#1E293B] bg-[#0B1A30] md:hidden">
-          <div className="mx-auto max-w-[1480px] px-3 py-2.5">
+        <div className="border-t border-[#D9CFC0] bg-[#F7F1E8] md:hidden">
+          <div className="px-3 py-2.5">
             <div className="relative">
-              <FiSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8] h-4 w-4" />
+              <FiSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7A6A5C] h-4 w-4" />
               <input
                 type="text"
-                placeholder={translate('Search products, services...', 'उत्पादन, सेवा खोज्नुहोस्...')}
-                className="w-full rounded-lg border border-[#1E293B] bg-[#101E35] py-2.5 pl-11 pr-4 text-sm text-white placeholder:text-[#94A3B8] outline-none"
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && onSearch) onSearch(globalSearch);
+                }}
+                placeholder={translate('Search...', 'खोज्नुहोस्...')}
+                className="w-full rounded-full border border-[#D9CFC0] bg-white py-2.5 pl-11 pr-4 text-sm text-[#2C2118] placeholder:text-[#9A8B7C] outline-none"
               />
             </div>
           </div>
@@ -303,7 +371,7 @@ export default function Navbar({
         {/* Logo */}
         <div style={{ padding: '20px 20px 8px' }}>
           <button
-            onClick={() => onOpenDashboard(user ? 'dashboard' : 'home')}
+            onClick={openHomeOrDashboard}
             style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: 'pointer' }}
           >
             <div style={{
@@ -332,6 +400,11 @@ export default function Navbar({
               <button
                 key={item.key + item.label}
                 onClick={() => {
+                  if (item.key === 'cart') {
+                    onOpenDashboard('checkout');
+                    setMobileMenuOpen(false);
+                    return;
+                  }
                   if (onTabChange) onTabChange(item.key);
                   setMobileMenuOpen(false);
                 }}
@@ -362,8 +435,10 @@ export default function Navbar({
                 {count != null && count > 0 && (
                   <span style={{
                     minWidth: 22, height: 20, borderRadius: 10,
-                    background: isActive ? 'rgba(26,26,46,0.15)' : 'rgba(242,183,29,0.15)',
-                    color: isActive ? '#1A1A2E' : '#F2B71D',
+                    background: item.badgeTone === 'danger'
+                      ? (isActive ? 'rgba(220,38,38,0.9)' : '#EF4444')
+                      : (isActive ? 'rgba(26,26,46,0.15)' : 'rgba(242,183,29,0.15)'),
+                    color: item.badgeTone === 'danger' ? '#FFFFFF' : (isActive ? '#1A1A2E' : '#F2B71D'),
                     fontSize: 11, fontWeight: 700,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     padding: '0 6px',
@@ -374,7 +449,32 @@ export default function Navbar({
           })}
         </nav>
 
-        {/* Go Premium Card */}
+        {/* Customer promo / Seller premium */}
+        {user?.role === 'customer' && (
+          <div style={{
+            margin: '0 12px 12px', padding: '14px',
+            borderRadius: 16, background: 'linear-gradient(160deg, #152946, #0B1A30)',
+            border: '1px solid rgba(242,183,29,0.22)',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', marginBottom: 4, lineHeight: 1.3 }}>
+              Support Local<br />Grow Together
+            </div>
+            <div style={{ fontSize: 11, color: '#A0A3BD', lineHeight: 1.45, marginBottom: 12 }}>
+              Discover nearby shops and help your community thrive.
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDashboard('home')}
+              style={{
+                width: '100%', padding: '9px 0', borderRadius: 10,
+                background: '#F2B71D', color: '#1A1A2E', border: 'none',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Explore Businesses →
+            </button>
+          </div>
+        )}
         {user?.role === 'seller' && (
           <div style={{
             margin: '0 12px 12px', padding: '16px',
@@ -446,24 +546,54 @@ export default function Navbar({
         </button>
 
         {/* Search */}
-        <div style={{ flex: 1, maxWidth: 520 }} className="hidden lg:block">
-          <div style={{ position: 'relative' }}>
-            <FiSearch style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
-            <input
-              type="text"
-              placeholder={translate('Search users, businesses...', 'प्रयोगकर्ता, व्यवसाय खोज्नुहोस्...')}
-              value={globalSearch}
-              onChange={(event) => setGlobalSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') onSearch?.(globalSearch);
-              }}
-              className="dashboard-global-search"
-              style={{
-                width: '100%', borderRadius: 9999, border: '1px solid #CBD5E1',
-                background: '#FFFFFF', padding: '11px 16px 11px 40px',
-                fontSize: 13, color: '#102341', outline: 'none',
-              }}
-            />
+        <div style={{ flex: 1, maxWidth: user?.role === 'customer' ? 720 : 520 }} className="hidden lg:block">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <FiSearch style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+              <input
+                type="text"
+                placeholder={user?.role === 'customer'
+                  ? translate('Search for products, services or businesses...', 'उत्पादन, सेवा वा व्यवसाय खोज्नुहोस्...')
+                  : translate('Search users, businesses...', 'प्रयोगकर्ता, व्यवसाय खोज्नुहोस्...')}
+                value={globalSearch}
+                onChange={(event) => setGlobalSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onSearch?.(globalSearch);
+                }}
+                className="dashboard-global-search"
+                style={{
+                  width: '100%', borderRadius: 12, border: '1px solid #E5E7EB',
+                  background: '#FFFFFF', padding: '11px 16px 11px 40px',
+                  fontSize: 13, color: '#102341', outline: 'none',
+                }}
+              />
+            </div>
+            {user?.role === 'customer' && (
+              <>
+                <select
+                  defaultValue="all"
+                  aria-label="Categories"
+                  style={{
+                    borderRadius: 12, border: '1px solid #E5E7EB', background: '#FFFFFF',
+                    padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#334155', outline: 'none',
+                  }}
+                >
+                  <option value="all">All Categories</option>
+                  <option value="grocery">Grocery</option>
+                  <option value="food">Food & Beverages</option>
+                  <option value="fashion">Fashion</option>
+                  <option value="electronics">Electronics</option>
+                </select>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6, borderRadius: 12,
+                  border: '1px solid #E5E7EB', background: '#FFFFFF', padding: '10px 12px',
+                  fontSize: 12, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap',
+                }}>
+                  <FiMapPin style={{ color: '#F2B71D', width: 14, height: 14 }} />
+                  Kathmandu, Nepal
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -619,7 +749,7 @@ export default function Navbar({
                 </div>
                 <div style={{ padding: 4 }}>
                   <button
-                    onClick={() => { setShowProfileMenu(false); onOpenDashboard('dashboard'); }}
+                    onClick={() => { setShowProfileMenu(false); openAccountArea(); }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                       padding: '10px 12px', borderRadius: 10,

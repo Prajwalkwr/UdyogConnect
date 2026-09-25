@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { FiSearch, FiMic, FiSliders, FiMapPin, FiStar, FiClock, FiShoppingBag, FiTruck, FiGift, FiChevronRight, FiGrid, FiArrowRight, FiPercent, FiZap, FiAward, FiCheckCircle, FiBriefcase, FiTrendingUp, FiHeart, FiHome, FiPackage, FiUser } from 'react-icons/fi';
+import {
+  FiSearch, FiMic, FiMapPin, FiStar, FiClock, FiHeart, FiHome,
+  FiArrowRight, FiCheckCircle, FiUser, FiShoppingBag,
+} from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { matchesSearchQuery } from '../utils/search';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
+
+const HERO_IMAGE =
+  'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=2000&q=80';
+
+const FALLBACK_IMAGES = [
+  'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80',
+  'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=900&q=80',
+  'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=900&q=80',
+  'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=900&q=80',
+];
 
 export default function Marketplace({
   user,
@@ -17,20 +30,42 @@ export default function Marketplace({
   onToggleWishlist,
   initialCategory = 'All',
   initialSearchQuery = '',
+  catalogStatus = 'ready',
+  onRetryCatalog,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTrigger, setSearchTrigger] = useState('');
+  const [locationQuery, setLocationQuery] = useState('Kathmandu, Nepal');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [showFilters, setShowFilters] = useState(false);
-  const [distanceFilter, setDistanceFilter] = useState(15); // max km
-  const [minRating, setMinRating] = useState(0);
-  const [openNow, setOpenNow] = useState(false);
-  const [deliveryOnly, setDeliveryOnly] = useState(false);
-  const [sortBy, setSortBy] = useState('popular'); // 'popular' | 'price' | 'distance' | 'newest'
+  const [distanceFilter] = useState(50);
+  const [minRating] = useState(0);
+  const [openNow] = useState(false);
+  const [deliveryOnly] = useState(false);
+  const [sortBy] = useState('popular');
   const [isListening, setIsListening] = useState(false);
   const [aiRecs, setAiRecs] = useState({ businesses: [], products: [] });
   const [customerReviews, setCustomerReviews] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [timeLeft, setTimeLeft] = useState('07:24:07');
+  const [dealTimers, setDealTimers] = useState({});
+
+  const translate = (enText, neText) => (lang === 'en' ? enText : neText);
+
+  const isWishlisted = (type, id) => {
+    const items = user?.wishlist?.[type];
+    return Array.isArray(items) && items.some((item) => String(item?._id || item?.id || item) === String(id));
+  };
+
+  const categories = [
+    { name: 'Grocery', icon: '🍎' },
+    { name: 'Restaurants', icon: '🍴' },
+    { name: 'Electronics', icon: '⚡' },
+    { name: 'Clothing', icon: '👗' },
+    { name: 'Pharmacy', icon: '💊' },
+    { name: 'Beauty Salon', icon: '✂️' },
+    { name: 'Gym', icon: '🏋️' },
+    { name: 'Hotels', icon: '🛏️' },
+    { name: 'Home Services', icon: '🛋️', label: 'Home' },
+  ];
 
   useEffect(() => {
     const categoryAliases = {
@@ -50,139 +85,30 @@ export default function Marketplace({
     setSearchTrigger(query);
   }, [initialSearchQuery]);
 
-  // Countdown timer for Flash Sales
-  const [timeLeft, setTimeLeft] = useState('');
-
-  const translate = (enText, neText) => {
-    return lang === 'en' ? enText : neText;
-  };
-
-  const isWishlisted = (type, id) => {
-    const items = user?.wishlist?.[type];
-    return Array.isArray(items) && items.some((item) => String(item?._id || item?.id || item) === String(id));
-  };
-
-  const categories = [
-    { name: 'All', icon: <FiGrid /> },
-    { name: 'Grocery', icon: '🛒' },
-    { name: 'Restaurants', icon: '🍔' },
-    { name: 'Electronics', icon: '💻' },
-    { name: 'Clothing', icon: '👕' },
-    { name: 'Pharmacy', icon: '💊' },
-    { name: 'Beauty Salon', icon: '💇' },
-    { name: 'Gym', icon: '🏋️' },
-    { name: 'Hotels', icon: '🏨' },
-    { name: 'Home Services', icon: '🧹' },
-    { name: 'Mechanics', icon: '🔧' },
-    { name: 'Mobile Repair', icon: '📱' },
-    { name: 'Laundry', icon: '🧺' },
-    { name: 'Furniture', icon: '🪑' },
-    { name: 'Bakery', icon: '🍞' },
-    { name: 'Gift Shop', icon: '🎁' }
-  ];
-
-  // Speech Recognition voice search handler
-  const handleVoiceSearch = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      Swal.fire({
-        icon: 'error',
-        title: translate('Voice Search Unsuitable', 'आवाज खोजी अनुपयुक्त'),
-        text: translate('Your current browser doesn\'t support speech recognition.', 'तपाईंको ब्राउजरले आवाज पहिचान समर्थन गर्दैन।'),
-      });
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang === 'en' ? 'en-US' : 'ne-NP';
-    recognition.onstart = () => {
-      setIsListening(true);
-      Swal.fire({
-        title: translate('Listening...', 'सुन्दैछ...'),
-        text: translate('Say business name or category', 'पसलको नाम वा विधा बोल्नुहोस्'),
-        showConfirmButton: false,
-        didOpen: () => {
-          Swal.showLoading();
-        }
-      });
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      Swal.close();
-    };
-
-    recognition.onresult = (event) => {
-      const result = event.results[0][0].transcript;
-      triggerSearch(result);
-      Swal.fire({
-        icon: 'success',
-        title: translate('Captured Query', 'खोजी शब्द प्राप्त भयो'),
-        text: `"${result}"`,
-        timer: 1500,
-        showConfirmButton: false,
-      });
-    };
-
-    recognition.start();
-  };
-
-  // Image search simulation
-  const handleImageSearch = () => {
-    Swal.fire({
-      title: translate('Image Product Search', 'तस्विर मार्फत खोज्नुहोस्'),
-      text: translate('Upload or drag in an image of a local craft, food, or item to recognize it.', 'सामानको तस्विर हालेर खोज्नुहोस्।'),
-      input: 'file',
-      inputAttributes: {
-        accept: 'image/*',
-        'aria-label': 'Upload product image'
-      },
-      showCancelButton: true,
-      confirmButtonText: translate('Search', 'खोज्नुहोस्'),
-      confirmButtonColor: '#fbbf24',
-    }).then((result) => {
-      if (result.value) {
-        // Mock search analysis
-        Swal.fire({
-          icon: 'success',
-          title: translate('Match Found!', 'नतिजा फेला पर्यो!'),
-          text: translate('Matched with local artisan "Sunar Craft House" items.', '"Sunar Craft House" का सामानहरूसँग मेल खायो।'),
-        });
-        triggerSearch('basket');
-      }
-    });
-  };
-
-  // Countdown clock effect
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
       const midnight = new Date();
-      midnight.setHours(24, 0, 0, 0); // Next midnight
+      midnight.setHours(24, 0, 0, 0);
       const diff = midnight - now;
-
       const hrs = Math.floor(diff / (1000 * 60 * 60));
       const mins = Math.floor((diff / (1000 * 60)) % 60);
       const secs = Math.floor((diff / 1000) % 60);
-
-      setTimeLeft(`${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      setTimeLeft(
+        `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      );
     }, 1000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // Retrieve AI Recommendations only for authenticated users
   useEffect(() => {
     if (!user) {
       setAiRecs({ businesses: [], products: [] });
       return;
     }
-
     api.get('/api/ai/recommendations')
-      .then(res => setAiRecs(res.data))
-      .catch(() => {
-        setAiRecs({ businesses: [], products: [] });
-      });
+      .then((res) => setAiRecs(res.data))
+      .catch(() => setAiRecs({ businesses: [], products: [] }));
   }, [user]);
 
   const safeString = (value) => (typeof value === 'string' ? value : '');
@@ -190,611 +116,496 @@ export default function Marketplace({
     const num = Number(value);
     return Number.isFinite(num) ? num : fallback;
   };
-
   const triggerSearch = (value = '') => {
     const nextQuery = String(value ?? '').trim();
     setSearchQuery(nextQuery);
     setSearchTrigger(nextQuery);
-    setShowSuggestions(false);
   };
-
-  const displayPrice = (val) => {
-    return `Rs. ${Number(val || 0).toLocaleString('en-IN')}`;
-  };
-
+  const displayPrice = (val) => `Rs. ${Number(val || 0).toLocaleString('en-IN')}`;
   const safeText = (value, fallback = '') => {
     if (typeof value === 'string' && value.trim().length > 0) return value;
     if (typeof value === 'number') return String(value);
     return fallback;
   };
-
+  const isLiveBusiness = (business) => {
+    if (!business) return false;
+    if (business.approvalStatus === 'approved') return true;
+    if (business.isVerified === true) return true;
+    return business.verified === 'verified';
+  };
   const safeName = (entity) => safeText(entity?.name, 'Unknown');
-  const businessImage = (business) => business?.imageUrl || business?.logoUrl || business?.logo || business?.image || '';
+  const businessImage = (business, index = 0) =>
+    business?.imageUrl || business?.logoUrl || business?.logo || business?.coverUrl || business?.image || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length];
+
   const safeProducts = (Array.isArray(products) ? products : []).filter((p) => {
     const parentBiz = Array.isArray(businesses) ? businesses.find((b) => b._id === p.businessId) : null;
-    return parentBiz && (parentBiz.verified === 'verified' || parentBiz.isVerified === true || parentBiz.verified === true);
+    return isLiveBusiness(parentBiz);
   });
 
-  // Filter for truly popular products: rating >= 4.0, sorted by rating
-  const popularProducts = safeProducts
-    .filter((p) => (p.rating || 0) >= 4.0)
-    .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  const popularProducts = [...safeProducts]
+    .filter((p) => safeNumber(p.discount) > 0 || safeNumber(p.rating) >= 3.5)
+    .sort((a, b) => safeNumber(b.discount) - safeNumber(a.discount) || safeNumber(b.rating) - safeNumber(a.rating));
 
-  const verifiedBusinesses = Array.isArray(businesses)
-    ? businesses.filter((b) => b?.verified === 'verified' || b?.isVerified === true || b?.verified === true)
-    : [];
-  const recommendationBusinesses = user && aiRecs.businesses.length > 0 ? aiRecs.businesses : verifiedBusinesses.slice(0, 3);
+  const verifiedBusinesses = Array.isArray(businesses) ? businesses.filter((b) => isLiveBusiness(b)) : [];
 
   useEffect(() => {
     let active = true;
-
     const refreshReviews = async () => {
-      const reviewGroups = await Promise.all(verifiedBusinesses.map((business) => api.get(`/api/businesses/${business._id}`).then((res) => (
-        (res.data?.reviews || []).map((review) => ({ ...review, businessName: business.name }))
-      )).catch(() => [])));
-      if (active) {
-        const reviews = reviewGroups.flat()
+      try {
+        const response = await api.get('/api/reviews?limit=12');
+        if (!active) return;
+        const reviews = (Array.isArray(response.data) ? response.data : [])
           .filter((review) => safeText(review.comment))
-          .sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
-        setCustomerReviews(reviews.slice(0, 3));
+          .slice(0, 3);
+        setCustomerReviews(reviews);
+      } catch {
+        if (active) setCustomerReviews([]);
       }
     };
-
     refreshReviews();
     window.addEventListener('review-created', refreshReviews);
-    const refreshTimer = setInterval(refreshReviews, 5 * 60 * 1000);
     return () => {
       active = false;
       window.removeEventListener('review-created', refreshReviews);
-      clearInterval(refreshTimer);
     };
-  }, [businesses]);
+  }, []);
+
+  useEffect(() => {
+    const ids = popularProducts.slice(0, 4).map((p) => p._id);
+    setDealTimers((prev) => {
+      const next = { ...prev };
+      ids.forEach((id, i) => {
+        if (!next[id]) {
+          const base = 3 * 3600 + 20 * 60 + 7 - i * 417;
+          next[id] = Math.max(900, base);
+        }
+      });
+      return next;
+    });
+  }, [popularProducts.map((p) => p._id).join(',')]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setDealTimers((prev) => {
+        const next = {};
+        Object.entries(prev).forEach(([key, val]) => {
+          next[key] = Math.max(0, Number(val) - 1);
+        });
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const formatDealTimer = (seconds) => {
+    const total = Math.max(0, Number(seconds) || 0);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${String(h).padStart(2, '0')} : ${String(m).padStart(2, '0')} : ${String(s).padStart(2, '0')}`;
+  };
 
   const activeSearchQuery = searchTrigger || searchQuery;
-  const searchSuggestions = (activeSearchQuery ? [
-    ...verifiedBusinesses
-      .filter((b) => matchesSearchQuery(b, activeSearchQuery, ['name', 'description', 'category', 'location']))
-      .slice(0, 4)
-      .map((b) => ({
-        id: `biz-${b._id}`,
-        type: 'business',
-        label: safeName(b),
-        subtitle: safeText(b?.category, 'Shop'),
-        onSelect: () => {
-          triggerSearch(safeName(b));
-          onOpenBusiness(b._id);
-        },
-      })),
-    ...safeProducts.filter((p) => matchesSearchQuery(p, activeSearchQuery, ['name', 'description', 'brand', 'category'])).slice(0, 4).map((p) => ({
-      id: `prod-${p._id}`,
-      type: 'product',
-      label: safeText(p?.name, 'Product'),
-      subtitle: safeText(p?.brand, 'Product'),
-      onSelect: () => {
-        triggerSearch(safeText(p?.name, ''));
-        onOpenProduct(p._id);
-      },
-    })),
-  ] : []).slice(0, 6);
-
-  // Apply filtering rules client-side (to complement server results)
   let filteredBizs = Array.isArray(businesses) ? [...businesses] : [];
-  // Only show verified businesses to the buyer
-  filteredBizs = filteredBizs.filter(b => b.verified === 'verified' || b.isVerified === true || b.verified === true);
+  filteredBizs = filteredBizs.filter((b) => isLiveBusiness(b));
 
-  // Category
   if (selectedCategory !== 'All') {
-    filteredBizs = filteredBizs.filter(b => safeString(b.category).toLowerCase() === selectedCategory.toLowerCase());
+    const cat = selectedCategory.toLowerCase();
+    filteredBizs = filteredBizs.filter((b) => {
+      const bc = safeString(b.category).toLowerCase();
+      if (cat === 'restaurants') return bc.includes('restaurant') || bc.includes('food');
+      if (cat === 'home services') return bc.includes('home') || bc.includes('service');
+      if (cat === 'beauty salon') return bc.includes('beauty') || bc.includes('health');
+      return bc.includes(cat) || bc === cat;
+    });
   }
 
-  // Text search
   if (activeSearchQuery) {
     filteredBizs = filteredBizs.filter((b) =>
       matchesSearchQuery(b, activeSearchQuery, ['name', 'description', 'category', 'location'])
     );
   }
 
-  // Distance Slider Filter
+  if (locationQuery && locationQuery !== 'Kathmandu, Nepal') {
+    const loc = locationQuery.toLowerCase().replace(', nepal', '').trim();
+    if (loc) {
+      filteredBizs = filteredBizs.filter((b) => safeString(b.location).toLowerCase().includes(loc));
+    }
+  }
+
   filteredBizs = filteredBizs.filter((b) => {
     if (!b?.distance) return true;
     const distanceVal = parseFloat(b.distance);
-    const radiusLimit = Number(b.deliveryRadiusKm || b.radius || 0);
-    const effectiveLimit = radiusLimit > 0 ? Math.min(distanceFilter, radiusLimit) : distanceFilter;
-    if (isNaN(distanceVal)) return true;
-    return distanceVal <= effectiveLimit;
+    if (Number.isNaN(distanceVal)) return true;
+    return distanceVal <= distanceFilter;
   });
 
-  // Rating Filter
-  if (minRating > 0) {
-    filteredBizs = filteredBizs.filter(b => safeNumber(b.rating) >= minRating);
-  }
+  if (minRating > 0) filteredBizs = filteredBizs.filter((b) => safeNumber(b.rating) >= minRating);
+  if (openNow) filteredBizs = filteredBizs.filter((b) => getBusinessAvailabilityMeta(b).isOpen);
+  if (deliveryOnly) filteredBizs = filteredBizs.filter((b) => b.deliveryAvailable !== false);
 
-  // Open Now / delivery filter
-  if (openNow) {
-    filteredBizs = filteredBizs.filter((b) => getBusinessAvailabilityMeta(b).isOpen);
-  }
-
-  if (deliveryOnly) {
-    filteredBizs = filteredBizs.filter((b) => getBusinessAvailabilityMeta(b).deliveryAvailable);
-  }
-
-  // Sorting
   filteredBizs.sort((a, b) => {
-    if (sortBy === 'popular') return b.rating - a.rating;
+    if (sortBy === 'popular') return safeNumber(b.rating) - safeNumber(a.rating);
     if (sortBy === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
-    if (sortBy === 'distance') {
-      const d1 = parseFloat(a.distance) || 0;
-      const d2 = parseFloat(b.distance) || 0;
-      return d1 - d2;
-    }
     return 0;
   });
 
-  const [hr, min, sec] = (timeLeft || '05:40:04').split(':');
+  const featured = filteredBizs[0];
+  const gridBizs = filteredBizs.slice(1, 4);
+  const dealProducts = (popularProducts.length ? popularProducts : safeProducts).slice(0, 4);
+
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      Swal.fire({
+        icon: 'error',
+        title: translate('Voice Search Unavailable', 'आवाज खोजी अनुपलब्ध'),
+        text: translate("Your browser doesn't support speech recognition.", 'तपाईंको ब्राउजरले आवाज पहिचान समर्थन गर्दैन।'),
+      });
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'en' ? 'en-US' : 'ne-NP';
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event) => {
+      const result = event.results[0][0].transcript;
+      triggerSearch(result);
+    };
+    recognition.start();
+  };
+
+  const handleFindGems = () => {
+    triggerSearch(searchQuery);
+    document.getElementById('businesses')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   return (
-    <div className="min-h-screen bg-[#FFFCF5] py-4 sm:py-5">
-      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
-        
-        {/* Banner Section */}
-        <section id="home" className="homepage-hero relative mb-4 overflow-hidden rounded-[22px] bg-[#FFF1C9] px-6 py-7 shadow-md text-[#061B3A] sm:px-10 sm:py-9">
-          {/* Nepal Stupa SVG Backdrop */}
-          <div className="absolute right-[6%] bottom-0 h-44 w-64 opacity-45 pointer-events-none hidden md:block">
-            <svg viewBox="0 0 200 200" fill="none" className="w-full h-full text-[#F2B71D]" stroke="currentColor" strokeWidth="1.5">
-              {/* Stupa Spire */}
-              <path d="M100,10 L100,50 M95,45 L105,45 M90,40 L110,40 M85,35 L115,35 M80,30 L120,30 M75,25 L125,25 M70,20 L130,20" />
-              {/* Spire Base */}
-              <rect x="85" y="50" width="30" height="25" fill="#F2B71D" opacity="0.3" />
-              {/* Wisdom Eyes */}
-              <circle cx="94" cy="62" r="2.5" fill="currentColor" />
-              <circle cx="106" cy="62" r="2.5" fill="currentColor" />
-              <path d="M97,68 Q100,72 103,68" strokeWidth="2" />
-              {/* Stupa Dome */}
-              <path d="M50,135 C50,75 150,75 150,135 Z" fill="#F2B71D" opacity="0.2" />
-              {/* Plinth */}
-              <rect x="35" y="135" width="130" height="15" fill="#F2B71D" opacity="0.5" rx="3" />
-              <rect x="25" y="150" width="150" height="10" fill="#F2B71D" opacity="0.6" rx="2" />
-            </svg>
-          </div>
-
-          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-[720px]">
-              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-white/65 border border-[#E8C96C] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#C28B00]"><FiMapPin className="h-3.5 w-3.5" /><span>Kathmandu, Nepal</span></div>
-              <h2 className="max-w-[600px] text-[2.2rem] font-black leading-[1.02] tracking-[-0.04em] text-[#061B3A] sm:text-[3.2rem]">Discover &amp; Support <span className="text-[#D99D00]">Local Businesses</span></h2>
-              <p className="mt-3 max-w-[570px] text-xs font-medium leading-relaxed text-[#334B68] sm:text-sm">Find the best products, services and businesses near you — all in one place.</p>
-              <div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={() => document.getElementById('businesses')?.scrollIntoView({ behavior: 'smooth' })} className="inline-flex items-center gap-2 rounded-full bg-[#FFC400] px-5 py-2.5 text-[11px] font-extrabold text-[#061B3A] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#EFAF00]">Explore Businesses <FiArrowRight /></button><button type="button" onClick={() => document.getElementById('why-choose')?.scrollIntoView({ behavior: 'smooth' })} className="inline-flex items-center gap-2 rounded-full border border-[#D6DDE7] bg-white px-5 py-2.5 text-[11px] font-extrabold text-[#061B3A] transition hover:-translate-y-0.5"><FiZap /> How It Works</button></div>
-            </div>
-
-            {/* Countdown Box */}
-            <div className="flex items-center justify-center lg:justify-end">
-              <div className="relative w-full max-w-[220px] overflow-hidden rounded-[20px] bg-white/70 px-5 py-4 text-center border border-[#E8D48D] backdrop-blur-md">
-                <div className="mb-3 flex items-center justify-center gap-1.5 text-center text-[#F2B71D]">
-                  <FiClock className="h-3.5 w-3.5" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#C28B00]">{translate('LOCAL DEALS', 'स्थानीय अफर')}</span>
-                </div>
-
-                <div className="mb-2 flex items-center justify-center gap-3 font-mono text-[2rem] font-extrabold tracking-tight text-[#061B3A]">
-                  <span>{hr || '05'}</span>
-                  <span className="text-[#F2B71D] animate-pulse">:</span>
-                  <span>{min || '40'}</span>
-                  <span className="text-[#F2B71D] animate-pulse">:</span>
-                  <span>{sec || '04'}</span>
-                </div>
-
-                <div className="mt-3 flex justify-between px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-gray-400">
-                  <span>Hours</span>
-                  <span>Min</span>
-                  <span>Sec</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Search & Filters Controls */}
-        <div id="search" className="homepage-search mb-5 flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="relative flex-1 flex items-center bg-white border border-[#F0EAD6] rounded-full px-3 py-1.5 shadow-sm">
-            <select aria-label="Search category" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="hidden border-r border-[#E8E1D2] bg-transparent px-2 py-2 text-[10px] font-bold text-[#061B3A] outline-none md:block">
-              {categories.map((category) => <option key={category.name} value={category.name}>{category.name === 'All' ? 'All Categories' : category.name}</option>)}
-            </select>
-            <FiSearch className="text-gray-400 h-5 w-5 ml-2 mr-2" />
-            <input
-              type="text"
-              placeholder={translate('Search stores, products, services...', 'पसल, उत्पादन, वा सेवा खोज्नुहोस्...')}
-              value={searchQuery}
-              onChange={(e) => {
-                const nextValue = e.target.value;
-                setSearchQuery(nextValue);
-                setSearchTrigger(nextValue);
-                setShowSuggestions(Boolean(nextValue.trim()));
-              }}
-              onFocus={() => setShowSuggestions(Boolean(searchQuery.trim()))}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  triggerSearch(searchQuery);
-                }
-              }}
-              className="w-full bg-transparent py-2 text-sm text-[#0B1A30] placeholder:text-gray-400 outline-none pr-10"
-            />
-            {showSuggestions && searchSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-[18px] border border-[#F0EAD6] bg-white p-2 shadow-xl max-h-64 overflow-y-auto">
-                {searchSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.id}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      suggestion.onSelect();
-                      setShowSuggestions(false);
-                    }}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-gray-600 hover:bg-[#FDFBF7] transition cursor-pointer"
-                  >
-                    <span>
-                      <span className="block font-semibold text-[#0B1A30]">{suggestion.label}</span>
-                      <span className="text-xs text-gray-500">{suggestion.subtitle}</span>
-                    </span>
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-[#E0A615] shrink-0">{suggestion.type}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            
-            <div className="flex items-center gap-1.5 ml-auto">
-              <button
-                onClick={() => triggerSearch(searchQuery)}
-                className="bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] font-bold px-5 py-2 rounded-full flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm transition duration-200"
-              >
-                <FiSearch className="h-4 w-4" />
-                <span>Search</span>
-              </button>
-              <button
-                onClick={handleVoiceSearch}
-                className={`p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-800 transition cursor-pointer ${isListening ? 'animate-pulse bg-[#FFF5D6] text-[#E0A615]' : ''}`}
-                title="Voice Search"
-              >
-                <FiMic className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleImageSearch}
-                className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-800 transition cursor-pointer"
-                title="Gift Search"
-              >
-                <FiGift className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center justify-center gap-2 rounded-full border border-[#F0EAD6] px-5 py-3 text-sm font-semibold transition cursor-pointer shrink-0 ${
-              showFilters ? 'bg-[#FFF5D6] text-[#0B1A30] border-[#F2B71D]' : 'bg-white text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <FiSliders className="h-4 w-4 text-gray-600" />
-            <span>{translate('Filters', 'फिल्टरहरू')}</span>
-          </button>
+    <div className="mp-home w-full min-h-screen">
+      {catalogStatus === 'error' && (
+        <div className="flex items-center justify-between gap-3 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <span>Some marketplace data could not be loaded.</span>
+          <button type="button" onClick={onRetryCatalog} className="rounded-full bg-white px-3 py-1 text-xs font-bold">Retry</button>
         </div>
+      )}
 
-        {showFilters && (
-          <div className="mb-6 grid gap-4 rounded-[20px] border border-[#F0EAD6] bg-white p-4 shadow-sm sm:grid-cols-2 md:grid-cols-4">
-            <div className="space-y-2">
-              <label className="flex justify-between text-[11px] font-bold uppercase tracking-wider text-gray-600">
-                <span>{translate('Distance limit', 'दुरीको सीमा')}</span>
-                <span className="text-[#E0A615]">{distanceFilter} km</span>
-              </label>
+      {/* HERO — full bleed */}
+      <section
+        id="home"
+        className="mp-hero"
+        style={{ backgroundImage: `url(${HERO_IMAGE})` }}
+      >
+        <div className="mp-hero-inner">
+          <div className="max-w-2xl">
+            <h1 className="mp-display text-[clamp(2.4rem,5.5vw,4.4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-white">
+              {translate('CONNECT WITH THE HEART OF YOUR COMMUNITY', 'समुदायको मुटुसँग जोडिनुहोस्')}
+            </h1>
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-white/85 sm:text-base">
+              {translate(
+                'Discover local businesses, products, and services from all over from Nepal.',
+                'नेपालभरिका स्थानीय व्यवसाय, उत्पादन र सेवाहरू पत्ता लगाउनुहोस्।'
+              )}
+            </p>
+
+            <div className="mt-7 flex max-w-xl items-center gap-3 rounded-full bg-white px-4 py-3 shadow-lg">
+              <FiMapPin className="h-5 w-5 shrink-0 text-[var(--mp-gold)]" />
               <input
-                type="range"
-                min="1"
-                max="50"
-                value={distanceFilter}
-                onChange={(e) => setDistanceFilter(parseInt(e.target.value))}
-                className="h-1.5 w-full cursor-pointer accent-[#F2B71D]"
+                type="text"
+                value={locationQuery}
+                onChange={(e) => setLocationQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleFindGems()}
+                className="w-full bg-transparent text-sm font-medium text-[var(--mp-ink)] outline-none placeholder:text-[var(--mp-muted)]"
+                placeholder="Kathmandu, Nepal"
+                aria-label="Location"
               />
             </div>
 
-            <div className="space-y-2">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-600">{translate('Minimum Rating', 'न्यूनतम रेटिङ')}</span>
-              <div className="flex flex-wrap gap-1">
-                {[0, 3, 4, 4.5].map((val) => (
-                  <button
-                    key={val}
-                    onClick={() => setMinRating(val)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition border cursor-pointer ${
-                      minRating === val
-                        ? 'border-[#F2B71D] bg-[#FFF5D6] text-[#0B1A30]'
-                        : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {val === 0 ? 'All' : `${val} ⭐`}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-col justify-center gap-2">
-              <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={openNow}
-                  onChange={(e) => setOpenNow(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-[#F2B71D] accent-[#F2B71D]"
-                />
-                <span className="flex items-center gap-1"><FiClock className="h-3.5 w-3.5 text-emerald-500" /> {translate('Open Now', 'अहिले खुल्ला')}</span>
-              </label>
-              <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={deliveryOnly}
-                  onChange={(e) => setDeliveryOnly(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-[#F2B71D] accent-[#F2B71D]"
-                />
-                <span className="flex items-center gap-1"><FiTruck className="h-3.5 w-3.5 text-[#F2B71D]" /> {translate('Delivery Available', 'होम डेलिभरी')}</span>
-              </label>
-            </div>
-
-            <div className="space-y-2">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-600">{translate('Sort By', 'क्रमबद्ध गर्नुहोस्')}</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white p-2 text-xs font-medium outline-none"
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleFindGems}
+                className="rounded-full bg-[var(--mp-gold)] px-7 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[var(--accent-hover)]"
               >
-                <option value="popular">{translate('Most Popular', 'लोकप्रिय')}</option>
-                <option value="distance">{translate('Nearest Distance', 'नजिकको दुरी')}</option>
-                <option value="newest">{translate('Newest Listings', 'नयाँ थपिएको')}</option>
-              </select>
+                {translate('Find Local Gems', 'स्थानीय रत्न खोज्नुहोस्')}
+              </button>
+              <button
+                type="button"
+                onClick={() => document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' })}
+                className="rounded-full border border-white/70 bg-white/10 px-7 py-3 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+              >
+                {translate('See How It Works', 'कसरी काम गर्छ')}
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Categories Horizontal Row */}
-        <div id="categories" className="mb-6">
-          <div className="flex items-center justify-between gap-4 overflow-x-auto pb-3 scrollbar-thin">
-            <div className="flex gap-2">
-              {categories.map((cat) => {
-                const isActive = selectedCategory.toLowerCase() === cat.name.toLowerCase();
-                return (
-                  <button
-                    key={cat.name}
-                    onClick={() => setSelectedCategory(cat.name)}
-                    className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-xs font-bold transition whitespace-nowrap cursor-pointer border ${
-                      isActive
-                        ? 'bg-[#F2B71D] text-[#0B1A30] border-[#F2B71D] shadow-sm'
-                        : 'bg-white text-[#0B1A30] border-[#F0EAD6] hover:bg-gray-50'
-                    }`}
-                  >
-                    <span>{cat.icon}</span>
-                    <span>{translate(cat.name, cat.name)}</span>
-                  </button>
-                );
-              })}
+          <div className="mp-deals-ring" aria-label="Local deals countdown">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--mp-muted)]">
+                Local Deals End In
+              </p>
+              <p className="mp-display mt-2 text-[clamp(1.8rem,3vw,2.4rem)] font-semibold tabular-nums text-[var(--mp-ink)]">
+                {timeLeft || '07:24:07'}
+              </p>
             </div>
           </div>
         </div>
+      </section>
 
-        {/* AI Recommendations Card Header + Grid */}
-        {(recommendationBusinesses.length > 0 || aiRecs.products.length > 0) && (
-          <section className="mb-8 overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm">
-            <div className="bg-[#0B1A30] px-5 py-4 flex items-center justify-between text-white">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🤖</span>
-                <div>
-                  <h3 className="text-base font-bold tracking-tight text-white">{translate('AI Recommendations For You', 'तपाईंका लागि एआई सुझावहरू')}</h3>
-                  <p className="text-[11px] text-[#94A3B8]">{translate('Discover the best local businesses near you, based on your interests and location', 'तपाईंको रुचि र स्थानमा आधारित उत्तम स्थानीय व्यवसायहरू पत्ता लगाउनुहोस्।')}</p>
-                </div>
-              </div>
-              <button className="rounded-full bg-[#F2B71D] hover:bg-[#E0A615] px-4 py-1.5 text-xs font-bold text-[#0B1A30] transition cursor-pointer">
-                {translate('View All', 'सबै हेर्नुहोस्')} &rarr;
+      {/* CATEGORY QUICK-FILTERS */}
+      <section id="categories" className="w-full border-b border-[var(--mp-border)] bg-[var(--mp-cream)] px-4 py-5 sm:px-6 lg:px-10">
+        <div className="mb-4 flex items-end justify-between gap-3">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--mp-brown)]">
+            Category Quick-Filters
+          </h2>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('All')}
+            className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--mp-gold)] hover:text-[var(--mp-brown)]"
+          >
+            View All
+          </button>
+        </div>
+        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
+          {categories.map((cat) => {
+            const active = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+            return (
+              <button
+                key={cat.name}
+                type="button"
+                onClick={() => setSelectedCategory(active ? 'All' : cat.name)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] transition ${
+                  active
+                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-white'
+                    : 'border-[var(--mp-border)] bg-[var(--mp-paper)] text-[var(--mp-brown)] hover:border-[var(--mp-gold)]'
+                }`}
+              >
+                <span className="text-sm" aria-hidden>{cat.icon}</span>
+                <span>{cat.label || cat.name}</span>
               </button>
-            </div>
+            );
+          })}
+        </div>
+      </section>
 
-            <div className="p-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {recommendationBusinesses.slice(0, 3).map((b) => (
-                <div
-                  key={b._id}
-                  onClick={() => onOpenBusiness(b._id)}
-                  className="group cursor-pointer overflow-hidden rounded-[16px] border border-gray-100 bg-white shadow-sm hover:shadow-md transition duration-200"
-                >
-                  <div className="relative h-40 bg-gray-50">
-                    {businessImage(b) ? (
-                      <img src={businessImage(b)} alt={b.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">{safeName(b).charAt(0)}</div>
-                    )}
-                    {b.verified === 'verified' && (
-                      <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-[#F2B71D] px-2 py-0.5 text-[9px] font-bold uppercase text-[#0B1A30]">
-                        Verified
-                      </span>
-                    )}
-                    <button
-                      onClick={(event) => { event.stopPropagation(); onToggleWishlist?.('businesses', b._id); }}
-                      aria-label={isWishlisted('businesses', b._id) ? 'Remove from wishlist' : 'Add to wishlist'}
-                      className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition"
-                    >
-                      <FiHeart className="h-3.5 w-3.5" fill={isWishlisted('businesses', b._id) ? 'currentColor' : 'none'} />
-                    </button>
-                  </div>
-
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h4 className="truncate text-sm font-bold text-[#0B1A30]">{b.name}</h4>
-                        <div className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
-                          <FiStar className="h-3 w-3 fill-[#F2B71D] text-[#F2B71D]" />
-                          <span className="font-bold text-[#0B1A30]">{b.rating ?? 0}</span>
-                          <span>({b.reviewCount ?? 0} reviews)</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
-                      <span className="font-semibold text-[#E0A615] bg-[#FFF5D6] px-2 py-0.5 rounded-md">{b.category}</span>
-                      <span className="flex items-center gap-1"><FiMapPin className="h-3 w-3 text-[#F2B71D]" /> {b.distance || '0.5 km'}</span>
-                    </div>
-
-                    <p className="mt-2 text-xs text-gray-600 line-clamp-1">{b.description || 'Fresh products, best quality'}</p>
-
-                    <button
-                      onClick={(event) => { event.stopPropagation(); onOpenBusiness(b._id); }}
-                      className="mt-3.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] py-2 text-xs font-bold text-[#0B1A30] transition"
-                    >
-                      <FiHome className="h-3.5 w-3.5" />
-                      <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+      {/* MAIN: businesses + deals */}
+      <div id="businesses" className="w-full px-4 py-8 sm:px-6 lg:px-10">
+        {catalogStatus === 'loading' && (
+          <div className="mb-6 grid gap-3 sm:grid-cols-3" aria-hidden>
+            {[0, 1, 2].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-[#e4d9c8]" />)}
+          </div>
         )}
 
-        {/* Main Content Columns: Featured Businesses + Hot Deals */}
-        <div id="businesses" className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          
-          {/* Featured Businesses */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-lg font-bold tracking-tight text-[#0B1A30]">{translate('Featured Businesses', 'प्रमुख पसलहरू')}</h3>
-              <span className="text-xs text-gray-500">{filteredBizs.length} {translate('shops found', 'पसलहरू फेला परे')}</span>
+        <div className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 space-y-6">
+            {/* Featured wide card */}
+            {featured ? (
+              <article className="grid overflow-hidden rounded-[28px] bg-[var(--mp-brown-deep)] shadow-[var(--shadow-md)] md:grid-cols-[1.05fr_1fr]">
+                <div className="relative min-h-[260px]">
+                  <img
+                    src={businessImage(featured, 0)}
+                    alt={safeName(featured)}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <span className="absolute left-4 top-4 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-xs font-bold text-[var(--mp-ink)] shadow">
+                    <FiStar className="h-3.5 w-3.5 fill-[var(--mp-gold)] text-[var(--mp-gold)]" />
+                    {safeNumber(featured.rating).toFixed(1)}
+                  </span>
+                </div>
+                <div className="flex flex-col justify-center p-6 text-white sm:p-8">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="mp-display text-2xl font-semibold sm:text-3xl">{safeName(featured)}</h3>
+                    {(featured.verified === 'verified' || featured.approvalStatus === 'approved') && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--mp-brown)]">
+                        <FiCheckCircle className="h-3 w-3" /> Verified
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-white/75 line-clamp-3">
+                    {safeText(featured.description, 'Handcrafted gifts, home decor, and local art pieces')}
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => onOpenBusiness(featured._id)}
+                      className="rounded-full bg-white px-5 py-2.5 text-xs font-bold text-[var(--mp-brown-deep)] transition hover:bg-[var(--mp-cream)]"
+                    >
+                      Visit Profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenBusiness(featured._id)}
+                      className="rounded-full border border-[var(--mp-gold)] px-5 py-2.5 text-xs font-bold text-[var(--mp-gold-soft)] transition hover:bg-[var(--mp-gold)] hover:text-white"
+                    >
+                      Shop Now
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ) : (
+              <div className="rounded-[28px] border border-[var(--mp-border)] bg-[var(--mp-paper)] py-16 text-center text-[var(--mp-muted)]">
+                <FiClock className="mx-auto h-8 w-8 opacity-50" />
+                <p className="mt-3 text-sm">{translate('No businesses match your filters yet.', 'हालका फिल्टरमा कुनै पसल मेल खाँदैन।')}</p>
+              </div>
+            )}
+
+            {/* Photo cards row */}
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {(gridBizs.length ? gridBizs : filteredBizs.slice(0, 3)).map((biz, index) => (
+                <article
+                  key={biz._id}
+                  onClick={() => onOpenBusiness(biz._id)}
+                  className="group cursor-pointer overflow-hidden rounded-[24px] bg-[var(--mp-paper)] shadow-[var(--shadow-sm)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]"
+                >
+                  <div className="relative h-44 overflow-hidden">
+                    <img
+                      src={businessImage(biz, index + 1)}
+                      alt={safeName(biz)}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onToggleWishlist?.('businesses', biz._id); }}
+                      className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-[var(--mp-brown)] shadow"
+                      aria-label="Save business"
+                    >
+                      <FiHeart className="h-3.5 w-3.5" fill={isWishlisted('businesses', biz._id) ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    <h4 className="mp-display text-xl font-semibold text-[var(--mp-ink)]">{safeName(biz)}</h4>
+                    <p className="mt-1 text-xs leading-relaxed text-[var(--mp-muted)] line-clamp-2">
+                      {safeText(biz.description, 'Local favorite near you')}
+                    </p>
+                    <div className="mt-3 flex items-center gap-1 text-[var(--mp-gold)]">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <FiStar
+                          key={i}
+                          className={`h-3.5 w-3.5 ${i < Math.round(safeNumber(biz.rating)) ? 'fill-[var(--mp-gold)]' : 'opacity-25'}`}
+                        />
+                      ))}
+                      <span className="ml-1 text-xs font-bold text-[var(--mp-ink)]">{safeNumber(biz.rating).toFixed(1)}</span>
+                    </div>
+                  </div>
+                </article>
+              ))}
             </div>
 
-            {filteredBizs.length === 0 ? (
-              <div className="rounded-[20px] border border-[#F0EAD6] bg-white py-12 text-center text-gray-600 shadow-sm">
-                <FiClock className="mx-auto h-8 w-8 text-gray-400" />
-                <p className="mt-3 text-sm">{translate('No businesses match your active filter settings right now.', 'हालका फिल्टरमा कुनै पसल मेल खाँदैन।')}</p>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {filteredBizs.map((biz) => (
+            {filteredBizs.length > 4 && (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredBizs.slice(4).map((biz, index) => (
                   <article
                     key={biz._id}
                     onClick={() => onOpenBusiness(biz._id)}
-                    className="group cursor-pointer overflow-hidden rounded-[20px] border border-[#F0EAD6] bg-white shadow-sm hover:shadow-md transition duration-200"
+                    className="group cursor-pointer overflow-hidden rounded-[24px] bg-[var(--mp-paper)] shadow-[var(--shadow-sm)] transition hover:shadow-[var(--shadow-md)]"
                   >
-                    <div className="relative h-40 bg-gray-50">
-                      {businessImage(biz) ? (
-                        <img src={businessImage(biz)} alt={biz.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FFF5D6] to-[#F2B71D] text-3xl font-black text-[#0B1A30]">
-                          {safeName(biz).charAt(0)}
-                        </div>
-                      )}
-                      {biz.verified === 'verified' && (
-                        <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-md bg-[#F2B71D] px-2 py-0.5 text-[9px] font-bold uppercase text-[#0B1A30]">
-                          Verified
-                        </span>
-                      )}
-                      <button
-                        onClick={(event) => { event.stopPropagation(); onToggleWishlist?.('businesses', biz._id); }}
-                        aria-label={isWishlisted('businesses', biz._id) ? 'Remove from wishlist' : 'Add to wishlist'}
-                        className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#0B1A30] shadow-sm hover:text-red-500 transition"
-                      >
-                        <FiHeart className="h-3.5 w-3.5" fill={isWishlisted('businesses', biz._id) ? 'currentColor' : 'none'} />
-                      </button>
+                    <div className="relative h-40 overflow-hidden">
+                      <img src={businessImage(biz, index + 4)} alt={safeName(biz)} className="h-full w-full object-cover" loading="lazy" />
                     </div>
-
                     <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h4 className="truncate text-sm font-bold text-[#0B1A30]">{biz.name}</h4>
-                          <span className="inline-block mt-1 text-[10px] font-semibold text-[#E0A615] bg-[#FFF5D6] px-2 py-0.5 rounded-md">{biz.category}</span>
-                        </div>
-                        <div className="inline-flex items-center gap-1 rounded-full bg-[#FFF5D6] px-2 py-0.5 text-xs font-bold text-[#E0A615]">
-                          <FiStar className="h-3.5 w-3.5 fill-[#F2B71D] text-[#F2B71D]" /> 
-                          <span>{biz.rating ?? 0}</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-2.5 flex items-center justify-between text-[11px] text-gray-500">
-                        <span className="flex items-center gap-1"><FiMapPin className="h-3.5 w-3.5 text-[#F2B71D]" /> {biz.location}</span>
-                        <span>{biz.distance || '0.5 km'}</span>
-                      </div>
-
-                      <p className="mt-2 text-xs text-gray-600 line-clamp-1">{biz.description || 'Delicious food, great ambiance'}</p>
-
-                      <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${getBusinessAvailabilityMeta(biz).isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                          {getBusinessAvailabilityMeta(biz).isOpen ? 'Open' : 'Closed'}
-                        </span>
-                        <button
-                          onClick={(event) => { event.stopPropagation(); onOpenBusiness(biz._id); }}
-                          className="inline-flex items-center gap-1 rounded-lg bg-[#F2B71D] hover:bg-[#E0A615] px-3.5 py-1.5 text-xs font-bold text-[#0B1A30] transition"
-                        >
-                          <FiHome className="h-3.5 w-3.5" />
-                          <span>{translate('View Business', 'व्यवसाय हेर्नुहोस्')}</span>
-                        </button>
+                      <h4 className="font-semibold text-[var(--mp-ink)]">{safeName(biz)}</h4>
+                      <p className="mt-1 text-xs text-[var(--mp-muted)] line-clamp-1">{safeText(biz.category)}</p>
+                      <div className="mt-2 flex items-center gap-1 text-xs font-bold text-[var(--mp-gold)]">
+                        <FiStar className="h-3.5 w-3.5 fill-[var(--mp-gold)]" />
+                        {safeNumber(biz.rating).toFixed(1)}
                       </div>
                     </div>
                   </article>
                 ))}
               </div>
             )}
-          </section>
+          </div>
 
-          {/* Hot Deals Sidebar */}
-          <aside id="products" className="rounded-[20px] border border-[#F0EAD6] bg-white p-5 shadow-sm h-fit">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="flex items-center gap-1.5 text-base font-bold tracking-tight text-[#0B1A30]">
-                <span className="text-xl">🔥</span>
-                <span>{translate('Hot Deals', 'लोकप्रिय सामान')}</span>
-              </h3>
-              <button className="text-xs font-bold text-[#E0A615] hover:text-[#0B1A30] transition cursor-pointer">{translate('View All', 'सबै हेर्नुहोस्')} &rarr;</button>
+          {/* TOP LOCAL DEALS */}
+          <aside id="products" className="h-fit rounded-[28px] border border-[var(--mp-border)] bg-[var(--mp-paper)] p-5 shadow-[var(--shadow-sm)] xl:sticky xl:top-24">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="mp-display text-2xl font-semibold text-[var(--mp-ink)]">Top Local Deals</h3>
             </div>
-
             <div className="space-y-3">
-              {popularProducts.slice(0, 3).map((p) => {
-                const discountedPrice = safeNumber(p.price) - (safeNumber(p.price) * safeNumber(p.discount)) / 100;
+              {dealProducts.map((p) => {
+                const discount = safeNumber(p.discount) || 20;
+                const discounted = safeNumber(p.price) - (safeNumber(p.price) * discount) / 100;
+                const parent = verifiedBusinesses.find((b) => String(b._id) === String(p.businessId));
                 return (
-                  <div key={p._id} className="flex items-center gap-3 rounded-[16px] border border-gray-100 bg-[#FDFBF7] p-2.5 transition hover:bg-[#FFF5D6]">
-                    <div className="h-16 w-16 overflow-hidden rounded-lg bg-gray-100 shrink-0">
-                      {p.images && p.images[0] ? (
-                        <img src={p.images[0]} alt={p.name} className="h-full w-full object-cover" />
+                  <button
+                    key={p._id}
+                    type="button"
+                    onClick={() => onOpenProduct(p._id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-[var(--mp-border)] bg-white p-2.5 text-left transition hover:border-[var(--mp-gold)]"
+                  >
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-[#eee4d6]">
+                      {p.images?.[0] ? (
+                        <img src={p.images[0]} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xl bg-[#FFF5D6]">🛍️</div>
+                        <div className="flex h-full w-full items-center justify-center text-lg">🛍️</div>
                       )}
+                      <span className="absolute left-1 top-1 rounded bg-[#c0392b] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                        -{discount}%
+                      </span>
                     </div>
-
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h4 className="truncate text-xs font-bold text-[#0B1A30]">{p.name}</h4>
-                          <p className="mt-0.5 text-[10px] text-gray-500">{p.brand || 'Local Brand'}</p>
-                        </div>
-                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700 whitespace-nowrap">{p.discount || 20}% OFF</span>
+                      <p className="truncate text-xs font-bold text-[var(--mp-ink)]">
+                        {safeText(parent?.name, p.brand || 'Local')} Deal
+                      </p>
+                      <p className="truncate text-[10px] text-[var(--mp-muted)]">{safeText(p.name)}</p>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-sm font-bold text-[var(--mp-ink)]">{displayPrice(discounted)}</span>
+                        <span className="text-[10px] text-[var(--mp-muted)] line-through">{displayPrice(p.price)}</span>
                       </div>
-
-                      <div className="mt-2 flex items-center gap-1.5 text-xs">
-                        <span className="font-bold text-[#E0A615]">{displayPrice(discountedPrice)}</span>
-                        <span className="text-[10px] text-gray-400 line-through">{displayPrice(p.price)}</span>
-                      </div>
+                      <p className="mt-1 font-mono text-[10px] tabular-nums text-[var(--mp-gold)]">
+                        {formatDealTimer(dealTimers[p._id])}
+                      </p>
                     </div>
-
-                    <button
-                      onClick={() => onOpenProduct(p._id)}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#F2B71D] hover:bg-[#E0A615] text-[#0B1A30] shrink-0 font-bold transition cursor-pointer"
-                    >
-                      &rarr;
-                    </button>
-                  </div>
+                  </button>
                 );
               })}
-              {popularProducts.length === 0 && (
-                <div className="text-center py-6 text-gray-500">
-                  <p className="text-sm">No popular products available yet.</p>
-                </div>
+              {dealProducts.length === 0 && (
+                <p className="py-8 text-center text-sm text-[var(--mp-muted)]">Deals will appear here soon.</p>
               )}
             </div>
           </aside>
         </div>
 
-        <section id="contact" className="homepage-testimonials mt-8">
-          <div className="customer-section-heading"><h2>{translate('What Our Customers Say', 'हाम्रा ग्राहकहरू के भन्छन्')}</h2><span className="text-xs text-gray-500">Real marketplace feedback</span></div>
-          <div className="grid gap-3 md:grid-cols-3">{customerReviews.map((review) => <article key={review._id}><FiUser /><div><div className="text-[#F2B71D]">{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}</div><p>“{review.comment}”</p><small>Customer of {review.businessName}</small></div></article>)}{customerReviews.length === 0 && <div className="homepage-empty-feedback">Customer reviews will appear here as your community shares feedback.</div>}</div>
+        {/* How it works + CTA */}
+        <section id="how" className="mt-12 grid gap-4 rounded-[28px] bg-[var(--mp-brown-deep)] px-6 py-10 text-white sm:grid-cols-[1.4fr_auto] sm:items-center sm:px-10">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--mp-gold-soft)]">Grow with your community</p>
+            <h2 className="mp-display mt-2 text-3xl font-semibold sm:text-4xl">Be a Part of UdyogConnect</h2>
+            <p className="mt-2 max-w-xl text-sm text-white/70">List your business. Reach more customers. Grow together.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenDashboard('dashboard')}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--mp-gold)] px-6 py-3 text-sm font-bold text-white transition hover:bg-[var(--accent-hover)]"
+          >
+            Register Your Business <FiArrowRight />
+          </button>
         </section>
 
-        <section id="services" className="homepage-business-cta mt-8"><div><p>GROW WITH YOUR COMMUNITY</p><h2>Be a Part of UdyogConnect</h2><span>List your business. Reach more customers. Grow together.</span></div><button type="button" onClick={() => onOpenDashboard('dashboard')}>Register Your Business <FiArrowRight /></button></section>
+        {customerReviews.length > 0 && (
+          <section id="community" className="mt-10">
+            <h2 className="mp-display text-3xl font-semibold text-[var(--mp-ink)]">
+              {translate('What Our Customers Say', 'हाम्रा ग्राहकहरू के भन्छन्')}
+            </h2>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              {customerReviews.map((review) => (
+                <article key={review._id} className="rounded-2xl border border-[var(--mp-border)] bg-[var(--mp-paper)] p-5">
+                  <div className="flex items-center gap-2 text-[var(--mp-gold)]">
+                    <FiUser className="text-[var(--mp-muted)]" />
+                    <span>{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}</span>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-[var(--mp-ink)]">“{review.comment}”</p>
+                  <p className="mt-2 text-xs text-[var(--mp-muted)]">Customer of {review.businessName}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
 
+        <section id="contact" className="mt-10 pb-8 text-center text-xs text-[var(--mp-muted)]">
+          UdyogConnect · Shop Local · Support Local
+        </section>
       </div>
     </div>
   );

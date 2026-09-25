@@ -7,7 +7,7 @@ export default function ProductCard({ product, onOpen, onAdd, onBuy }) {
     <article className="bp-product">
       <button type="button" className="bp-product-media" onClick={() => onOpen(product)} aria-label={`View ${product.name}`}>
         {product.badge ? <span className="bp-badge">{product.badge}</span> : null}
-        {product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <span className="bp-product-placeholder">No image</span>}
+        {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" decoding="async" /> : <span className="bp-product-placeholder">No image</span>}
       </button>
       <div className="bp-product-body">
         <h3>{product.name}</h3>

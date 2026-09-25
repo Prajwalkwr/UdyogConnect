@@ -9,18 +9,20 @@ import {
   FiGrid, FiZap, FiMapPin, FiHelpCircle
 } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
 import AccountProfileCard from './AccountProfileCard';
-import { validateBusinessForm, validateProductForm, validateServiceForm, validateImageFile } from '../utils/validation';
+import { validateBusinessForm, validateProductForm, validateServiceForm, validateImageFile, BUSINESS_HOURS_OPTIONS, BUSINESS_CATEGORY_OPTIONS, countWords, PERSON_NAME_REGEX, BUSINESS_EMAIL_REGEX, PHONE_REGEX } from '../utils/validation';
 
 const fmt = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN')}`;
 
 const getBusinessApprovalStatus = (business) => {
+  if (business?.approvalStatus === 'suspended' || business?.verified === 'suspended') return 'suspended';
   if (business?.approvalStatus === 'approved') return 'approved';
   if (business?.approvalStatus === 'rejected' || business?.verified === 'rejected') return 'rejected';
+  if (business?.approvalStatus === 'revision_requested') return 'revision_requested';
   return 'pending';
 };
 
@@ -137,8 +139,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
   // Onboarding form
   const [bizForm, setBizForm] = useState({
-    name: '', category: 'Grocery', location: '', description: '', offeringType: 'both',
-    hours: '09:00 - 18:00', contactEmail: '', phone: '',
+    name: '', category: '', location: '', description: '', offeringType: 'both',
+    hours: '', contactEmail: '', phone: '',
     registrationNumber: '', panVatNumber: '', qrUrl: '',
     isOpen: true, deliveryAvailable: true, deliveryRadiusKm: '5',
   });
@@ -207,11 +209,15 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
         setMyBusiness(null);
       }
     } catch (e) {
-      console.error('fetchAll error', e);
+      if (e?.response?.status === 404) {
+        setMyBusiness(null);
+      } else {
+        console.error('fetchAll error', e);
+      }
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user?._id, user?.id]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -323,64 +329,71 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const handleRegisterBusiness = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
-    const nepalLocations = ['kathmandu', 'lalitpur', 'patan', 'bhaktapur', 'pokhara', 'chitwan', 'bharatpur', 'biratnagar', 'butwal', 'dharan', 'nepalgunj', 'janakpur', 'hetauda', 'dhangadhi', 'itahari', 'lumbini', 'ilam', 'baglung', 'gorkha', 'nepal'];
-    const locationText = String(bizForm.location || '').toLowerCase();
-    const hoursValid = /^(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(bizForm.hours || '').trim());
-    const nameValid = /^[A-Za-z\s]+$/.test(String(bizForm.name || '').trim());
-    const emailValid = /^[A-Za-z0-9._%+-]+@gmail\.com$/i.test(String(bizForm.contactEmail || '').trim());
-    const phoneValid = /^(?:97|98)\d{8}$/.test(String(bizForm.phone || '').trim());
-    const radius = Number(bizForm.deliveryRadiusKm);
+    const lettersOnly = (value) => PERSON_NAME_REGEX.test(String(value || '').trim());
+    const radius = Math.round(Number(bizForm.deliveryRadiusKm));
     const deliveryEnabled = Boolean(bizForm.deliveryAvailable);
-    if (!bizForm.name || !bizForm.description || !bizForm.location || !bizForm.category || !bizForm.offeringType || !bizForm.contactEmail || !bizDoc) {
+    const wordCount = countWords(bizForm.description);
+    const normalizedHours = BUSINESS_HOURS_OPTIONS.includes(String(bizForm.hours || '').trim())
+      ? String(bizForm.hours).trim()
+      : '';
+
+    if (!bizDoc) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Missing Fields', text: 'Business details, email, phone, delivery radius, and certificate/document are required.' });
+      return Swal.fire({ icon: 'warning', title: 'Missing Document', text: 'Business certificate/document is required.' });
     }
-    if (!nepalLocations.some((location) => locationText.includes(location))) {
+    if (!lettersOnly(bizForm.name)) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Invalid Location', text: 'Enter a valid Nepal business location, such as Kathmandu, Pokhara, or Lalitpur.' });
+      return Swal.fire({ icon: 'warning', title: 'Invalid Business Name', text: 'Business name can only contain letters and spaces (no numbers or special characters).' });
     }
-    if (!hoursValid) {
+    if (!bizForm.category || !BUSINESS_CATEGORY_OPTIONS.includes(bizForm.category)) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Invalid Business Hours', text: 'Use Nepal local time in HH:MM - HH:MM format, for example 09:00 - 18:00.' });
+      return Swal.fire({ icon: 'warning', title: 'Category Required', text: 'Please select a business category.' });
     }
-    if (!phoneValid) {
+    if (!lettersOnly(bizForm.location)) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Location', text: 'Location can only contain letters and spaces (no numbers or special characters).' });
+    }
+    if (!normalizedHours) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Business Hours Required', text: 'Please select business hours from the list.' });
+    }
+    if (!BUSINESS_EMAIL_REGEX.test(String(bizForm.contactEmail || '').trim().toLowerCase())) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Invalid Email', text: 'Email must be words@number.com (e.g. shop@123.com).' });
+    }
+    if (!PHONE_REGEX.test(String(bizForm.phone || '').trim())) {
       submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Invalid Phone Number', text: 'Phone number must be exactly 10 digits and start with 97 or 98.' });
     }
-    if (!nameValid) {
+    if (wordCount < 50) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Invalid Business Name', text: 'Business name must contain only letters and spaces.' });
+      return Swal.fire({ icon: 'warning', title: 'Description Too Short', text: `Business description must be at least 50 words (currently ${wordCount}).` });
     }
-    if (!emailValid) {
+    if (!bizForm.offeringType) {
       submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Invalid Email', text: 'Contact email must be a Gmail address (example@gmail.com).' });
+      return Swal.fire({ icon: 'warning', title: 'Missing Fields', text: 'Please complete all required business details.' });
     }
-    if (deliveryEnabled && (!Number.isInteger(radius) || radius < 1 || radius > 50)) {
+    if (deliveryEnabled && (!Number.isFinite(radius) || radius < 1 || radius > 50)) {
       submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Invalid Delivery Radius', text: 'Delivery radius must be a whole number between 1 and 50 km.' });
     }
     setIsSubmitting(true);
     try {
       const fd = new FormData();
-      Object.entries(bizForm).forEach(([k, v]) => fd.append(k, v));
+      Object.entries({ ...bizForm, hours: normalizedHours, deliveryRadiusKm: String(deliveryEnabled ? radius : (bizForm.deliveryRadiusKm || 5)) }).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') fd.append(k, typeof v === 'boolean' ? String(v) : v);
+      });
+      if (!fd.get('offeringType')) fd.append('offeringType', 'both');
+      if (!fd.has('deliveryAvailable')) fd.append('deliveryAvailable', String(Boolean(bizForm.deliveryAvailable)));
 
-      const filesToUpload = [];
-      if (bizDoc) filesToUpload.push(bizDoc);
-      if (bizQr) filesToUpload.push(bizQr);
+      // Prefer server-side upload so registration still works when Cloudinary is offline.
+      if (bizDoc) fd.append('document', bizDoc);
+      if (bizQr) fd.append('qr', bizQr);
 
-      const uploadedUrls = await uploadFilesToCloudinary(filesToUpload);
-      let fileIndex = 0;
-      if (bizDoc) {
-        if (uploadedUrls[fileIndex]) fd.append('documentUrl', uploadedUrls[fileIndex]);
-        fd.append('document', bizDoc);
-        fileIndex += 1;
-      }
-      if (bizQr) {
-        if (uploadedUrls[fileIndex]) fd.append('qrUrl', uploadedUrls[fileIndex]);
-        fd.append('qr', bizQr);
-      }
-
-      const response = await api.post('/api/businesses', fd, { headers: { ...createIdempotencyHeader('business-register') } });
+      const response = await api.post('/api/businesses', fd, {
+        timeout: 90000,
+        headers: { ...createIdempotencyHeader('business-register') },
+      });
       if (response.data?.business) setMyBusiness(response.data.business);
       Swal.fire({
         icon: 'success',
@@ -388,9 +401,13 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
         text: t('Your application is under admin review. You will be notified when approved.', 'तपाईंको आवेदन समीक्षाधीन छ। अनुमोदन भएपछि सूचित हुनुहुनेछ।'),
         confirmButtonColor: '#f59e0b',
       });
-      fetchAll();
+      fetchAll(true);
     } catch (err) {
-      Swal.fire({ icon: 'error', title: 'Submission Failed', text: err.response?.data?.message || 'Please try again.' });
+      Swal.fire({
+        icon: 'error',
+        title: 'Submission Failed',
+        text: getApiErrorMessage(err, 'Business registration failed. Please check your details and try again.'),
+      });
     } finally {
       setIsSubmitting(false);
       submitGuard.finish();
@@ -660,50 +677,56 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   ══════════════════════════════════════════════════════════════ */
   if (!myBusiness) {
     return (
-      <div className="w-full h-screen bg-gradient-to-br from-slate-900/80 to-slate-950/80">
-        <div className="w-full h-full overflow-y-auto">
-          <div className="p-6 sm:p-8">
-            <div className="mb-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/10 border border-amber-400/20 mb-3">
-                <FiPackage className="h-5 w-5 text-amber-400" />
-              </div>
-              <h2 className="text-2xl font-black text-white">{t('Register Your Business', 'व्यवसाय दर्ता गर्नुहोस्')}</h2>
-              <p className="text-sm text-slate-400 mt-1">{t('Fill in your details and submit for admin approval. You\'ll be notified once approved.', 'विवरण भर्नुहोस् र अनुमोदनको लागि पेश गर्नुहोस्।')}</p>
+      <div className="seller-onboarding min-h-[calc(100vh-64px)] w-full bg-[#0B1220]">
+        <div className="mx-auto w-full px-4 py-6 sm:px-8 sm:py-8 lg:px-12 lg:py-10 xl:px-16">
+          <div className="mb-6 sm:mb-8">
+            <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-400/10">
+              <FiPackage className="h-5 w-5 text-amber-400" />
             </div>
+            <h2 className="text-2xl font-black text-white sm:text-3xl">{t('Register Your Business', 'व्यवसाय दर्ता गर्नुहोस्')}</h2>
+            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+              {t('Fill in your details and submit for admin approval. You\'ll be notified once approved.', 'विवरण भर्नुहोस् र अनुमोदनको लागि पेश गर्नुहोस्।')}
+            </p>
+          </div>
 
-            <form onSubmit={handleRegisterBusiness} className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label={t('Business Name *', 'पसलको नाम *')} placeholder="e.g. Himalayan Crafts" value={bizForm.name} onChange={e => setBizForm({...bizForm, name: e.target.value})} required />
+          <form onSubmit={handleRegisterBusiness} className="space-y-4 rounded-[28px] border border-slate-700/70 bg-slate-900/55 p-4 shadow-[0_25px_60px_rgba(0,0,0,0.35)] sm:p-6 lg:p-8">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <InputField label={t('Business Name *', 'पसलको नाम *')} placeholder="e.g. Himalayan Crafts" value={bizForm.name} onChange={e => setBizForm({...bizForm, name: e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ')})} title="Letters and spaces only" required />
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">{t('Category *', 'वर्ग *')}</label>
-                  <select value={bizForm.category} onChange={e => setBizForm({...bizForm, category: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
-                    {['Grocery','Restaurants & Food','Furniture','Gift Shop / Crafts','Home Services','Mechanics & Repair','Electronics','Clothing & Fashion','Health & Beauty','Education'].map(c => <option key={c} value={c}>{c}</option>)}
+                  <select value={bizForm.category} onChange={e => setBizForm({...bizForm, category: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" required>
+                    <option value="" disabled>Select category</option>
+                    {BUSINESS_CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+                <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ')})} title="Letters and spaces only" required />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel, Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value})} required />
-                  <InputField label="Business Hours (Nepal Time) *" placeholder="09:00 - 18:00" value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} pattern="(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d" required />
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Business Hours (Nepal Time) *</label>
+                  <select value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" required>
+                    <option value="" disabled>Select hours</option>
+                    {BUSINESS_HOURS_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <InputField label="Contact Email *" type="email" placeholder="words@number.com (e.g. shop@123.com)" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value.replace(/[^A-Za-z0-9@.]/g, '')})} pattern="[A-Za-z]+@[0-9]+\.com" title="Format: words@number.com" required />
+                <InputField label="Phone Number *" type="tel" placeholder="10 digits starting with 97 or 98" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} inputMode="numeric" pattern="(97|98)[0-9]{8}" maxLength={10} minLength={10} required />
               </div>
 
-              <div>
-
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label="Contact Email *" type="email" placeholder="business@email.com" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value})} required />
-                <InputField label="Phone Number *" type="tel" placeholder="10 digits starting with 9" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} inputMode="numeric" pattern="9[0-9]{9}" maxLength={10} minLength={10} required />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <InputField label="Registration Number" placeholder="REG-XXXXXXXX" value={bizForm.registrationNumber} onChange={e => setBizForm({...bizForm, registrationNumber: e.target.value})} />
                 <InputField label="PAN / VAT Number" placeholder="PAN-XXXXXXXXX" value={bizForm.panVatNumber} onChange={e => setBizForm({...bizForm, panVatNumber: e.target.value})} />
               </div>
 
-              <TextAreaField label={t('Business Description *', 'व्यवसायको विवरण *')} placeholder="Tell customers what you offer, your specialties, years of experience…" value={bizForm.description} onChange={e => setBizForm({...bizForm, description: e.target.value})} rows={4} required />
+              <div>
+                <TextAreaField label={t('Business Description *', 'व्यवसायको विवरण *')} placeholder="Write at least 50 words about what you offer, your specialties, and experience…" value={bizForm.description} onChange={e => setBizForm({...bizForm, description: e.target.value})} rows={5} required />
+                <p className={`mt-1.5 text-[11px] ${countWords(bizForm.description) >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {countWords(bizForm.description)} / 50 words minimum
+                </p>
+              </div>
 
-              <div className="grid gap-3 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 md:grid-cols-2">
+              <div className="grid gap-3 rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4 md:grid-cols-2">
                 <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-300">
                   <p className="font-semibold text-white">Open status</p>
                   <p className="mt-1 text-xs text-slate-400">This is derived from your business hours automatically.</p>
@@ -718,7 +741,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
                   <FiUpload className="inline mr-1.5" />{t('Business Certificate / Document', 'व्यवसाय प्रमाणपत्र')}
                 </label>
@@ -726,11 +749,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 {bizDoc && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizDoc.name}</p>}
               </div>
 
-              <button type="submit" disabled={isSubmitting} className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all hover:-translate-y-0.5 active:scale-98 disabled:opacity-60">
+              <button type="submit" disabled={isSubmitting} className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all hover:-translate-y-0.5 active:scale-98 disabled:opacity-60 sm:max-w-md">
                 {isSubmitting ? t('Processing...', 'प्रोसेस हुँदै...') : t('Submit Business Registration', 'व्यवसाय दर्ता पेश गर्नुहोस्')}
               </button>
             </form>
-          </div>
         </div>
       </div>
     );
@@ -743,33 +765,35 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
   if (approvalStatus === 'pending') {
     return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <div className="rounded-3xl border border-amber-500/20 bg-amber-500/5 p-10">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 animate-pulse">
-            <FiClock className="h-7 w-7 text-amber-400" />
-          </div>
-          <h2 className="text-xl font-black text-white mb-2">{t('Under Review', 'समीक्षाधीन')}</h2>
-          <p className="text-sm text-slate-400 leading-relaxed mb-6">
-            {t(`Your business "${myBusiness.name}" has been submitted and is awaiting admin approval. This usually takes a short while.`,
-               `तपाईंको व्यवसाय "${myBusiness.name}" पेश भएको छ र प्रशासकको अनुमोदनको प्रतीक्षामा छ।`)}
-          </p>
-
-          <div className="space-y-3 text-left rounded-2xl border border-slate-800 bg-slate-900/40 p-4 mb-6">
-            <InfoRow icon={<FiPackage />} label="Business" value={myBusiness.name} />
-            <InfoRow icon={<FiTag />}     label="Category"  value={myBusiness.category} />
-            <InfoRow icon={<FiMap />}     label="Location"  value={myBusiness.location} />
-            <InfoRow icon={<FiClock />}   label="Status"    value={<span className="text-amber-400 font-bold">Pending Review</span>} />
-          </div>
-
-          {pollingMsg && (
-            <p className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5 mb-4">
-              <FiRefreshCw className="animate-spin h-3 w-3" /> {pollingMsg}
+      <div className="seller-onboarding flex min-h-[calc(100vh-64px)] w-full items-center justify-center bg-[#0B1220] px-4 py-16">
+        <div className="w-full max-w-lg text-center">
+          <div className="rounded-3xl border border-amber-500/20 bg-amber-500/5 p-10">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 animate-pulse">
+              <FiClock className="h-7 w-7 text-amber-400" />
+            </div>
+            <h2 className="text-xl font-black text-white mb-2">{t('Under Review', 'समीक्षाधीन')}</h2>
+            <p className="text-sm text-slate-400 leading-relaxed mb-6">
+              {t('Your business registration is waiting for admin approval.',
+                 'तपाईंको व्यवसाय दर्ता प्रशासकको अनुमोदनको प्रतीक्षामा छ।')}
             </p>
-          )}
 
-          <button onClick={() => fetchAll()} className="flex items-center gap-2 mx-auto text-xs text-amber-400 hover:text-amber-300 transition">
-            <FiRefreshCw className="h-3 w-3" /> {t('Check approval status', 'अनुमोदन स्थिति जाँच गर्नुहोस्')}
-          </button>
+            <div className="space-y-3 text-left rounded-2xl border border-slate-800 bg-slate-900/40 p-4 mb-6">
+              <InfoRow icon={<FiPackage />} label="Business" value={myBusiness.name} />
+              <InfoRow icon={<FiTag />}     label="Category"  value={myBusiness.category} />
+              <InfoRow icon={<FiMap />}     label="Location"  value={myBusiness.location} />
+              <InfoRow icon={<FiClock />}   label="Status"    value={<span className="text-amber-400 font-bold">Pending Review</span>} />
+            </div>
+
+            {pollingMsg && (
+              <p className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5 mb-4">
+                <FiRefreshCw className="animate-spin h-3 w-3" /> {pollingMsg}
+              </p>
+            )}
+
+            <button onClick={() => fetchAll()} className="flex items-center gap-2 mx-auto text-xs text-amber-400 hover:text-amber-300 transition">
+              <FiRefreshCw className="h-3 w-3" /> {t('Check approval status', 'अनुमोदन स्थिति जाँच गर्नुहोस्')}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -778,10 +802,27 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   /* ══════════════════════════════════════════════════════════════
      3. BUSINESS REJECTED
   ══════════════════════════════════════════════════════════════ */
-  if (approvalStatus === 'rejected' || approvalStatus === 'revision_requested') {
-    const revisionMessage = myBusiness?.revisionReason || myBusiness?.rejectionReason || t('Your business registration was not approved. Please contact support or resubmit with correct documents.', 'तपाईंको व्यवसाय दर्ता अनुमोदन भएन। कृपया समर्थनमा सम्पर्क गर्नुहोस् वा सहि कागजातसहित पुनः पेश गर्नुहोस्।');
+  if (approvalStatus === 'suspended') {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-16">
+      <div className="seller-onboarding flex min-h-[calc(100vh-64px)] w-full items-center justify-center bg-[#0B1220] px-4 py-16">
+        <div className="w-full max-w-lg text-center">
+          <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-10">
+            <FiXCircle className="mx-auto h-14 w-14 text-rose-400 mb-4" />
+            <h2 className="text-xl font-black text-white mb-2">{t('Account Suspended', 'खाता निलम्बित')}</h2>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              {t('Your business account has been suspended. Please contact support.', 'तपाईंको व्यवसाय खाता निलम्बित गरिएको छ। कृपया सहयोगमा सम्पर्क गर्नुहोस्।')}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (approvalStatus === 'rejected' || approvalStatus === 'revision_requested') {
+    const revisionMessage = myBusiness?.revisionReason || myBusiness?.rejectionReason || t('Your business registration was rejected. Please check the reason.', 'तपाईंको व्यवसाय दर्ता अस्वीकार गरियो। कृपया कारण जाँच गर्नुहोस्।');
+    return (
+      <div className="seller-onboarding flex min-h-[calc(100vh-64px)] w-full items-center justify-center bg-[#0B1220] px-4 py-16">
+        <div className="w-full max-w-2xl">
         <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-8">
           <FiXCircle className="mx-auto h-14 w-14 text-rose-400 mb-4" />
           <h2 className="text-xl font-black text-white mb-2 text-center">
@@ -863,6 +904,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               </div>
             </form>
           )}
+        </div>
         </div>
       </div>
     );

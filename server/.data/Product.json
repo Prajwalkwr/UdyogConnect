@@ -1,5 +1,15 @@
 [
   {
+    "_id": "el8724pzj",
+    "createdAt": "2026-09-25T11:07:48.339Z",
+    "updatedAt": "2026-09-25T11:07:48.339Z",
+    "businessId": "other_shop",
+    "name": "Product C",
+    "category": "Grocery",
+    "price": 300,
+    "description": "Desc C"
+  },
+  {
     "_id": "57jnvst6v",
     "createdAt": "2026-09-11T12:24:38.831Z",
     "updatedAt": "2026-09-11T12:24:38.831Z",

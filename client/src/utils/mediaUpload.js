@@ -17,7 +17,7 @@ export function appendOptionalFile(formData, fieldName, file) {
 // Upload a File directly to Cloudinary using server-signed params
 export async function uploadDirectToCloudinary(file) {
   if (!file) return null;
-  const token = typeof window !== 'undefined' ? window.localStorage.getItem('token') : '';
+  const token = typeof window !== 'undefined' ? window.sessionStorage.getItem('token') : '';
   const headers = { 'Content-Type': 'application/json' };
   if (token) {
     headers.Authorization = `Bearer ${token}`;

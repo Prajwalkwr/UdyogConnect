@@ -18,7 +18,10 @@ export default class ErrorBoundary extends React.Component {
 
   clearAppStorage = () => {
     if (typeof window === 'undefined') return;
-    APP_CACHE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    APP_CACHE_KEYS.forEach((key) => {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    });
     this.setState({ hasError: false, error: null, recoveryCount: this.state.recoveryCount + 1 });
   };
 
@@ -59,6 +62,10 @@ export default class ErrorBoundary extends React.Component {
       );
     }
 
-    return this.props.children;
+    return (
+      <React.Fragment key={this.state.recoveryCount}>
+        {this.props.children}
+      </React.Fragment>
+    );
   }
 }

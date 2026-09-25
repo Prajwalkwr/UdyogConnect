@@ -133,13 +133,13 @@ export function mapsEmbedUrl(lat, lng) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${lng - d}%2C${lat - d}%2C${lng + d}%2C${lat + d}&layer=mapnik&marker=${lat}%2C${lng}`;
 }
 
-export function computeDistribution(reviews = [], fallback) {
-  if (!reviews.length) return fallback || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+export function computeDistribution(reviews = []) {
+  if (!reviews.length) return { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
   const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
   reviews.forEach((review) => {
-    counts[Math.min(5, Math.max(1, Math.round(Number(review.rating) || 5)))] += 1;
+    counts[Math.min(5, Math.max(1, Math.round(Number(review.rating) || 0)))] += 1;
   });
-  const total = reviews.length || 1;
+  const total = reviews.length;
   return {
     5: Math.round((counts[5] / total) * 100),
     4: Math.round((counts[4] / total) * 100),
@@ -173,39 +173,41 @@ export function normalizeProfile(id, payload) {
   const reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
   const ratingAvg = reviews.length
     ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length
-    : Number(business.rating || cafeDemo.business.rating);
+    : 0;
 
   return {
     fromDemo: false,
     business: {
-      ...cafeDemo.business,
       ...business,
       _id: business._id || id,
-      name: business.name || cafeDemo.business.name,
-      category: business.category || cafeDemo.business.category,
-      location: business.location || cafeDemo.business.location,
-      description: business.description || cafeDemo.business.description,
-      phone: business.phone || cafeDemo.business.phone,
-      contactEmail: business.contactEmail || business.email || cafeDemo.business.contactEmail,
-      website: business.website || cafeDemo.business.website,
+      name: business.name || 'Business',
+      category: business.category || 'Local Business',
+      location: business.location || '',
+      description: business.description || '',
+      phone: business.phone || '',
+      contactEmail: business.contactEmail || business.email || '',
+      website: business.website || '',
       verified: Boolean(business.verified === true || business.verified === 'verified' || business.verified === 'approved'),
-      rating: Number(ratingAvg.toFixed(1)) || Number(business.rating || 0),
-      reviewCount: reviews.length || Number(business.reviewCount || 0),
-      latitude: Number(business.latitude) || THAMEL.lat,
-      longitude: Number(business.longitude) || THAMEL.lng,
+      rating: Number(ratingAvg.toFixed(1)),
+      reviewCount: reviews.length,
+      latitude: Number(business.latitude) || null,
+      longitude: Number(business.longitude) || null,
       imageUrl: business.imageUrl || business.logoUrl || '',
       coverUrl: business.coverUrl || '',
-      openingHours: cafeDemo.business.openingHours,
-      closesAt: cafeDemo.business.closesAt,
+      openingHours: Array.isArray(business.openingHours) && business.openingHours.length
+        ? business.openingHours
+        : undefined,
+      closesAt: business.closesAt || '',
+      hours: business.hours || '',
     },
     products: products.map((product, index) => ({
       _id: product._id || `p-${index}`,
       name: product.name,
       description: product.description || '',
       price: Number(product.price || 0),
-      rating: Number(product.rating || 4.5),
+      rating: Number(product.rating || 0),
       imageUrl: product.imageUrl || product.image || product.images?.[0] || '',
-      badge: index === 0 ? 'Best Seller' : product.badge,
+      badge: product.badge || '',
       stock: product.stock ?? 20,
       category: product.category || business.category || 'Product',
       businessId: business._id,
@@ -221,11 +223,12 @@ export function normalizeProfile(id, payload) {
     reviews: reviews.map((review, index) => ({
       _id: review._id || `r-${index}`,
       userName: review.userName || review.customerName || review.user?.name || review.name || 'Customer',
-      rating: Number(review.rating || 5),
+      rating: Number(review.rating || 0),
       comment: review.comment || review.text || '',
       createdAt: review.createdAt || new Date().toISOString(),
-      imageUrl: review.imageUrl || review.image || business.imageUrl,
+      // Never fall back to the business logo as a fake review photo.
+      imageUrl: review.imageUrl || review.image || '',
     })),
-    distribution: computeDistribution(reviews, cafeDemo.distribution),
+    distribution: computeDistribution(reviews),
   };
 }

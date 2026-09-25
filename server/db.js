@@ -7,14 +7,32 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^9[\d\s\-()]{8,18}$/;
 const URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MEDIA_URL_PATTERN = /^(https?:\/\/\S+|data:[a-z0-9.+\/-]+;base64,[a-z0-9+/=\s]+)$/i;
+
+const optionalUrlValidator = {
+  validator(value) {
+    if (value === undefined || value === null || value === '') return true;
+    return MEDIA_URL_PATTERN.test(String(value)) || URL_PATTERN.test(String(value));
+  },
+  message: 'Invalid URL',
+};
 
 let isMongo = false;
-const DEMO_PASSWORD_HASH = bcrypt.hashSync('password', 10);
+let cachedDemoPasswordHash = null;
+
+function shouldSeedDemoData() {
+  return process.env.NODE_ENV === 'test' || process.env.SEED_DEMO === 'true';
+}
+
+function getDemoPasswordHash() {
+  if (!cachedDemoPasswordHash) cachedDemoPasswordHash = bcrypt.hashSync('password', 10);
+  return cachedDemoPasswordHash;
+}
 const DEMO_USERS = [
   {
     name: 'Prajwal Customer',
     email: 'customer@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000001',
     role: 'customer',
     loyaltyPoints: 120,
@@ -29,7 +47,7 @@ const DEMO_USERS = [
   {
     name: 'Ram Seller',
     email: 'seller@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000002',
     role: 'seller',
     loyaltyPoints: 0,
@@ -45,7 +63,7 @@ const DEMO_USERS = [
     demoId: 's2',
     name: 'Mina Craft Seller',
     email: 'crafts@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000005',
     role: 'seller',
     loyaltyPoints: 0,
@@ -61,7 +79,7 @@ const DEMO_USERS = [
     demoId: 's3',
     name: 'Suman Home Seller',
     email: 'home@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000006',
     role: 'seller',
     loyaltyPoints: 0,
@@ -77,7 +95,7 @@ const DEMO_USERS = [
     demoId: 'demo-owner-b4',
     name: 'Asha Spice Seller',
     email: 'spice@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000007',
     role: 'seller',
     loyaltyPoints: 0,
@@ -93,7 +111,7 @@ const DEMO_USERS = [
     demoId: 'demo-owner-b5',
     name: 'Bikash Lakeside Seller',
     email: 'treasures@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000008',
     role: 'seller',
     loyaltyPoints: 0,
@@ -109,7 +127,7 @@ const DEMO_USERS = [
     demoId: 'demo-owner-b6',
     name: 'Nabin Repair Seller',
     email: 'repair@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000009',
     role: 'seller',
     loyaltyPoints: 0,
@@ -125,7 +143,7 @@ const DEMO_USERS = [
   {
     name: 'Platform Admin',
     email: 'admin@udyog.np',
-    password: DEMO_PASSWORD_HASH,
+    password: '',
     phone: '9840000004',
     role: 'admin',
     loyaltyPoints: 0,
@@ -521,42 +539,43 @@ let db = {};
 
 // Initialize Mongoose Schemas if mongo is active
 const seedDemoUsers = async () => {
-  if (!db.User) return;
+  if (!db.User || !shouldSeedDemoData()) return;
+  const password = getDemoPasswordHash();
   for (const userData of DEMO_USERS) {
     const existing = await db.User.findOne({ email: userData.email });
     if (!existing) {
-      const seedData = db.User.db
+      const seedData = isMongo
         ? (({ demoId, ...data }) => data)(userData)
         : { ...userData, _id: userData.demoId || undefined };
-      await db.User.create({ ...seedData });
+      await db.User.create({ ...seedData, password });
     }
   }
 };
 
 const seedDemoBusinesses = async () => {
-  if (!db.Business) return;
+  if (!db.Business || !shouldSeedDemoData()) return;
   for (const businessData of defaultBusinesses) {
     const existing = await db.Business.findOne({ name: businessData.name });
     if (!existing) {
-      const seedData = db.Business.db ? (({ _id, ...data }) => data)(businessData) : businessData;
+      const seedData = isMongo ? (({ _id, ...data }) => data)(businessData) : businessData;
       await db.Business.create({ ...seedData });
     }
   }
 };
 
 const seedDemoCatalog = async () => {
-  if (!db.Product || !db.Service) return;
+  if (!shouldSeedDemoData() || !db.Product || !db.Service) return;
   for (const productData of defaultProducts) {
-    const business = await db.Business.findOne({ _id: productData.businessId });
+    const business = isMongo ? null : await db.Business.findOne({ _id: productData.businessId });
     const seedData = { ...productData, businessId: business?._id || productData.businessId };
     const existing = await db.Product.findOne({ sku: productData.sku });
-    if (!existing) await db.Product.create(db.Product.db ? (({ _id, ...data }) => data)(seedData) : seedData);
+    if (!existing) await db.Product.create(isMongo ? (({ _id, ...data }) => data)(seedData) : seedData);
   }
   for (const serviceData of defaultServices) {
-    const business = await db.Business.findOne({ _id: serviceData.businessId });
+    const business = isMongo ? null : await db.Business.findOne({ _id: serviceData.businessId });
     const seedData = { ...serviceData, businessId: business?._id || serviceData.businessId };
     const existing = await db.Service.findOne({ name: serviceData.name, businessId: seedData.businessId });
-    if (!existing) await db.Service.create(db.Service.db ? (({ _id, ...data }) => data)(seedData) : seedData);
+    if (!existing) await db.Service.create(isMongo ? (({ _id, ...data }) => data)(seedData) : seedData);
   }
 };
 
@@ -567,7 +586,8 @@ const initMongooseModels = async () => {
     password: { type: String, required: true },
     phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
     role: { type: String, enum: ['customer', 'seller', 'admin'], default: 'customer' },
-    profilePicture: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid profile picture URL'] },
+    status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    profilePicture: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     addresses: { type: Array, default: [] },
     paymentMethods: { type: Array, default: [] },
     wishlist: {
@@ -595,15 +615,15 @@ const initMongooseModels = async () => {
     description: { type: String, required: true, trim: true },
     contactEmail: { type: String, trim: true, lowercase: true, match: [EMAIL_PATTERN, 'Invalid email address'] },
     phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
-    website: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid website URL'] },
+    website: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     hours: { type: String, default: '09:00 - 18:00', trim: true },
-    imageUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid image URL'] },
-    coverUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid cover URL'] },
-    qrUrl: { type: String, default: '', trim: true, match: [URL_PATTERN, 'Invalid QR URL'] },
+    imageUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
+    coverUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
+    qrUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     latitude: { type: Number, default: 27.7007 },
     longitude: { type: Number, default: 85.3001 },
     verified: { type: String, enum: ['pending', 'verified', 'approved', 'rejected', 'suspended'] },
-    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected', 'revision_requested'] },
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected', 'suspended', 'revision_requested'] },
     approvedAt: { type: Date, default: null },
     approvedBy: { type: String, default: null, trim: true },
     isVerified: { type: Boolean, default: false },
@@ -746,19 +766,36 @@ const initMongooseModels = async () => {
     value: { type: mongoose.Schema.Types.Mixed, required: true },
   }, { timestamps: true });
 
-  db.User = mongoose.model('User', userSchema);
-  db.Business = mongoose.model('Business', businessSchema);
-  db.Product = mongoose.model('Product', productSchema);
-  db.Service = mongoose.model('Service', serviceSchema);
-  db.Order = mongoose.model('Order', orderSchema);
-  db.Booking = mongoose.model('Booking', bookingSchema);
-  db.Review = mongoose.model('Review', reviewSchema);
-  db.Chat = mongoose.model('Chat', chatSchema);
-  db.Notification = mongoose.model('Notification', notificationSchema);
-  db.Coupon = mongoose.model('Coupon', couponSchema);
-  db.AuditLog = mongoose.model('AuditLog', auditLogSchema);
-  db.Category = mongoose.model('Category', categorySchema);
-  db.SystemSetting = mongoose.model('SystemSetting', systemSettingSchema);
+  userSchema.index({ role: 1 });
+  userSchema.index({ phone: 1 }, { unique: true, sparse: true });
+  businessSchema.index({ ownerId: 1 });
+  businessSchema.index({ category: 1 });
+  businessSchema.index({ location: 1 });
+  businessSchema.index({ approvalStatus: 1 });
+  productSchema.index({ businessId: 1 });
+  productSchema.index({ category: 1 });
+  serviceSchema.index({ businessId: 1 });
+  orderSchema.index({ customerId: 1, createdAt: -1 });
+  orderSchema.index({ businessId: 1, createdAt: -1 });
+  reviewSchema.index({ businessId: 1, createdAt: -1 });
+  reviewSchema.index({ customerId: 1 });
+  notificationSchema.index({ userId: 1, createdAt: -1 });
+
+  const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
+
+  db.User = model('User', userSchema);
+  db.Business = model('Business', businessSchema);
+  db.Product = model('Product', productSchema);
+  db.Service = model('Service', serviceSchema);
+  db.Order = model('Order', orderSchema);
+  db.Booking = model('Booking', bookingSchema);
+  db.Review = model('Review', reviewSchema);
+  db.Chat = model('Chat', chatSchema);
+  db.Notification = model('Notification', notificationSchema);
+  db.Coupon = model('Coupon', couponSchema);
+  db.AuditLog = model('AuditLog', auditLogSchema);
+  db.Category = model('Category', categorySchema);
+  db.SystemSetting = model('SystemSetting', systemSettingSchema);
 
   const supportTicketSchema = new mongoose.Schema({
     userId: { type: String, required: true, trim: true },
@@ -772,15 +809,23 @@ const initMongooseModels = async () => {
     resolution: { type: String, default: '' },
   }, { timestamps: true });
 
-  db.SupportTicket = mongoose.model('SupportTicket', supportTicketSchema);
+  db.SupportTicket = mongoose.models.SupportTicket || mongoose.model('SupportTicket', supportTicketSchema);
 
   await seedDemoUsers();
   await seedDemoBusinesses();
   await seedDemoCatalog();
   // Ensure indexes (unique constraints) are created
   try {
-    await db.User.createIndexes();
-    console.log('User indexes ensured');
+    await Promise.all([
+      db.User.createIndexes(),
+      db.Business.createIndexes(),
+      db.Product.createIndexes(),
+      db.Service.createIndexes(),
+      db.Order.createIndexes(),
+      db.Review.createIndexes(),
+      db.Notification.createIndexes(),
+    ]);
+    console.log('Database indexes ensured');
   } catch (e) {
     console.warn('Failed to create user indexes:', e && e.message);
   }
@@ -792,18 +837,20 @@ const initMockModels = async () => {
     'seller@udyog.np': 's1',
     'admin@udyog.np': 'a1',
   };
-  const seededUsers = DEMO_USERS.map((user) => {
-    const seededId = user.demoId || legacyIds[user.email];
-    return { ...user, ...(seededId ? { _id: seededId } : {}) };
-  });
+  const seededUsers = shouldSeedDemoData()
+    ? DEMO_USERS.map((user) => {
+      const seededId = user.demoId || legacyIds[user.email];
+      return { ...user, password: getDemoPasswordHash(), ...(seededId ? { _id: seededId } : {}) };
+    })
+    : [];
 
   const userModel = new MockModel('User', seededUsers);
   db.User = userModel;
   await seedDemoUsers();
 
-  db.Business = new MockModel('Business', defaultBusinesses);
-  db.Product = new MockModel('Product', defaultProducts);
-  db.Service = new MockModel('Service', defaultServices);
+  db.Business = new MockModel('Business', shouldSeedDemoData() ? defaultBusinesses : []);
+  db.Product = new MockModel('Product', shouldSeedDemoData() ? defaultProducts : []);
+  db.Service = new MockModel('Service', shouldSeedDemoData() ? defaultServices : []);
   db.Order = new MockModel('Order', []);
   db.Booking = new MockModel('Booking', []);
   db.Review = new MockModel('Review', [
@@ -932,6 +979,7 @@ async function connectDb() {
   if (process.env.MONGODB_URI) {
     if (mongoose.connection.readyState === 1) {
       if (!db.User || !db.Business) {
+        isMongo = true;
         await initMongooseModels();
       }
       console.log('MongoDB connection already established. Reusing existing connection.');

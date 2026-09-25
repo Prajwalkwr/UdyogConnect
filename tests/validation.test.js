@@ -83,12 +83,12 @@ describe('System Validation & Security Test Suite', () => {
       const email = `dup_${Date.now()}@example.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'User One', email, password: 'Password123', confirmPassword: 'Password123' })
+        .send({ name: 'User One', email, password: 'Password123', confirmPassword: 'Password123', phone: `98${String(Date.now()).slice(-8)}` })
         .expect(201);
 
       const dupRes = await request(app)
         .post('/api/auth/register')
-        .send({ name: 'User Two', email, password: 'Password123', confirmPassword: 'Password123' });
+        .send({ name: 'User Two', email, password: 'Password123', confirmPassword: 'Password123', phone: `97${String(Date.now()).slice(-8)}` });
 
       expect([400, 409]).toContain(dupRes.status);
     });
@@ -107,10 +107,14 @@ describe('System Validation & Security Test Suite', () => {
     let businessId;
 
     beforeAll(async () => {
-      const email = `seller_${Date.now()}@example.com`;
-      await request(app)
+      const email = `seller@${Date.now()}.com`;
+      const sellerPhone = `98${String(Date.now()).slice(-8)}`;
+      const sellerReg = await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller User', email, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: '9841112233' });
+        .send({ name: 'Seller User', email, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: sellerPhone });
+      if (sellerReg.status !== 201) {
+        throw new Error(`seller register ${sellerReg.status}: ${JSON.stringify(sellerReg.body)}`);
+      }
 
       const loginRes = await request(app)
         .post('/api/auth/login')
@@ -122,10 +126,10 @@ describe('System Validation & Security Test Suite', () => {
         .post('/api/businesses')
         .set('Authorization', `Bearer ${sellerToken}`)
         .send({
-          name: `Test Business ${Date.now()}`,
-          category: 'Retail',
+          name: 'Test Business One',
+          category: 'Grocery',
           location: 'Kathmandu',
-          description: 'A complete test business description in Nepal.',
+          description: 'We are a trusted local business serving customers across Nepal with quality products and friendly service every day of the week. Our team focuses on fresh inventory fair pricing and reliable delivery so families and shops can depend on us. We take pride in community support careful packing clear communication and fast responses to orders questions and special requests from nearby neighborhoods and returning customers alike.',
           contactEmail: email,
           phone: '9841112233',
           hours: '09:00 - 18:00',
@@ -196,15 +200,15 @@ describe('System Validation & Security Test Suite', () => {
       const custEmail = `cust_review_${Date.now()}@example.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Reviewer Cust', email: custEmail, password: 'Password123', confirmPassword: 'Password123', role: 'customer' });
+        .send({ name: 'Reviewer Cust', email: custEmail, password: 'Password123', confirmPassword: 'Password123', role: 'customer', phone: `98${String(Date.now()).slice(-8)}` });
 
       const custLogin = await request(app).post('/api/auth/login').send({ email: custEmail, password: 'Password123' });
       customerToken = custLogin.body.token;
 
-      const sellerEmail = `seller_review_${Date.now()}@example.com`;
+      const sellerEmail = `reviewseller@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Review Owner Seller', email: sellerEmail, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: '9845556677' });
+        .send({ name: 'Review Owner Seller', email: sellerEmail, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 11).slice(-8)}` });
 
       const sellerLogin = await request(app).post('/api/auth/login').send({ email: sellerEmail, password: 'Password123' });
       sellerToken = sellerLogin.body.token;
@@ -213,10 +217,10 @@ describe('System Validation & Security Test Suite', () => {
         .post('/api/businesses')
         .set('Authorization', `Bearer ${sellerToken}`)
         .send({
-          name: `Review Target Biz ${Date.now()}`,
-          category: 'Services',
+          name: 'Review Target Biz',
+          category: 'Home Services',
           location: 'Pokhara',
-          description: 'Test business for review validation.',
+          description: 'We are a trusted local business serving customers across Nepal with quality products and friendly service every day of the week. Our team focuses on fresh inventory fair pricing and reliable delivery so families and shops can depend on us. We take pride in community support careful packing clear communication and fast responses to orders questions and special requests from nearby neighborhoods and returning customers alike.',
           contactEmail: sellerEmail,
           phone: '9845556677',
           hours: '09:00 - 18:00',
@@ -282,10 +286,10 @@ describe('System Validation & Security Test Suite', () => {
     let product1Id;
 
     beforeAll(async () => {
-      const email1 = `seller1_${Date.now()}@example.com`;
+      const email1 = `sellerone@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller 1', email: email1, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: '9849991111' });
+        .send({ name: 'Seller One', email: email1, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 21).slice(-8)}` });
 
       const login1 = await request(app).post('/api/auth/login').send({ email: email1, password: 'Password123' });
       seller1Token = login1.body.token;
@@ -294,10 +298,10 @@ describe('System Validation & Security Test Suite', () => {
         .post('/api/businesses')
         .set('Authorization', `Bearer ${seller1Token}`)
         .send({
-          name: `Biz 1 ${Date.now()}`,
-          category: 'Retail',
+          name: 'Biz One Seller',
+          category: 'Grocery',
           location: 'Kathmandu',
-          description: 'Description for Biz 1 by Seller 1.',
+          description: 'We are a trusted local business serving customers across Nepal with quality products and friendly service every day of the week. Our team focuses on fresh inventory fair pricing and reliable delivery so families and shops can depend on us. We take pride in community support careful packing clear communication and fast responses to orders questions and special requests from nearby neighborhoods and returning customers alike.',
           contactEmail: email1,
           phone: '9849991111',
           hours: '09:00 - 18:00',
@@ -306,6 +310,11 @@ describe('System Validation & Security Test Suite', () => {
         });
 
       const b1Id = biz1.body.business.id || biz1.body.business._id;
+      const adminLogin = await request(app).post('/api/auth/login').send({ email: 'admin@udyog.np', password: 'password' });
+      await request(app)
+        .put(`/api/businesses/${b1Id}/verify`)
+        .set('Authorization', `Bearer ${adminLogin.body.token}`)
+        .send({ status: 'approved' });
 
       const p1 = await request(app)
         .post('/api/products')
@@ -321,10 +330,10 @@ describe('System Validation & Security Test Suite', () => {
 
       product1Id = p1.body.product._id;
 
-      const email2 = `seller2_${Date.now()}@example.com`;
+      const email2 = `sellertwo@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller 2', email: email2, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: '9849992222' });
+        .send({ name: 'Seller Two', email: email2, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 31).slice(-8)}` });
 
       const login2 = await request(app).post('/api/auth/login').send({ email: email2, password: 'Password123' });
       seller2Token = login2.body.token;

@@ -1,5 +1,7 @@
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_REGEX = /^9\d{9}$/;
+const BUSINESS_EMAIL_REGEX = /^[A-Za-z]+@[0-9]+\.com$/i;
+const PHONE_REGEX = /^(97|98)\d{8}$/;
+const PERSON_NAME_REGEX = /^[\p{L}]+(?:[ ][\p{L}]+)*$/u;
 
 // Helper to check if string looks like valid Mongo ObjectId or non-empty ID
 const isValidId = (id) => {
@@ -11,24 +13,34 @@ const isValidId = (id) => {
 const validateRegistration = (req, res, next) => {
   const { name, email, password, confirmPassword, phone, role } = req.body || {};
   const errors = {};
+  const isSeller = role === 'seller';
 
   if (!name || !String(name).trim()) {
-    errors.name = 'Name is required.';
+    errors.name = isSeller ? 'Business name is required.' : 'Name is required.';
   } else if (String(name).trim().length < 2) {
-    errors.name = 'Name must be at least 2 characters long.';
+    errors.name = isSeller
+      ? 'Business name must be at least 2 characters long.'
+      : 'Name must be at least 2 characters long.';
+  } else if (!PERSON_NAME_REGEX.test(String(name).trim())) {
+    errors.name = isSeller
+      ? 'Business name can only contain letters and spaces (words only).'
+      : 'Name can only contain letters and spaces (no numbers or special characters).';
   }
 
   if (!email || !String(email).trim()) {
     errors.email = 'Email address is required.';
+  } else if (isSeller) {
+    if (!BUSINESS_EMAIL_REGEX.test(String(email).trim())) {
+      errors.email = 'Business email must be in words@number.com format (e.g. shop@123.com).';
+    }
   } else if (!EMAIL_REGEX.test(String(email).trim())) {
     errors.email = 'Please provide a valid email address.';
   }
 
-  if (phone) {
-    const cleanPhone = String(phone).trim();
-    if (!PHONE_REGEX.test(cleanPhone)) {
-      errors.phone = 'Phone number must be exactly 10 digits starting with 9.';
-    }
+  if (!phone || !String(phone).trim()) {
+    errors.phone = 'Phone number is required.';
+  } else if (!PHONE_REGEX.test(String(phone).trim())) {
+    errors.phone = 'Phone number must be exactly 10 digits starting with 97 or 98.';
   }
 
   if (!password) {
@@ -39,11 +51,15 @@ const validateRegistration = (req, res, next) => {
     errors.password = 'Password must contain at least one letter and one number.';
   }
 
-  if (confirmPassword && password !== confirmPassword) {
+  if (!confirmPassword) {
+    errors.confirmPassword = 'Please confirm your password.';
+  } else if (password !== confirmPassword) {
     errors.confirmPassword = 'Passwords do not match.';
   }
 
-  if (role && !['customer', 'seller', 'rider', 'admin'].includes(role)) {
+  if (role === 'admin') {
+    errors.role = 'Admin accounts cannot be created through public registration.';
+  } else if (role && !['customer', 'seller'].includes(role)) {
     errors.role = 'Invalid account role specified.';
   }
 
@@ -98,7 +114,7 @@ const validateBusinessPayload = (req, res, next) => {
   if (phone) {
     const cleanPhone = String(phone).trim();
     if (!PHONE_REGEX.test(cleanPhone)) {
-      errors.phone = 'Phone number must be exactly 10 digits starting with 9.';
+      errors.phone = 'Phone number must be exactly 10 digits starting with 97 or 98.';
     }
   }
 
@@ -237,7 +253,7 @@ const validateOrderPayload = (req, res, next) => {
     if (!deliveryAddr.phone && !deliveryAddr.contactPhone) {
       // Optional or warning
     } else if (deliveryAddr.phone && !PHONE_REGEX.test(String(deliveryAddr.phone).trim())) {
-      errors.phone = 'Delivery phone number must be 10 digits starting with 9.';
+      errors.phone = 'Delivery phone number must be 10 digits starting with 97 or 98.';
     }
   }
 

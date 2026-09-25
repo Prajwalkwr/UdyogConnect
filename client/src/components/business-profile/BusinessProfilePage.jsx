@@ -43,6 +43,7 @@ export default function BusinessProfilePage({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState(() => normalizeProfile(id || CAFE_XYZ_ID, null));
+  const [unavailable, setUnavailable] = useState(false);
   const [tab, setTab] = useState(searchParams.get('tab') || 'overview');
   const [query, setQuery] = useState(searchQuery || '');
   const [sort, setSort] = useState('featured');
@@ -105,19 +106,31 @@ export default function BusinessProfilePage({
     let active = true;
     const load = async () => {
       if (!id || id === CAFE_XYZ_ID) {
+        setUnavailable(false);
         setProfile(normalizeProfile(CAFE_XYZ_ID, null));
         return;
       }
       try {
         const { data } = await api.get(`/api/businesses/${id}`);
-        if (active) setProfile(normalizeProfile(id, data));
+        if (!active) return;
+        const business = data?.business || data;
+        const isLive = business?.approvalStatus === 'approved'
+          || business?.isVerified === true
+          || business?.verified === 'verified';
+        // Owners/admins can still view via API; public pending businesses are blocked server-side.
+        if (!isLive && !(user?.role === 'admin' || String(business?.ownerId || '') === String(user?._id || user?.id || ''))) {
+          setUnavailable(true);
+          return;
+        }
+        setUnavailable(false);
+        setProfile(normalizeProfile(id, data));
       } catch {
-        if (active) setProfile(normalizeProfile(CAFE_XYZ_ID, null));
+        if (active) setUnavailable(true);
       }
     };
     load();
     return () => { active = false; };
-  }, [id]);
+  }, [id, user?._id, user?.id, user?.role]);
 
   useEffect(() => {
     setQuery(searchQuery || '');
@@ -184,8 +197,10 @@ export default function BusinessProfilePage({
 
   const toggleSave = async () => {
     if (!requireUser()) return;
-    await onToggleWishlist?.('businesses', profile.business._id);
-    setSaved((value) => !value);
+    const nextSaved = await onToggleWishlist?.('businesses', profile.business._id);
+    if (typeof nextSaved === 'boolean') {
+      setSaved(nextSaved);
+    }
   };
 
   const shareBusiness = async () => {
@@ -278,10 +293,27 @@ export default function BusinessProfilePage({
     onOpenChat?.();
   };
 
-  const popularProducts = products
+  if (unavailable) {
+    return (
+      <div className="bp-page" style={{ padding: '48px 20px', textAlign: 'center' }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#102341' }}>Business unavailable</h2>
+        <p style={{ marginTop: 8, color: '#64748b' }}>This business is not live yet. It will appear after admin approval.</p>
+      </div>
+    );
+  }
+
+  const popularProducts = [...products]
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
     .slice(0, 4);
-  const business = profile.business;
+  const business = profile?.business;
+  if (!business) {
+    return (
+      <div className="bp-page" style={{ padding: '48px 20px', textAlign: 'center' }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#102341' }}>Business unavailable</h2>
+        <p style={{ marginTop: 8, color: '#64748b' }}>This business could not be loaded.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bp-page">
