@@ -1,14 +1,22 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { containsItemById } from './utils/duplicateUtils';
+import { normalizeUser } from './utils/authFlow';
+import { getSessionUser } from './utils/sessionAuth';
 
-const readStoredCart = () => {
-  return [];
+const readBootUser = () => {
+  try {
+    const stored = getSessionUser();
+    return stored ? normalizeUser(stored) : null;
+  } catch {
+    return null;
+  }
 };
 
 export const initialState = {
-  user: null,
+  // Hydrate synchronously so the first paint already knows the signed-in user.
+  user: readBootUser(),
   businesses: [],
-  cart: readStoredCart(),
+  cart: [],
 };
 
 export function appReducer(state = initialState, action) {

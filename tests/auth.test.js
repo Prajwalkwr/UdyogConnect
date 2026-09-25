@@ -11,6 +11,9 @@ beforeAll(async () => {
   process.env.MONGODB_URI = mongo.getUri();
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret';
   process.env.NODE_ENV = 'test';
+  // Keep OTP optional in the main auth suite (register may or may not return otp).
+  delete process.env.REQUIRE_REGISTRATION_OTP;
+  process.env.DISABLE_REGISTRATION_OTP = 'true';
 
   // Connect DB models
   const dbModule = await import('../server/db.js');
@@ -37,10 +40,13 @@ describe('Auth: register and login', () => {
     // Register
     const reg = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Test User', email, password, confirmPassword: password })
+      .send({ name: 'Test User', email, password, confirmPassword: password, phone: `98${String(Date.now()).slice(-8)}` })
       .expect(201);
 
     expect(reg.body).toHaveProperty('success', true);
+    if (reg.body.otp) {
+      await request(app).post('/api/auth/verify').send({ email, otp: reg.body.otp }).expect(200);
+    }
 
     // Login
     const login = await request(app)
@@ -54,17 +60,14 @@ describe('Auth: register and login', () => {
   });
 
   it('exposes live admin catalog and support data endpoints', async () => {
-    const uniqueEmail = `adminlive+${Date.now()}@example.com`;
-    const password = 'Adminpass123';
-
-    await request(app)
+    const blocked = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Admin Live', email: uniqueEmail, password, confirmPassword: password, role: 'admin' })
-      .expect(201);
+      .send({ name: 'Admin Live', email: `adminlive+${Date.now()}@example.com`, password: 'Adminpass123', confirmPassword: 'Adminpass123', phone: `97${String(Date.now()).slice(-8)}`, role: 'admin' });
+    expect(blocked.status).toBe(400);
 
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: uniqueEmail, password })
+      .send({ email: 'admin@udyog.np', password: 'password' })
       .expect(200);
 
     const supportRes = await request(app)

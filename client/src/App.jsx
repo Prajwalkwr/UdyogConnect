@@ -1,24 +1,25 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import api from './utils/api';
 import Swal from 'sweetalert2';
+import { useAuth } from './context/AuthContext';
+import RoleRoute from './components/RoleRoute';
+import { getSessionToken, getSessionUser } from './utils/sessionAuth';
 import { normalizeUser } from './utils/authFlow';
-import { readStoredJson, removeStoredValue } from './utils/storage';
-import { io as socketIO } from 'socket.io-client';
 
 // Import Modular Components
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
 import Marketplace from './components/Marketplace';
 import DetailsModal from './components/DetailsModal';
-import CartCheckout from './components/CartCheckout';
-import ChatAndAI from './components/ChatAndAI';
-import CustomerDashboard from './components/CustomerDashboard';
-import SellerDashboard from './components/SellerDashboard';
-import AdminDashboard from './components/AdminDashboard';
-import PaymentSuccess from './components/PaymentSuccess';
-import BusinessProfilePage from './components/business-profile/BusinessProfilePage';
+const CustomerDashboard = lazy(() => import('./components/CustomerDashboard'));
+const SellerDashboard = lazy(() => import('./components/SellerDashboard'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const PaymentSuccess = lazy(() => import('./components/PaymentSuccess'));
+const BusinessProfilePage = lazy(() => import('./components/business-profile/BusinessProfilePage'));
+const CartCheckout = lazy(() => import('./components/CartCheckout'));
+const ChatAndAI = lazy(() => import('./components/ChatAndAI'));
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -48,6 +49,7 @@ function App() {
 
   const user = useSelector((state) => state.user);
   const cart = useSelector((state) => state.cart);
+  const { establishSession, endSession, persistUser, sessionNotice, clearSessionNotice, authReady } = useAuth();
 
   // Global settings
   const [lang, setLang] = useState('en'); // 'en' | 'ne'
@@ -66,6 +68,7 @@ function App() {
   const sellerBusiness = user?.role === 'seller'
     ? businesses.find((business) => String(business.ownerId) === String(user._id || user.id))
     : null;
+  const hideSellerSidebar = user?.role === 'seller' && !sellerBusiness;
   const sellerProductCount = sellerBusiness
     ? products.filter((product) => String(product.businessId) === String(sellerBusiness._id)).length
     : 0;
@@ -84,6 +87,7 @@ function App() {
   // Dashboard active tab (driven from sidebar)
   const [dashboardTab, setDashboardTab] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
+  const [catalogStatus, setCatalogStatus] = useState('loading');
 
   useEffect(() => {
     const userId = user?._id || user?.id || null;
@@ -104,96 +108,98 @@ function App() {
     localStorage.setItem(getCartStorageKey(user), JSON.stringify(cart));
   }, [cart, user]);
 
-  // Sync token, notifications, and Socket.IO connection
+  // Sync notifications and a single Socket.IO connection for the signed-in user
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const parsedUser = readStoredJson('user', null);
-
-    if (token) {
-      if (parsedUser) {
-        const normalizedUser = normalizeUser(parsedUser);
-        dispatch({ type: 'SET_USER', payload: normalizedUser });
+    const token = getSessionToken();
+    if (!token || !user?._id) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
-      api.get('/api/auth/profile')
-        .then((response) => {
-          const freshUser = normalizeUser(response.data);
-          localStorage.setItem('user', JSON.stringify(freshUser));
-          dispatch({ type: 'SET_USER', payload: freshUser });
-        })
-        .catch(() => {});
-      fetchNotifications();
+      return undefined;
+    }
 
-        // ── Real-time Socket.IO connection ────────────────────────
+    fetchNotifications();
+
+    let cancelled = false;
+    let socket;
+
+    const connectSocket = async () => {
+      try {
+        const { io } = await import('socket.io-client');
+        if (cancelled) return;
         const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
           || (import.meta.env.DEV ? window.location.origin : 'https://udyogconnect.onrender.com');
-        const socket = socketIO(backendUrl, {
+        socket = io(backendUrl, {
           auth: { token },
           transports: ['websocket', 'polling'],
           reconnectionAttempts: 5,
           reconnectionDelay: 2000,
+          autoConnect: true,
         });
         socketRef.current = socket;
 
-        // Receive a notification pushed by the server in real-time
         socket.on('new_notification', () => {
           fetchNotifications();
           setLiveOrderTick((t) => t + 1);
         });
-
-        // Receive a new_order event — trigger seller/admin dashboard refresh
-        socket.on('new_order', () => {
-          setLiveOrderTick((t) => t + 1);
+        socket.on('new_order', () => setLiveOrderTick((t) => t + 1));
+        socket.on('support_ticket_update', () => setLiveOrderTick((t) => t + 1));
+        socket.on('connect_error', () => {
+          // Socket failure must never block the UI.
         });
-
-        socket.on('support_ticket_update', () => {
-          setLiveOrderTick((t) => t + 1);
-        });
-
-        return () => {
-          socket.disconnect();
-          socketRef.current = null;
-        };
+      } catch (err) {
+        console.warn('Realtime connection unavailable:', err?.message || err);
       }
-  }, [dispatch, user?._id]);
+    };
 
-  // Load Marketplace Catalogs
+    connectSocket();
+
+    return () => {
+      cancelled = true;
+      if (socket) socket.disconnect();
+      if (socketRef.current === socket) socketRef.current = null;
+    };
+  }, [user?._id]);
+
+  // Load Marketplace Catalogs (ignore stale responses after unmount / remount)
   const fetchMarketplaceData = () => {
-    api.get('/api/businesses')
-      .then((res) => {
-        const list = Array.isArray(res.data) ? res.data : [];
+    setCatalogStatus('loading');
+    const requestId = Symbol('catalog');
+    fetchMarketplaceData.currentRequest = requestId;
+
+    Promise.allSettled([
+      api.get('/api/businesses'),
+      api.get('/api/products'),
+      api.get('/api/services'),
+    ]).then(([businessResult, productResult, serviceResult]) => {
+      if (fetchMarketplaceData.currentRequest !== requestId) return;
+
+      if (businessResult.status === 'fulfilled') {
+        const list = Array.isArray(businessResult.value.data) ? businessResult.value.data : [];
         setBusinesses(list);
         dispatch({ type: 'SET_BUSINESSES', payload: list });
-      })
-      .catch(() => {
+      } else {
         setBusinesses([]);
         dispatch({ type: 'SET_BUSINESSES', payload: [] });
-      });
-
-    api.get('/api/products')
-      .then((res) => {
-        const items = Array.isArray(res.data) ? res.data : [];
-        setProducts(items);
-      })
-      .catch(() => {
-        setProducts([]);
-      });
-
-    api.get('/api/services')
-      .then((res) => {
-        setServices(Array.isArray(res.data) ? res.data : []);
-      })
-      .catch(() => {
-        setServices([]);
-      });
+      }
+      setProducts(productResult.status === 'fulfilled' && Array.isArray(productResult.value.data) ? productResult.value.data : []);
+      setServices(serviceResult.status === 'fulfilled' && Array.isArray(serviceResult.value.data) ? serviceResult.value.data : []);
+      const failed = [businessResult, productResult, serviceResult].some((result) => result.status === 'rejected');
+      setCatalogStatus(failed ? 'error' : 'ready');
+    });
   };
 
   useEffect(() => {
     fetchMarketplaceData();
+    return () => {
+      fetchMarketplaceData.currentRequest = null;
+    };
   }, [dispatch]);
 
   const fetchNotifications = () => {
-    const token = localStorage.getItem('token');
-    const requestUser = readStoredJson('user', null);
+    const token = getSessionToken();
+    const requestUser = getSessionUser();
     const requestUserId = String(requestUser?._id || requestUser?.id || '');
     if (!token || !requestUserId) {
       setNotifications([]);
@@ -203,14 +209,14 @@ function App() {
     api
       .get('/api/notifications')
       .then((res) => {
-        const currentUser = readStoredJson('user', null);
+        const currentUser = getSessionUser();
         const currentUserId = String(currentUser?._id || currentUser?.id || '');
-        if (currentUserId !== requestUserId || localStorage.getItem('token') !== token) return;
+        if (currentUserId !== requestUserId || getSessionToken() !== token) return;
         const notificationsData = Array.isArray(res.data) ? res.data : [];
         setNotifications(notificationsData);
       })
       .catch(() => {
-        const currentUser = readStoredJson('user', null);
+        const currentUser = getSessionUser();
         const currentUserId = String(currentUser?._id || currentUser?.id || '');
         if (currentUserId === requestUserId) setNotifications([]);
       });
@@ -231,36 +237,46 @@ function App() {
   const handleWishlistToggle = async (type, id) => {
     if (!user) {
       setShowAuthModal(true);
-      return;
+      return false;
     }
 
-    const currentItems = Array.isArray(user.wishlist?.[type]) ? user.wishlist[type] : [];
-    const itemId = String(id);
-    const isSaved = currentItems.some((item) => String(item?._id || item?.id || item) === itemId);
+    const itemId = String(id || '').trim();
+    if (!itemId) return false;
+
+    const toIdList = (items) => (Array.isArray(items) ? items : [])
+      .map((item) => String(item?._id || item?.id || item || '').trim())
+      .filter(Boolean);
+
+    const currentItems = toIdList(user.wishlist?.[type]);
+    const isSaved = currentItems.includes(itemId);
     const updatedWishlist = {
-      products: Array.isArray(user.wishlist?.products) ? [...user.wishlist.products] : [],
-      services: Array.isArray(user.wishlist?.services) ? [...user.wishlist.services] : [],
-      businesses: Array.isArray(user.wishlist?.businesses) ? [...user.wishlist.businesses] : [],
+      products: toIdList(user.wishlist?.products),
+      services: toIdList(user.wishlist?.services),
+      businesses: toIdList(user.wishlist?.businesses),
     };
     updatedWishlist[type] = isSaved
-      ? currentItems.filter((item) => String(item?._id || item?.id || item) !== itemId)
-      : [...currentItems, id];
+      ? currentItems.filter((item) => item !== itemId)
+      : [...currentItems, itemId];
 
     try {
-      await api.put('/api/auth/profile', { wishlist: updatedWishlist });
-      const updatedUser = { ...user, wishlist: updatedWishlist };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      dispatch({ type: 'SET_USER', payload: updatedUser });
+      const response = await api.put('/api/auth/wishlist', { wishlist: updatedWishlist });
+      const savedWishlist = response.data?.wishlist || updatedWishlist;
+      const serverUser = response.data?.user;
+      const updatedUser = normalizeUser({
+        ...(serverUser || user),
+        wishlist: savedWishlist,
+      });
+      persistUser(updatedUser);
+      return !isSaved;
     } catch (error) {
       Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Unable to update wishlist.' });
+      return isSaved;
     }
   };
 
   const handleLogout = () => {
     localStorage.setItem(getCartStorageKey(user), JSON.stringify(cart));
-    removeStoredValue('token');
-    removeStoredValue('user');
-    dispatch({ type: 'SET_USER', payload: null });
+    endSession();
     setNotifications([]);
     Swal.fire({
       icon: 'success',
@@ -273,17 +289,17 @@ function App() {
   };
 
   const handleAuthSuccess = (data) => {
-    const normalizedUser = normalizeUser(data.user);
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(normalizedUser));
-    dispatch({ type: 'SET_USER', payload: normalizedUser });
+    const normalizedUser = establishSession(data);
     setNotifications([]);
     fetchNotifications();
 
-    // Redirect to dashboards based on role
+    // Customers land on the public homepage; sellers/admins go to their dashboards
     if (normalizedUser.role === 'admin') navigate('/admin');
     else if (normalizedUser.role === 'seller') navigate('/business');
-    else navigate('/customer');
+    else {
+      setDashboardTab(null);
+      navigate('/');
+    }
   };
 
   const handleOpenDashboard = (view) => {
@@ -293,6 +309,7 @@ function App() {
     }
     else if (view === 'home') {
       setMarketplaceCategory('All');
+      setDashboardTab(null);
       navigate('/');
     }
     else if (view === 'checkout') setCartOpen(true);
@@ -311,6 +328,21 @@ function App() {
         setShowAuthModal(true);
         return;
       }
+      // Customers treat "home" as the marketplace; open account area only when explicitly needed
+      if (user.role === 'customer') {
+        setDashboardTab(null);
+        navigate('/');
+        return;
+      }
+      setDashboardTab('dashboard');
+      if (user.role === 'admin') navigate('/admin');
+      else if (user.role === 'seller') navigate('/business');
+    }
+    else if (view === 'account' || view === 'customer-dashboard') {
+      if (!user) {
+        setShowAuthModal(true);
+        return;
+      }
       setDashboardTab('dashboard');
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'seller') navigate('/business');
@@ -322,11 +354,8 @@ function App() {
     setMarketplaceCategory('All');
     const nextQuery = String(query || '').trim();
     setMarketplaceSearch(nextQuery);
-    if (user?.role === 'customer' && location.pathname.startsWith('/customer')) {
-      setDashboardTab('dashboard');
-      return;
-    }
-    navigate('/');
+    setDashboardTab(null);
+    if (location.pathname !== '/') navigate('/');
   };
 
   const handleOpenBusinessProfile = (businessId) => {
@@ -334,30 +363,16 @@ function App() {
   };
 
   useEffect(() => {
-    const handleUnauthorized = () => {
-      removeStoredValue('token');
-      removeStoredValue('user');
-      dispatch({ type: 'SET_USER', payload: null });
-      setNotifications([]);
-      if (location.pathname !== '/') {
-        navigate('/');
-      }
-    };
-
-    const handleStorage = (event) => {
-      if (event.key === 'token' && !event.newValue) {
-        dispatch({ type: 'SET_USER', payload: null });
-        setNotifications([]);
-      }
-    };
-
-    window.addEventListener('api-unauthorized', handleUnauthorized);
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      window.removeEventListener('api-unauthorized', handleUnauthorized);
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, [dispatch, location.pathname, navigate]);
+    if (!sessionNotice) return undefined;
+    Swal.fire({
+      icon: 'info',
+      title: lang === 'en' ? 'Session ended' : 'सत्र समाप्त',
+      text: sessionNotice,
+    });
+    clearSessionNotice();
+    setNotifications([]);
+    if (location.pathname !== '/') navigate('/');
+  }, [clearSessionNotice, lang, location.pathname, navigate, sessionNotice]);
 
   const handleSidebarNav = (tab) => {
     if (tab === 'cart') {
@@ -401,9 +416,10 @@ function App() {
           serviceCount: 0,
           cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
           wishlistCount,
+          notifCount: notifications.filter((n) => !n.read).length,
         }}
         businessOfferingType={sellerBusiness?.offeringType || user?.businessOfferingType || 'both'}
-        hideSidebar={user?.role === 'seller' && !sellerBusiness}
+        hideSidebar={hideSellerSidebar}
       />
 
       {/* Global Modal Windows */}
@@ -417,6 +433,7 @@ function App() {
 
       {cartOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
+          <Suspense fallback={<div className="mx-auto max-w-lg py-20 text-center text-sm text-white">Loading checkout...</div>}>
           <CartCheckout
             cart={cart}
             user={user}
@@ -427,6 +444,7 @@ function App() {
             onClose={() => setCartOpen(false)}
             onOrderSuccess={() => setCartOpen(false)}
           />
+          </Suspense>
         </div>
       )}
 
@@ -449,8 +467,9 @@ function App() {
       )}
 
       {/* Main Routes */}
-      <main className={isDashboardRoute && user ? 'app-content' : ''}>
-        <div className={isDashboardRoute && user ? 'content-body' : ''}>
+      <main className={isDashboardRoute && user ? `app-content${hideSellerSidebar ? ' no-sidebar' : ''}` : ''}>
+        <div className={isDashboardRoute && user ? `content-body${hideSellerSidebar ? ' content-body--flush' : ''}` : ''}>
+          <Suspense fallback={<div className="mx-auto max-w-3xl px-4 py-16 text-center text-sm text-slate-500">Loading page...</div>}>
           <Routes>
             <Route
               path="/"
@@ -461,6 +480,8 @@ function App() {
                   products={products}
                   initialCategory={marketplaceCategory}
                   initialSearchQuery={marketplaceSearch}
+                  catalogStatus={catalogStatus}
+                  onRetryCatalog={fetchMarketplaceData}
                   lang={lang}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={handleOpenBusinessProfile}
@@ -482,6 +503,8 @@ function App() {
                     products={products}
                     initialCategory={marketplaceCategory}
                     initialSearchQuery={marketplaceSearch}
+                  catalogStatus={catalogStatus}
+                  onRetryCatalog={fetchMarketplaceData}
                     lang={lang}
                     onOpenProduct={(id) => setSelectedProductId(id)}
                     onOpenBusiness={handleOpenBusinessProfile}
@@ -504,7 +527,7 @@ function App() {
                   onRemoveItem={(id) => dispatch({ type: 'REMOVE_FROM_CART', payload: id })}
                   onClearCart={() => dispatch({ type: 'CLEAR_CART' })}
                   onOrderSuccess={() => {
-                    navigate('/customer');
+                    navigate('/');
                   }}
                 />
               }
@@ -513,11 +536,13 @@ function App() {
             <Route
               path="/customer"
               element={
+                <RoleRoute user={user} allow={['customer']} authReady={authReady}>
                 <CustomerDashboard
                   user={user}
                   lang={lang}
                   businesses={businesses}
                   products={products}
+                  cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={handleOpenBusinessProfile}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
@@ -526,6 +551,7 @@ function App() {
                   activeTab={dashboardTab}
                   onTabChange={setDashboardTab}
                 />
+                </RoleRoute>
               }
             />
 
@@ -547,19 +573,33 @@ function App() {
 
             <Route
               path="/business"
-              element={<SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} onOpenBusiness={handleOpenBusinessProfile} notifications={notifications} />}
+              element={
+                <RoleRoute user={user} allow={['seller']} authReady={authReady}>
+                  <SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} onOpenBusiness={handleOpenBusinessProfile} notifications={notifications} />
+                </RoleRoute>
+              }
             />
 
-            <Route path="/admin" element={<AdminDashboard user={user} lang={lang} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} />} />
+            <Route
+              path="/admin"
+              element={
+                <RoleRoute user={user} allow={['admin']} authReady={authReady}>
+                  <AdminDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} />
+                </RoleRoute>
+              }
+            />
 
             {/* Rider role temporarily removed */}
             <Route path="/payment-success" element={<PaymentSuccess />} />
           </Routes>
+          </Suspense>
         </div>
       </main>
 
       {/* Floating Chat & AI system */}
-      <ChatAndAI user={user} lang={lang} />
+      <Suspense fallback={null}>
+        <ChatAndAI user={user} lang={lang} />
+      </Suspense>
 
       {/* Footer — only on non-dashboard pages */}
       {!isDashboardRoute && (

@@ -17,6 +17,10 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { generateToken, getJwtSecret } = require('./utils/generateToken');
+const { authenticateToken } = require('./middleware/authMiddleware');
+const { requireRole } = require('./middleware/roleMiddleware');
+const { isNepalPlace } = require('./utils/nepalPlaces');
 const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Chat, Notification, Coupon, AuditLog, Category, SystemSetting } = require('./db');
 const { getRegistrationUserDefaults } = require('./authHelpers');
 const {
@@ -68,7 +72,7 @@ function getAvailablePort(startPort) {
     server.listen(startPort);
   });
 }
-const JWT_SECRET = process.env.JWT_SECRET || 'udyogconnect_secret_key_123';
+const JWT_SECRET = getJwtSecret();
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || '';
 let stripe = null;
 if (STRIPE_SECRET && STRIPE_SECRET !== 'mock') {
@@ -233,27 +237,49 @@ io.on('connection', (socket) => {
 app.set('io', io);
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Middleware: Authenticate JWT Token
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Authentication token required.' });
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(403).json({ message: 'Invalid or expired session token.' });
-  }
+const BUSINESS_ACCESS_MESSAGES = {
+  pending: 'Your business registration is waiting for admin approval.',
+  rejected: 'Your business registration was rejected. Please check the reason.',
+  suspended: 'Your business account has been suspended. Please contact support.',
+  revision_requested: 'Your business registration was rejected. Please check the reason.',
 };
 
 const getApprovalStatus = (business) => {
+  if (business?.approvalStatus === 'suspended' || business?.verified === 'suspended') return 'suspended';
   if (['pending', 'approved', 'rejected', 'revision_requested'].includes(business?.approvalStatus)) return business.approvalStatus;
   if (business?.verified === 'approved' || business?.verified === 'verified') return 'approved';
-  if (business?.verified === 'rejected' || business?.verified === 'suspended') return 'rejected';
+  if (business?.verified === 'rejected') return 'rejected';
   if (business?.verified === 'revision_requested') return 'revision_requested';
   return 'pending';
+};
+
+const isPubliclyLiveBusiness = (business) => getApprovalStatus(business) === 'approved';
+
+const getOptionalRequestUser = (req) => {
+  try {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    const token = authHeader && String(authHeader).split(' ')[1];
+    if (!token) return null;
+    const decoded = jwt.verify(token, getJwtSecret());
+    const userId = decoded.userId || decoded.id;
+    if (!userId) return null;
+    return {
+      ...decoded,
+      userId,
+      id: userId,
+      role: decoded.role,
+    };
+  } catch (_) {
+    return null;
+  }
+};
+
+const businessAccessDenial = (business, user) => {
+  if (!user || user.role === 'admin') return null;
+  const status = getApprovalStatus(business);
+  if (status === 'approved') return null;
+  return BUSINESS_ACCESS_MESSAGES[status] || BUSINESS_ACCESS_MESSAGES.pending;
 };
 
 const serializeBusiness = (business) => {
@@ -261,15 +287,21 @@ const serializeBusiness = (business) => {
   const approvalStatus = getApprovalStatus(plain);
   const normalizedVerified = approvalStatus === 'approved'
     ? 'verified'
-    : approvalStatus === 'revision_requested'
-      ? 'pending'
-      : approvalStatus;
+    : approvalStatus === 'suspended'
+      ? 'suspended'
+      : approvalStatus === 'revision_requested'
+        ? 'pending'
+        : approvalStatus;
+  const reviewCount = Number(plain.reviewCount || 0);
 
   return {
     ...plain,
     approvalStatus,
     isVerified: approvalStatus === 'approved',
     verified: normalizedVerified,
+    reviewCount,
+    // Never show a seeded demo rating when the business has no reviews yet.
+    rating: reviewCount > 0 ? Number(plain.rating || 0) : 0,
     imageUrl: plain.imageUrl || plain.logoUrl || plain.logo || plain.image || '',
   };
 };
@@ -298,28 +330,22 @@ app.use((req, res, next) => {
 
   const originalJson = res.json.bind(res);
   res.json = (body) => {
-    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+    }
     return originalJson(body);
   };
 
   const originalSend = res.send.bind(res);
   res.send = (body) => {
-    idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+    }
     return originalSend(body);
   };
 
   return next();
 });
-
-// Middleware: Role-Based Access Control
-const requireRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Access denied: Insufficient permissions.' });
-    }
-    next();
-  };
-};
 
 // Expose simple config to client
 app.get('/api/config', (req, res) => {
@@ -448,8 +474,8 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
     const existing = await UserMDL.findOne({ email });
     if (existing) {
       return res.status(409).json({
-        message: 'A user with this email already exists.',
-        errors: { email: 'A user with this email already exists.' }
+        message: 'An account with this email already exists.',
+        errors: { email: 'An account with this email already exists.' }
       });
     }
 
@@ -457,14 +483,18 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
       const existingPhone = await UserMDL.findOne({ phone });
       if (existingPhone) {
         return res.status(409).json({
-          message: 'A user with this phone number already exists.',
-          errors: { phone: 'A user with this phone number already exists.' }
+          message: 'This phone number is already registered.',
+          errors: { phone: 'This phone number is already registered.' }
         });
       }
     }
 
+    if (role === 'admin') {
+      return res.status(403).json({ message: 'Admin accounts cannot be created through public registration.' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userRole = role || 'customer';
+    const userRole = role === 'seller' ? 'seller' : 'customer';
     const registrationDefaults = getRegistrationUserDefaults();
     const verificationOtp = registrationDefaults.isVerified ? '' : Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -514,13 +544,33 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
       email: newUser.email,
     };
     if (newUser.verificationOtp) responsePayload.otp = newUser.verificationOtp;
+
+    // When OTP is not required, return a session so the client can finish signup in one step.
+    if (newUser.isVerified) {
+      const token = generateToken(newUser);
+      const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeUser } =
+        typeof newUser.toObject === 'function' ? newUser.toObject() : newUser;
+      responsePayload.token = token;
+      responsePayload.user = {
+        ...safeUser,
+        id: newUser._id,
+        businessStatus: 'none',
+        businessMessage: '',
+        onboardingPending: userRole === 'seller',
+      };
+    }
+
     res.status(201).json(responsePayload);
   } catch (err) {
     if (err && err.code === 11000) {
       console.warn('Registration duplicate key error:', err.message);
+      const duplicateField = err.keyPattern?.phone ? 'phone' : 'email';
+      const duplicateMessage = duplicateField === 'phone'
+        ? 'This phone number is already registered.'
+        : 'An account with this email already exists.';
       return res.status(409).json({
-        message: 'A user with this email or phone already exists.',
-        errors: { email: 'A user with this email or phone already exists.' }
+        message: duplicateMessage,
+        errors: { [duplicateField]: duplicateMessage }
       });
     }
     console.error('Registration error:', err && (err.stack || err.message));
@@ -550,9 +600,18 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
 
+    if (user.status === 'suspended') {
+      return res.status(403).json({ message: 'Your account has been suspended. Please contact support.' });
+    }
+
     if (!user.isVerified) {
       console.log('Login blocked: account not verified for', email);
-      return res.status(400).json({ requireVerification: true, otp: user.verificationOtp || '' });
+      return res.status(400).json({
+        requireVerification: true,
+        otp: user.verificationOtp || '',
+        message: 'Account verification required. Please verify your account to continue.',
+        email: user.email,
+      });
     }
 
     // Check lockout status
@@ -574,7 +633,7 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
         lockUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
         msg = 'Too many failed login attempts. Account locked for 5 minutes.';
       } else {
-        msg = `Invalid credentials. ${5 - attempts} login attempt(s) remaining.`;
+        msg = 'Invalid email or password.';
       }
       await UserMDL.findByIdAndUpdate(user._id, { failedLoginAttempts: attempts, lockUntil });
       return res.status(400).json({ failedAttempts: attempts, message: msg });
@@ -613,7 +672,7 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
     const AuditLogMDL = AuditLog();
     await AuditLogMDL.create({ userId: user._id, action: 'LOGIN', details: 'User logged in successfully' });
 
-    const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = generateToken(user);
     console.log('User logged in:', user._id, user.email);
     const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeLoginUser } = typeof user.toObject === 'function' ? user.toObject() : user;
     res.json({
@@ -623,6 +682,7 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
         ...safeLoginUser,
         id: user._id,
         businessStatus,
+        businessMessage: BUSINESS_ACCESS_MESSAGES[businessStatus] || '',
         onboardingPending
       }
     });
@@ -766,7 +826,13 @@ const toSafeUser = (user) => {
   return safeUser;
 };
 
-app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, res) => {
+app.put('/api/auth/profile', authenticateToken, (req, res, next) => {
+  const contentType = String(req.headers['content-type'] || '');
+  if (contentType.includes('multipart/form-data')) {
+    return authProfileUpload(req, res, next);
+  }
+  return next();
+}, async (req, res) => {
   try {
     const UserMDL = User();
     const user = await UserMDL.findById(req.user.id);
@@ -784,10 +850,13 @@ app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, r
     }
     if (req.body.wishlist !== undefined) {
       const nextWishlist = parseMaybeJson(req.body.wishlist, user.wishlist || { products: [], services: [], businesses: [] });
+      const toIdList = (items) => (Array.isArray(items) ? items : [])
+        .map((item) => String(item?._id || item?.id || item || '').trim())
+        .filter(Boolean);
       updates.wishlist = {
-        products: Array.isArray(nextWishlist.products) ? nextWishlist.products : [],
-        services: Array.isArray(nextWishlist.services) ? nextWishlist.services : [],
-        businesses: Array.isArray(nextWishlist.businesses) ? nextWishlist.businesses : [],
+        products: toIdList(nextWishlist.products),
+        services: toIdList(nextWishlist.services),
+        businesses: toIdList(nextWishlist.businesses),
       };
     }
     if (req.body.paymentMethods !== undefined) {
@@ -812,6 +881,35 @@ app.put('/api/auth/profile', authenticateToken, authProfileUpload, async (req, r
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error updating profile.' });
+  }
+});
+
+app.put('/api/auth/wishlist', authenticateToken, async (req, res) => {
+  try {
+    const UserMDL = User();
+    const user = await UserMDL.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'Profile not found.' });
+
+    const incoming = parseMaybeJson(req.body?.wishlist ?? req.body, null);
+    if (!incoming || typeof incoming !== 'object') {
+      return res.status(400).json({ message: 'Wishlist payload is required.' });
+    }
+
+    const toIdList = (items) => (Array.isArray(items) ? items : [])
+      .map((item) => String(item?._id || item?.id || item || '').trim())
+      .filter(Boolean);
+
+    const wishlist = {
+      products: toIdList(incoming.products),
+      services: toIdList(incoming.services),
+      businesses: toIdList(incoming.businesses),
+    };
+
+    const updated = await UserMDL.findByIdAndUpdate(req.user.id, { wishlist }, { new: true });
+    res.json({ success: true, wishlist, user: toSafeUser(updated) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Unable to update wishlist.' });
   }
 });
 
@@ -933,30 +1031,38 @@ app.get('/api/businesses', async (req, res) => {
   try {
     const { category, search, lat, lng, maxDistance, status } = req.query;
     const BusinessMDL = Business();
-    let query = {};
+    let listings = await BusinessMDL.find({});
 
-    if (status) {
-      query.verified = status;
+    // Public marketplace: only admin-approved businesses go live.
+    // Admins may pass ?status=... or ?includeAll=true (with auth) to manage approvals.
+    const requestUser = getOptionalRequestUser(req);
+    const isAdmin = requestUser?.role === 'admin';
+    if (isAdmin && (status || String(req.query.includeAll || '') === 'true')) {
+      if (status && status !== 'All') {
+        listings = listings.filter((b) => {
+          const approval = getApprovalStatus(b);
+          const verified = serializeBusiness(b).verified;
+          return String(status) === approval || String(status) === verified || String(b.verified) === String(status);
+        });
+      }
+    } else {
+      listings = listings.filter((b) => isPubliclyLiveBusiness(b));
     }
 
-    let listings = await BusinessMDL.find(query);
-
-    // Apply filter on listings
     if (category && category !== 'All') {
-      listings = listings.filter((b) => b.category.toLowerCase() === category.toLowerCase());
+      listings = listings.filter((b) => String(b.category || '').toLowerCase() === String(category).toLowerCase());
     }
 
     if (search) {
       const term = search.toLowerCase();
       listings = listings.filter(
         (b) =>
-          b.name.toLowerCase().includes(term) ||
-          b.description.toLowerCase().includes(term) ||
-          b.category.toLowerCase().includes(term)
+          String(b.name || '').toLowerCase().includes(term) ||
+          String(b.description || '').toLowerCase().includes(term) ||
+          String(b.category || '').toLowerCase().includes(term)
       );
     }
 
-    // Distance Calculation & Filter
     if (lat && lng) {
       listings = listings.map((b) => {
         const dist = calculateDistance(parseFloat(lat), parseFloat(lng), b.latitude, b.longitude);
@@ -969,17 +1075,29 @@ app.get('/api/businesses', async (req, res) => {
       }
     }
 
-    res.json(listings.map(serializeBusiness));
+    res.json(listings.map(serializeBusiness).slice(0, 200));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to retrieve listings.' });
   }
 });
 
-app.get('/api/businesses/mine', authenticateToken, requireRole(['seller']), async (req, res) => {
+app.get('/api/admin/businesses', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const BusinessMDL = Business();
-    const business = await BusinessMDL.findOne({ ownerId: String(req.user.id) });
+    const listings = await BusinessMDL.find({});
+    res.json(listings.map(serializeBusiness));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to retrieve admin business listings.' });
+  }
+});
+
+app.get('/api/businesses/mine', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
+  try {
+    const BusinessMDL = Business();
+    const ownerId = String(req.user.id || req.user.userId || '');
+    const business = await BusinessMDL.findOne({ ownerId });
     if (!business) return res.status(404).json({ message: 'Business profile not found.' });
     res.json({ business: serializeBusiness(business) });
   } catch (err) {
@@ -997,6 +1115,13 @@ app.get('/api/businesses/:id', async (req, res) => {
     const business = await BusinessMDL.findById(req.params.id);
     if (!business) return res.status(404).json({ message: 'Business profile not found.' });
 
+    const requestUser = getOptionalRequestUser(req);
+    const isAdmin = requestUser?.role === 'admin';
+    const isOwner = requestUser && String(business.ownerId) === String(requestUser.id || requestUser.userId);
+    if (!isPubliclyLiveBusiness(business) && !isAdmin && !isOwner) {
+      return res.status(404).json({ message: 'Business profile not found.' });
+    }
+
     const products = await ProductMDL.find({ businessId: req.params.id });
     const services = await ServiceMDL.find({ businessId: req.params.id });
     const reviews = await ReviewMDL.find({ businessId: req.params.id, targetType: 'business' });
@@ -1012,53 +1137,90 @@ app.get('/api/businesses/:id', async (req, res) => {
   }
 });
 
-app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
+app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm } = req.body;
+    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm } = req.body || {};
     if (!name || !category || !location || !description || !contactEmail || !phone || !hours || !offeringType) {
       return res.status(400).json({ message: 'Business name, category, Nepal location, description, email, phone, hours, and catalog type are required.' });
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(contactEmail).trim())) {
-      return res.status(400).json({ message: 'A valid business email address is required.' });
+    const PERSON_NAME_RE = /^[\p{L}]+(?:[ ][\p{L}]+)*$/u;
+    const BUSINESS_EMAIL_RE = /^[A-Za-z]+@[0-9]+\.com$/i;
+    const BUSINESS_HOURS_OPTIONS = [
+      '07:00 - 19:00', '08:00 - 17:00', '08:00 - 18:00', '08:00 - 20:00',
+      '09:00 - 17:00', '09:00 - 18:00', '09:00 - 20:00', '09:00 - 21:00',
+      '10:00 - 18:00', '10:00 - 20:00', '10:00 - 22:00',
+      '11:00 - 21:00', '11:00 - 23:00', '12:00 - 22:00', '16:00 - 23:00',
+    ];
+    const BUSINESS_CATEGORY_OPTIONS = [
+      'Grocery', 'Restaurants & Food', 'Furniture', 'Gift Shop / Crafts', 'Home Services',
+      'Mechanics & Repair', 'Electronics', 'Clothing & Fashion', 'Health & Beauty', 'Education',
+    ];
+
+    if (!PERSON_NAME_RE.test(String(name).trim())) {
+      return res.status(400).json({ message: 'Business name can only contain letters and spaces (no numbers or special characters).' });
     }
-    if (!/^9\d{9}$/.test(String(phone).trim())) {
-      return res.status(400).json({ message: 'Phone number must be exactly 10 digits and start with 9.' });
+    if (!BUSINESS_CATEGORY_OPTIONS.includes(String(category).trim())) {
+      return res.status(400).json({ message: 'Please select a valid business category.' });
     }
-    const nepalLocations = ['kathmandu', 'lalitpur', 'patan', 'bhaktapur', 'pokhara', 'chitwan', 'bharatpur', 'biratnagar', 'butwal', 'dharan', 'nepalgunj', 'janakpur', 'hetauda', 'dhangadhi', 'itahari', 'lumbini', 'ilam', 'baglung', 'gorkha', 'nepal'];
-    if (!nepalLocations.some((city) => String(location).toLowerCase().includes(city))) {
-      return res.status(400).json({ message: 'Business location must be a valid location in Nepal.' });
+    if (!PERSON_NAME_RE.test(String(location).trim())) {
+      return res.status(400).json({ message: 'Location can only contain letters and spaces (no numbers or special characters).' });
     }
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d\s*-\s*(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(hours).trim())) {
-      return res.status(400).json({ message: 'Business hours must use HH:MM - HH:MM format in Nepal local time.' });
+    if (!BUSINESS_EMAIL_RE.test(String(contactEmail).trim())) {
+      return res.status(400).json({ message: 'Business email must be words@number.com (e.g. shop@123.com).' });
     }
+    if (!/^(97|98)\d{8}$/.test(String(phone).trim())) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits starting with 97 or 98.' });
+    }
+    const wordCount = String(description || '').trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount < 50) {
+      return res.status(400).json({ message: `Business description must be at least 50 words (currently ${wordCount}).` });
+    }
+    const normalizedHours = BUSINESS_HOURS_OPTIONS.includes(String(hours || '').trim()) ? String(hours).trim() : null;
+    if (!normalizedHours) {
+      return res.status(400).json({ message: 'Please select business hours from the available options.' });
+    }
+
     if (!['products', 'services', 'both'].includes(String(offeringType))) {
       return res.status(400).json({ message: 'A valid catalog type is required.' });
     }
     const deliveryEnabled = deliveryAvailable === true || deliveryAvailable === 'true';
-    if (deliveryEnabled && (!Number.isInteger(Number(deliveryRadiusKm)) || Number(deliveryRadiusKm) < 1 || Number(deliveryRadiusKm) > 50)) {
+    const parsedRadius = Math.round(Number(deliveryRadiusKm));
+    if (deliveryEnabled && (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 50)) {
       return res.status(400).json({ message: 'Delivery radius must be a whole number between 1 and 50 km.' });
     }
 
     const hasDocument = Boolean(req.files?.document?.[0] || req.body.documentUrl);
     if (!hasDocument) {
-      return res.status(400).json({ message: 'Business Certificate / Document is required.' });
+      return res.status(400).json({ message: 'Business Certificate / Document is required. Please attach a PDF or image.' });
+    }
+
+    const ownerId = String(req.user.id || req.user.userId || '');
+    if (!ownerId) {
+      return res.status(401).json({ message: 'Authentication token required.' });
     }
 
     // Business name must be unique across all businesses
     const BusinessMDL = Business();
-    const ownerBusiness = await BusinessMDL.findOne({ ownerId: String(req.user.id) });
+    const ownerBusiness = await BusinessMDL.findOne({ ownerId });
     if (ownerBusiness) {
       return res.status(409).json({ message: 'You already have a registered business. Update your existing business profile instead.' });
     }
-    const existingBiz = await BusinessMDL.findOne({
-      name: { $regex: `^${String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
-    });
+
+    let existingBiz = null;
+    try {
+      existingBiz = await BusinessMDL.findOne({
+        name: { $regex: `^${String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+      });
+    } catch (_) {
+      const all = await BusinessMDL.find({});
+      existingBiz = (Array.isArray(all) ? all : []).find((biz) => String(biz.name || '').trim().toLowerCase() === String(name).trim().toLowerCase()) || null;
+    }
     if (existingBiz) {
       return res.status(409).json({ message: 'A business with this name already exists. Please choose a different name.' });
     }
 
-    console.log(`[LOG] Seller ${req.user.email} (${req.user.id}) is registering business: "${name}" in category "${category}"`);
+    console.log(`[LOG] Seller ${req.user.email || ownerId} (${ownerId}) is registering business: "${name}" in category "${category}"`);
 
     let logoUrl = '';
     let coverUrl = '';
@@ -1087,44 +1249,49 @@ app.post('/api/businesses', authenticateToken, upload.fields([{ name: 'logo', ma
     if (!qrUrl && req.body.qrUrl) qrUrl = req.body.qrUrl;
 
     const newBusiness = await BusinessMDL.create({
-      ownerId: req.user.id,
-      name,
-      category,
+      ownerId,
+      name: String(name).trim(),
+      category: String(category).trim(),
       subcategory: subcategory || '',
-      location,
+      location: locationText,
       price: price || '0',
-      description,
-      contactEmail: contactEmail || req.user.email,
-      phone: phone || '',
+      description: String(description).trim(),
+      contactEmail: String(contactEmail || req.user.email || '').trim().toLowerCase(),
+      phone: String(phone || '').trim(),
       website: website || '',
-      hours: hours || '09:00 - 18:00',
-      imageUrl: logoUrl,
-      coverUrl: coverUrl,
-      qrUrl: qrUrl,
+      hours: normalizedHours,
+      imageUrl: logoUrl || '',
+      coverUrl: coverUrl || '',
+      qrUrl: qrUrl || '',
       latitude: latitude ? parseFloat(latitude) : 27.7007 + (Math.random() - 0.5) * 0.05,
       longitude: longitude ? parseFloat(longitude) : 85.3001 + (Math.random() - 0.5) * 0.05,
       approvalStatus: 'pending',
+      verified: 'pending',
       isVerified: false,
       approvedAt: null,
       approvedBy: null,
       rejectionReason: '',
       documents: docUrl ? [docUrl] : [],
-      rating: 5.0,
+      rating: 0,
       reviewCount: 0,
       registrationNumber: registrationNumber || '',
       panVatNumber: panVatNumber || '',
       deliveryAvailable: deliveryAvailable === 'true' || deliveryAvailable === true,
       isOpen: isOpen === 'true' || isOpen === true,
-      deliveryRadiusKm: deliveryRadiusKm ? Number(deliveryRadiusKm) : 5,
+      deliveryRadiusKm: deliveryEnabled ? parsedRadius : (Number.isFinite(parsedRadius) && parsedRadius > 0 ? parsedRadius : 5),
       visitorsCount: 0,
       offeringType: offeringType || 'both',
     });
 
-    console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${req.user.email} with status: pending. Business will persist until admin verification or permanent deletion.`);
+    console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${ownerId} with status: pending. Business will persist until admin verification or permanent deletion.`);
 
     res.status(201).json({ success: true, business: serializeBusiness(newBusiness) });
   } catch (err) {
-    console.error(err);
+    console.error('Business registration failed:', err && (err.stack || err.message || err));
+    if (err && err.name === 'ValidationError') {
+      const firstError = Object.values(err.errors || {})[0];
+      return res.status(400).json({ message: firstError?.message || 'Business details failed validation.' });
+    }
     res.status(500).json({ message: 'Failed to register business.' });
   }
 });
@@ -1265,8 +1432,8 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
 app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { status, rejectionReason = '' } = req.body;
-    const approvalStatus = status === 'verified' ? 'approved' : status === 'suspended' ? 'rejected' : status;
-    if (!['pending', 'approved', 'rejected'].includes(approvalStatus)) {
+    const approvalStatus = status === 'verified' ? 'approved' : status;
+    if (!['pending', 'approved', 'rejected', 'suspended'].includes(approvalStatus)) {
       return res.status(400).json({ message: 'Invalid approval status.' });
     }
     const BusinessMDL = Business();
@@ -1278,7 +1445,7 @@ app.put('/api/businesses/:id/verify', authenticateToken, requireRole(['admin']),
       verified: approvalStatus === 'approved' ? 'verified' : approvalStatus,
       isVerified: approvalStatus === 'approved',
       approvedAt: approvalStatus === 'approved' ? new Date() : null,
-      approvedBy: approvalStatus === 'approved' ? String(req.user.id) : null,
+      approvedBy: approvalStatus === 'approved' ? String(req.user.id || req.user.userId) : null,
       rejectionReason: approvalStatus === 'rejected' ? String(rejectionReason || '') : '',
     }, { new: true });
 
@@ -1453,8 +1620,16 @@ function escapeRegExp(value) {
 app.get('/api/products', async (req, res) => {
   try {
     const ProductMDL = Product();
+    const BusinessMDL = Business();
     const products = await ProductMDL.find({});
-    res.json(products);
+    const businesses = await BusinessMDL.find({});
+    const liveBusinessIds = new Set(
+      businesses.filter((b) => isPubliclyLiveBusiness(b)).map((b) => String(b._id))
+    );
+    const liveProducts = (Array.isArray(products) ? products : []).filter((product) =>
+      liveBusinessIds.has(String(product.businessId))
+    );
+    res.json(liveProducts.slice(0, 200));
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving products.' });
   }
@@ -1463,8 +1638,16 @@ app.get('/api/products', async (req, res) => {
 app.get('/api/services', async (req, res) => {
   try {
     const ServiceMDL = Service();
+    const BusinessMDL = Business();
     const services = await ServiceMDL.find({});
-    res.json(services);
+    const businesses = await BusinessMDL.find({});
+    const liveBusinessIds = new Set(
+      businesses.filter((b) => isPubliclyLiveBusiness(b)).map((b) => String(b._id))
+    );
+    const liveServices = (Array.isArray(services) ? services : []).filter((service) =>
+      liveBusinessIds.has(String(service.businessId))
+    );
+    res.json(liveServices.slice(0, 200));
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving services.' });
   }
@@ -1517,6 +1700,9 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       return res.status(409).json({ message: 'A product with this name already exists for this business.' });
     }
 
+    const productAccessMessage = businessAccessDenial(business, req.user);
+    if (productAccessMessage) return res.status(403).json({ message: productAccessMessage });
+
     if (req.file) {
       imgUrl = await processImageUpload(req.file);
     }
@@ -1561,6 +1747,8 @@ app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin'])
     if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
       return res.status(403).json({ message: 'Access denied: You do not own this product or business.' });
     }
+    const productUpdateMessage = businessAccessDenial(business, req.user);
+    if (productUpdateMessage) return res.status(403).json({ message: productUpdateMessage });
 
     const updated = await ProductMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, product: updated });
@@ -1580,6 +1768,8 @@ app.delete('/api/products/:id', authenticateToken, requireRole(['seller', 'admin
     if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
       return res.status(403).json({ message: 'Access denied: You do not own this product or business.' });
     }
+    const productDeleteMessage = businessAccessDenial(business, req.user);
+    if (productDeleteMessage) return res.status(403).json({ message: productDeleteMessage });
 
     await ProductMDL.deleteOne({ _id: req.params.id });
     res.json({ success: true });
@@ -1632,6 +1822,9 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
       return res.status(409).json({ message: 'A service with this name already exists for this business.' });
     }
 
+    const serviceAccessMessage = businessAccessDenial(business, req.user);
+    if (serviceAccessMessage) return res.status(403).json({ message: serviceAccessMessage });
+
     const newServ = await ServiceMDL.create({
       businessId,
       name,
@@ -1661,6 +1854,8 @@ app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin'])
     if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
       return res.status(403).json({ message: 'Access denied: You do not own this service or business.' });
     }
+    const serviceUpdateMessage = businessAccessDenial(business, req.user);
+    if (serviceUpdateMessage) return res.status(403).json({ message: serviceUpdateMessage });
 
     const updated = await ServiceMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ success: true, service: updated });
@@ -1680,6 +1875,8 @@ app.delete('/api/services/:id', authenticateToken, requireRole(['seller', 'admin
     if (req.user.role !== 'admin' && (!business || String(business.ownerId) !== String(req.user.id))) {
       return res.status(403).json({ message: 'Access denied: You do not own this service or business.' });
     }
+    const serviceDeleteMessage = businessAccessDenial(business, req.user);
+    if (serviceDeleteMessage) return res.status(403).json({ message: serviceDeleteMessage });
 
     await ServiceMDL.deleteOne({ _id: req.params.id });
     res.json({ success: true });
@@ -1726,8 +1923,42 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Please complete your delivery information.' });
     }
 
-    if (!/^9\d{8,10}$/.test(String(normalizedAddress.phone).trim())) {
-      return res.status(400).json({ message: 'Phone number must start with 9 and contain only digits.' });
+    const personName = String(normalizedAddress.name || '').trim();
+    if (!/^[\p{L}]+(?:[ ][\p{L}]+)*$/u.test(personName) || personName.length < 2) {
+      return res.status(400).json({
+        message: 'Full name can only contain letters and spaces (no numbers or special characters).',
+        errors: { name: 'Full name can only contain letters and spaces (no numbers or special characters).' },
+      });
+    }
+
+    const deliveryEmail = String(normalizedAddress.email || '').trim();
+    if (!deliveryEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail)) {
+      return res.status(400).json({
+        message: 'A valid email address is required for delivery details.',
+        errors: { email: 'A valid email address is required.' },
+      });
+    }
+
+    if (!/^(97|98)\d{8}$/.test(String(normalizedAddress.phone).trim())) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits starting with 97 or 98.' });
+    }
+
+    const place = String(normalizedAddress.location || normalizedAddress.city || '').trim();
+    if (!place || !isNepalPlace(place)) {
+      return res.status(400).json({
+        message: 'Location / City must be a place in Nepal (e.g. Kathmandu, Pokhara, Thamel).',
+        errors: { city: 'Location / City must be a place in Nepal.' },
+      });
+    }
+
+    if ((normalizedAddress.method || 'delivery') === 'delivery') {
+      const street = String(normalizedAddress.address || '').trim();
+      if (street.length < 5) {
+        return res.status(400).json({
+          message: 'Street address / landmark is required.',
+          errors: { address: 'Street address / landmark is required.' },
+        });
+      }
     }
 
     const ProductMDL = Product();
@@ -1939,17 +2170,16 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
       orders = await OrderMDL.find({});
     } else if (req.user.role === 'seller') {
       const BusinessMDL = Business();
-      const myBizs = await BusinessMDL.find({ ownerId: req.user.id });
-      // Convert ObjectIds to strings for reliable comparison
+      const myBizs = await BusinessMDL.find({ ownerId: String(req.user.id || req.user.userId) });
       const myBizIds = myBizs.map((b) => String(b._id));
-      const allOrders = await OrderMDL.find({});
-      orders = allOrders.filter((o) => myBizIds.includes(String(o.businessId)));
+      const groups = await Promise.all(myBizIds.map((businessId) => OrderMDL.find({ businessId })));
+      orders = groups.flat();
     } else {
       orders = await OrderMDL.find({ customerId: req.user.id });
     }
 
     // Sort newest first
-    orders = orders.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    orders = orders.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 200);
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve orders.' });
@@ -2299,6 +2529,20 @@ app.put('/api/admin/support-tickets/:id', authenticateToken, requireRole(['admin
   }
 });
 
+app.get('/api/reviews', async (req, res) => {
+  try {
+    const ReviewMDL = Review();
+    const reviews = await ReviewMDL.find({});
+    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 50);
+    const recent = (Array.isArray(reviews) ? reviews : [])
+      .sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0))
+      .slice(0, limit);
+    res.json(recent);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to retrieve reviews.' });
+  }
+});
+
 app.get('/api/reviews/mine', authenticateToken, async (req, res) => {
   try {
     const ReviewMDL = Review();
@@ -2504,8 +2748,9 @@ app.post('/api/ai/chatbot', async (req, res) => {
     const CouponMDL = Coupon();
     const OrderMDL = Order();
 
-    const businesses = await BusinessMDL.find({});
-    const products = await ProductMDL.find({});
+    const businesses = (await BusinessMDL.find({})).filter((b) => isPubliclyLiveBusiness(b));
+    const liveBusinessIds = new Set(businesses.map((b) => String(b._id)));
+    const products = (await ProductMDL.find({})).filter((p) => liveBusinessIds.has(String(p.businessId)));
 
     let response = '';
 
@@ -2613,11 +2858,12 @@ app.get('/api/ai/recommendations', authenticateToken, async (req, res) => {
     const activityCount = myOrders.length + viewedProductIds.length + viewedBusinessIds.length;
     const hasSufficientData = activityCount >= 3; // simple threshold
 
-    // Load raw data
+    // Load raw data — only admin-approved businesses are recommendable.
     const allBusinesses = await BusinessMDL.find({});
-    const businesses = allBusinesses.filter((b) => b.verified === 'verified' || b.verified === 'approved' || !b.verified);
-    const products = await ProductMDL.find({});
-    const services = await ServiceMDL.find({});
+    const businesses = allBusinesses.filter((b) => isPubliclyLiveBusiness(b));
+    const liveBusinessIds = new Set(businesses.map((b) => String(b._id)));
+    const products = (await ProductMDL.find({})).filter((p) => liveBusinessIds.has(String(p.businessId)));
+    const services = (await ServiceMDL.find({})).filter((s) => liveBusinessIds.has(String(s.businessId)));
 
     // Helper to compute average rating from reviews
     const calculateAverageRating = (revs) => {
@@ -2922,7 +3168,7 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     const NotificationMDL = Notification();
     const list = await NotificationMDL.find({ userId: String(req.user.id) });
     list.sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
-    res.json(list);
+    res.json(list.slice(0, 100));
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve notifications.' });
   }

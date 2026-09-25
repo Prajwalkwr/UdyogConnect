@@ -3,6 +3,7 @@ import { useDispatch } from 'react-redux';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { normalizeUser } from '../utils/authFlow';
+import { updateSessionUser } from '../utils/sessionAuth';
 import { createIdempotencyHeader, createSubmissionGuard } from '../utils/submitProtection';
 
 export default function AccountProfileCard({ user, lang }) {
@@ -52,7 +53,7 @@ export default function AccountProfileCard({ user, lang }) {
       if (updatedUser) {
         const normalized = normalizeUser({ ...user, ...updatedUser });
         dispatch({ type: 'SET_USER', payload: normalized });
-        localStorage.setItem('user', JSON.stringify(normalized));
+        updateSessionUser(normalized);
         setPreviewUrl(normalized.profilePicture || previewUrl);
         setProfilePhoto(null);
       }
@@ -66,75 +67,93 @@ export default function AccountProfileCard({ user, lang }) {
   };
 
   return (
-    <div className="rounded-[32px] border border-slate-800 bg-slate-900/30 p-5 sm:p-6 space-y-6">
-      <div>
-        <h3 className="text-lg font-extrabold text-white">{translate('Account Profile', 'खाता प्रोफाइल')}</h3>
-        <p className="text-xs text-slate-400 mt-1">
+    <div className="w-full min-h-[calc(100vh-7rem)] rounded-2xl border border-[#E5EBF2] bg-white p-5 shadow-[0_8px_28px_rgba(16,35,65,0.06)] sm:p-8 lg:p-10">
+      <div className="mb-8 border-b border-[#EEF2F7] pb-6">
+        <h3 className="text-2xl font-extrabold tracking-tight text-[#102341] sm:text-3xl">
+          {translate('Account Profile', 'खाता प्रोफाइल')}
+        </h3>
+        <p className="mt-2 text-sm text-[#52627a]">
           {translate('Update your name, phone, and profile photo.', 'आफ्नो नाम, फोन र प्रोफाइल फोटो अद्यावधिक गर्नुहोस्।')}
         </p>
       </div>
 
-      <form onSubmit={handleUpdateProfile} className="space-y-4">
-        <div className="flex items-center gap-4">
-          <div className="h-20 w-20 overflow-hidden rounded-full border border-slate-700 bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-black text-slate-950 flex items-center justify-center">
+      <form onSubmit={handleUpdateProfile} className="mx-auto w-full max-w-5xl space-y-6">
+        <div className="flex flex-col gap-5 rounded-2xl border border-[#E8EDF4] bg-[#F8FAFC] p-5 sm:flex-row sm:items-center sm:p-6">
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-[#F2B71D] bg-gradient-to-br from-[#F2B71D] to-[#E0A615] text-3xl font-black text-[#102341] shadow-sm">
             {previewUrl ? (
               <img src={previewUrl} alt="Profile" className="h-full w-full object-cover" />
             ) : (
               (name || user?.email || 'U').charAt(0).toUpperCase()
             )}
           </div>
-          <div className="flex-1 space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <div className="min-w-0 flex-1 space-y-2">
+            <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
               {translate('Profile Photo', 'प्रोफाइल फोटो')}
             </label>
             <input
               type="file"
               accept="image/*"
               onChange={(e) => setProfilePhoto(e.target.files?.[0] || null)}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none file:cursor-pointer file:rounded-full file:border-0 file:bg-amber-500/20 file:px-3 file:py-1 file:text-amber-200"
+              className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm text-[#102341] outline-none file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-[#F2B71D] file:px-4 file:py-2 file:text-sm file:font-bold file:text-[#102341] hover:file:bg-[#E0A615] focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
             />
+            {profilePhoto && (
+              <p className="text-xs font-semibold text-emerald-600">Selected: {profilePhoto.name}</p>
+            )}
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Full Name</label>
+            <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
+              {translate('Full Name', 'पूरा नाम')}
+            </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
+              className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3.5 text-sm font-medium text-[#102341] outline-none placeholder:text-[#94A3B8] focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
+              placeholder="Your full name"
               required
             />
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Phone Number</label>
+            <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
+              {translate('Phone Number', 'फोन नम्बर')}
+            </label>
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-xs text-white outline-none focus:border-amber-400"
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3.5 text-sm font-medium text-[#102341] outline-none placeholder:text-[#94A3B8] focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
+              placeholder="98XXXXXXXX"
+              inputMode="numeric"
+              maxLength={10}
             />
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email</label>
+          <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
+            {translate('Email', 'इमेल')}
+          </label>
           <input
             type="email"
             value={user?.email || ''}
             disabled
-            className="w-full rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-xs text-slate-400 outline-none"
+            className="w-full cursor-not-allowed rounded-xl border border-[#E2E8F0] bg-[#F1F5F9] px-4 py-3.5 text-sm font-medium text-[#475569] outline-none"
           />
+          <p className="text-xs text-[#64748B]">Email cannot be changed from this page.</p>
         </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60"
-        >
-          {isSubmitting ? 'Saving...' : translate('Save profile', 'प्रोफाइल सेभ गर्नुहोस्')}
-        </button>
+        <div className="flex flex-wrap items-center gap-3 border-t border-[#EEF2F7] pt-6">
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="rounded-xl bg-[#F2B71D] px-8 py-3.5 text-sm font-bold text-[#102341] shadow-sm transition hover:bg-[#E0A615] disabled:opacity-60"
+          >
+            {isSubmitting ? translate('Saving...', 'सेभ हुँदै...') : translate('Save profile', 'प्रोफाइल सेभ गर्नुहोस्')}
+          </button>
+        </div>
       </form>
     </div>
   );

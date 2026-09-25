@@ -3,6 +3,7 @@ import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUs
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { useDispatch } from 'react-redux';
+import { updateSessionUser } from '../utils/sessionAuth';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { validateReviewForm, validateImageFile } from '../utils/validation';
 
@@ -214,23 +215,34 @@ export default function DetailsModal({
       return;
     }
     try {
-      const updatedWishlist = { ...user.wishlist };
-      if (!updatedWishlist[type]) updatedWishlist[type] = [];
-      
-      if (updatedWishlist[type].includes(id)) {
-        updatedWishlist[type] = updatedWishlist[type].filter(item => item !== id);
-        Swal.fire({ icon: 'success', text: 'Removed from favorites' });
-      } else {
-        updatedWishlist[type].push(id);
-        Swal.fire({ icon: 'success', text: 'Added to favorites' });
-      }
-      
-      await api.put('/api/auth/profile', { wishlist: updatedWishlist });
-      const updatedUser = { ...user, wishlist: updatedWishlist };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
+      const toIdList = (items) => (Array.isArray(items) ? items : [])
+        .map((item) => String(item?._id || item?.id || item || '').trim())
+        .filter(Boolean);
+      const itemId = String(id);
+      const updatedWishlist = {
+        products: toIdList(user.wishlist?.products),
+        services: toIdList(user.wishlist?.services),
+        businesses: toIdList(user.wishlist?.businesses),
+      };
+      const current = toIdList(updatedWishlist[type]);
+      const isSaved = current.includes(itemId);
+      updatedWishlist[type] = isSaved
+        ? current.filter((item) => item !== itemId)
+        : [...current, itemId];
+
+      const response = await api.put('/api/auth/wishlist', { wishlist: updatedWishlist });
+      const savedWishlist = response.data?.wishlist || updatedWishlist;
+      const updatedUser = { ...(response.data?.user || user), wishlist: savedWishlist };
+      updateSessionUser(updatedUser);
       dispatch({ type: 'SET_USER', payload: updatedUser });
+      Swal.fire({
+        icon: 'success',
+        text: isSaved ? 'Removed from favorites' : 'Added to favorites',
+        timer: 1200,
+        showConfirmButton: false,
+      });
     } catch (e) {
-      console.log(e);
+      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'Unable to update wishlist.' });
     }
   };
 

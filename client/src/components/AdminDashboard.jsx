@@ -6,7 +6,7 @@ import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admi
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import AccountProfileCard from './AccountProfileCard';
 
-export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTab, onTabChange }) {
+export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0, activeTab, onTabChange }) {
   const [analytics, setAnalytics] = useState(null);
   const [businesses, setBusinesses] = useState([]);
   const [users, setUsers] = useState([]);
@@ -39,54 +39,53 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   };
 
   useEffect(() => {
-    if (user) {
+    if (user?._id || user?.id) {
       fetchAdminData();
     }
-  }, [user, liveOrderTick]);
+  }, [user?._id, user?.id, liveOrderTick]);
 
   const fetchAdminData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      // Fetch platform stats
-      const statsRes = await api.get('/api/admin/analytics');
+      const [
+        statsRes,
+        bizRes,
+        usersRes,
+        categoriesRes,
+        ordersRes,
+        coupRes,
+        productRes,
+        serviceRes,
+        supportRes,
+        settingsRes,
+        reviewRes,
+      ] = await Promise.all([
+        api.get('/api/admin/analytics'),
+        api.get('/api/admin/businesses'),
+        api.get('/api/admin/users'),
+        api.get('/api/categories'),
+        api.get('/api/orders'),
+        api.get('/api/admin/coupons'),
+        api.get('/api/products'),
+        api.get('/api/services'),
+        api.get('/api/admin/support-tickets'),
+        api.get('/api/admin/settings'),
+        api.get('/api/reviews?limit=50'),
+      ]);
+
       setAnalytics(statsRes.data);
-
-      const bizRes = await api.get('/api/businesses');
       setBusinesses(bizRes.data);
-
-      const usersRes = await api.get('/api/admin/users');
       setUsers(usersRes.data);
-
-      const categoriesRes = await api.get('/api/categories');
       setCategories(categoriesRes.data);
-
-      const ordersRes = await api.get('/api/orders');
       setOrders(ordersRes.data);
-
-      const coupRes = await api.get('/api/admin/coupons');
       setCoupons(coupRes.data);
-
-      const productRes = await api.get('/api/products');
       setProducts(Array.isArray(productRes.data) ? productRes.data : []);
-
-      const serviceRes = await api.get('/api/services');
       setServices(Array.isArray(serviceRes.data) ? serviceRes.data : []);
-
-      const supportRes = await api.get('/api/admin/support-tickets');
       setSupportTickets(Array.isArray(supportRes.data) ? supportRes.data : []);
-
-      const settingsRes = await api.get('/api/admin/settings');
       const normalizedSettings = normalizeAdminSettings(settingsRes.data);
       setSettings(normalizedSettings);
       setSettingsForm(normalizedSettings);
-
-      const allBizReviews = [];
-      for (let b of bizRes.data) {
-        const details = await api.get(`/api/businesses/${b._id}`);
-        allBizReviews.push(...details.data.reviews);
-      }
-      setReviews(allBizReviews);
-
+      setReviews(Array.isArray(reviewRes.data) ? reviewRes.data : []);
       setLoading(false);
     } catch (e) {
       console.log(e);
@@ -95,10 +94,10 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   };
 
   useEffect(() => {
-    if (!user) return undefined;
+    if (!user?._id && !user?.id) return undefined;
     const refreshTimer = setInterval(() => fetchAdminData(true), 30000);
     return () => clearInterval(refreshTimer);
-  }, [user]);
+  }, [user?._id, user?.id]);
   const handleVerifyBusiness = async (bizId, nextStatus, customReason = '') => {
     try {
       const reason = customReason || '';
@@ -319,9 +318,13 @@ export default function AdminDashboard({ user, lang, liveOrderTick = 0, activeTa
   };
 
   const handleAdminLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/';
+    if (typeof onLogout === 'function') {
+      onLogout();
+      return;
+    }
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    window.location.assign('/');
   };
 
   if (loading) {

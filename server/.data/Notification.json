@@ -1,5 +1,275 @@
 [
   {
+    "_id": "zlm6dtmzs",
+    "createdAt": "2026-09-25T17:25:35.358Z",
+    "updatedAt": "2026-09-25T17:25:35.358Z",
+    "userId": "ipa29as06",
+    "title": "Business Approved",
+    "message": "Congratulations! Your business \"21124\" has been verified and approved by the admin. You now have full access to the seller dashboard.",
+    "type": "admin"
+  },
+  {
+    "_id": "5aicfx7xn",
+    "createdAt": "2026-09-25T16:59:14.356Z",
+    "updatedAt": "2026-09-25T16:59:14.356Z",
+    "userId": "8wwlozpxw",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 784096",
+    "type": "general"
+  },
+  {
+    "_id": "x5r2ip76a",
+    "createdAt": "2026-09-25T16:59:14.285Z",
+    "updatedAt": "2026-09-25T16:59:14.285Z",
+    "userId": "3w0xb7hge",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 170836",
+    "type": "general"
+  },
+  {
+    "_id": "5i3u2k4mm",
+    "createdAt": "2026-09-25T16:57:29.981Z",
+    "updatedAt": "2026-09-25T16:57:29.981Z",
+    "userId": "wz16wmfx8",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 755437",
+    "type": "general"
+  },
+  {
+    "_id": "urdj4n63a",
+    "createdAt": "2026-09-25T16:54:07.746Z",
+    "updatedAt": "2026-09-25T16:54:07.746Z",
+    "userId": "6xy2jbbw5",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 834096",
+    "type": "general"
+  },
+  {
+    "_id": "w9xe0gfef",
+    "createdAt": "2026-09-25T16:52:35.714Z",
+    "updatedAt": "2026-09-25T16:52:35.714Z",
+    "userId": "oruowsy4a",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 684446",
+    "type": "general"
+  },
+  {
+    "_id": "gelvst9th",
+    "createdAt": "2026-09-25T16:47:38.762Z",
+    "updatedAt": "2026-09-25T16:47:38.762Z",
+    "userId": "fpcvzhuk7",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 489744",
+    "type": "general"
+  },
+  {
+    "_id": "1zzol4hwy",
+    "createdAt": "2026-09-25T16:47:18.792Z",
+    "updatedAt": "2026-09-25T16:47:18.792Z",
+    "userId": "mn1ln3vew",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 467237",
+    "type": "general"
+  },
+  {
+    "_id": "y0t63hntz",
+    "createdAt": "2026-09-25T16:47:18.460Z",
+    "updatedAt": "2026-09-25T16:47:18.460Z",
+    "userId": "9e7pdafwb",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 535071",
+    "type": "general"
+  },
+  {
+    "_id": "10ghunrtu",
+    "createdAt": "2026-09-25T16:44:06.006Z",
+    "updatedAt": "2026-09-25T16:44:06.006Z",
+    "userId": "uct41lgyx",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 200863",
+    "type": "general"
+  },
+  {
+    "_id": "7lhzx27fw",
+    "createdAt": "2026-09-25T11:12:27.058Z",
+    "updatedAt": "2026-09-25T11:12:27.058Z",
+    "userId": "aa3gev85g",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 841328",
+    "type": "general"
+  },
+  {
+    "_id": "27cr7prtm",
+    "createdAt": "2026-09-25T11:12:26.958Z",
+    "updatedAt": "2026-09-25T11:12:26.958Z",
+    "userId": "jh856gbwl",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 649424",
+    "type": "general"
+  },
+  {
+    "_id": "zvxydjfzq",
+    "createdAt": "2026-09-25T11:12:26.463Z",
+    "updatedAt": "2026-09-25T11:12:26.463Z",
+    "userId": "mi5glalov",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 862762",
+    "type": "general"
+  },
+  {
+    "_id": "3k44f3knm",
+    "createdAt": "2026-09-25T11:12:26.218Z",
+    "updatedAt": "2026-09-25T11:12:26.218Z",
+    "userId": "s71bn11bn",
+    "title": "Password Reset OTP",
+    "message": "Your password reset request code is: 966530",
+    "type": "general"
+  },
+  {
+    "_id": "6hzcrmral",
+    "createdAt": "2026-09-25T11:12:26.189Z",
+    "updatedAt": "2026-09-25T11:12:26.189Z",
+    "userId": "s71bn11bn",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 414966",
+    "type": "general"
+  },
+  {
+    "_id": "9auza303l",
+    "createdAt": "2026-09-25T11:12:25.990Z",
+    "updatedAt": "2026-09-25T11:12:25.990Z",
+    "userId": "mqpdukb0a",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 907999",
+    "type": "general"
+  },
+  {
+    "_id": "8s338coaz",
+    "createdAt": "2026-09-25T11:09:33.601Z",
+    "updatedAt": "2026-09-25T11:09:33.601Z",
+    "userId": "99ztujaxs",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 549736",
+    "type": "general"
+  },
+  {
+    "_id": "wyrx9t6ni",
+    "createdAt": "2026-09-25T11:09:33.518Z",
+    "updatedAt": "2026-09-25T11:09:33.519Z",
+    "userId": "w30v1alu5",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 699972",
+    "type": "general"
+  },
+  {
+    "_id": "ehnx6ehwd",
+    "createdAt": "2026-09-25T11:09:33.068Z",
+    "updatedAt": "2026-09-25T11:09:33.068Z",
+    "userId": "zja7eiu54",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 667034",
+    "type": "general"
+  },
+  {
+    "_id": "yg6892miz",
+    "createdAt": "2026-09-25T11:09:32.806Z",
+    "updatedAt": "2026-09-25T11:09:32.806Z",
+    "userId": "k8lg04wg5",
+    "title": "Password Reset OTP",
+    "message": "Your password reset request code is: 113997",
+    "type": "general"
+  },
+  {
+    "_id": "otqtnm0zg",
+    "createdAt": "2026-09-25T11:09:32.773Z",
+    "updatedAt": "2026-09-25T11:09:32.773Z",
+    "userId": "k8lg04wg5",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 128254",
+    "type": "general"
+  },
+  {
+    "_id": "vecayaj9y",
+    "createdAt": "2026-09-25T11:09:32.564Z",
+    "updatedAt": "2026-09-25T11:09:32.564Z",
+    "userId": "g9nsi5ng2",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 842519",
+    "type": "general"
+  },
+  {
+    "_id": "ignw40itm",
+    "createdAt": "2026-09-25T11:09:32.558Z",
+    "updatedAt": "2026-09-25T11:09:32.558Z",
+    "userId": "3ek1nrszd",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 436398",
+    "type": "general"
+  },
+  {
+    "_id": "8sebz8nb5",
+    "createdAt": "2026-09-25T11:08:02.135Z",
+    "updatedAt": "2026-09-25T11:08:02.135Z",
+    "userId": "enxhc3mze",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 219908",
+    "type": "general"
+  },
+  {
+    "_id": "ih1xe42sm",
+    "createdAt": "2026-09-25T11:08:02.041Z",
+    "updatedAt": "2026-09-25T11:08:02.041Z",
+    "userId": "7l8xwzdvq",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 904390",
+    "type": "general"
+  },
+  {
+    "_id": "6v0liygh4",
+    "createdAt": "2026-09-25T11:08:01.561Z",
+    "updatedAt": "2026-09-25T11:08:01.561Z",
+    "userId": "sxvcccssx",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 760523",
+    "type": "general"
+  },
+  {
+    "_id": "1uu6s585m",
+    "createdAt": "2026-09-25T11:08:01.316Z",
+    "updatedAt": "2026-09-25T11:08:01.316Z",
+    "userId": "b99s81psh",
+    "title": "Password Reset OTP",
+    "message": "Your password reset request code is: 417573",
+    "type": "general"
+  },
+  {
+    "_id": "8xnnmm4v8",
+    "createdAt": "2026-09-25T11:08:01.287Z",
+    "updatedAt": "2026-09-25T11:08:01.287Z",
+    "userId": "b99s81psh",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 255236",
+    "type": "general"
+  },
+  {
+    "_id": "m414widk9",
+    "createdAt": "2026-09-25T11:08:01.075Z",
+    "updatedAt": "2026-09-25T11:08:01.075Z",
+    "userId": "rydy1ibxg",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 778459",
+    "type": "general"
+  },
+  {
+    "_id": "ic6wurk88",
+    "createdAt": "2026-09-25T11:08:01.064Z",
+    "updatedAt": "2026-09-25T11:08:01.064Z",
+    "userId": "8z9kaun9z",
+    "title": "Verification OTP",
+    "message": "Welcome to UdyogConnect! Your activation OTP code is: 633649",
+    "type": "general"
+  },
+  {
     "_id": "ra82e1w6i",
     "createdAt": "2026-09-11T12:32:48.089Z",
     "updatedAt": "2026-09-11T12:32:48.089Z",

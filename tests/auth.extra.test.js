@@ -12,6 +12,8 @@ beforeAll(async () => {
   process.env.MONGODB_URI = mongo.getUri();
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret';
   process.env.NODE_ENV = 'test';
+  process.env.REQUIRE_REGISTRATION_OTP = 'true';
+  delete process.env.DISABLE_REGISTRATION_OTP;
 
   const dbModule = await import('../server/db.js');
   const connectDb = dbModule.connectDb || (dbModule.default && dbModule.default.connectDb);
@@ -36,7 +38,7 @@ describe('Auth extra flows', () => {
 
     const reg = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Verify User', email, password, confirmPassword: password })
+      .send({ name: 'Verify User', email, password, confirmPassword: password, phone: `98${String(Date.now()).slice(-8)}` })
       .expect(201);
 
     expect(reg.body).toHaveProperty('success', true);
@@ -63,7 +65,7 @@ describe('Auth extra flows', () => {
     // Register
     const reg = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Forgot User', email, password, confirmPassword: password })
+      .send({ name: 'Forgot User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 1).slice(-8)}` })
       .expect(201);
     const otp = reg.body.otp;
     await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
@@ -87,7 +89,7 @@ describe('Auth extra flows', () => {
     const password = 'Lock12345';
 
     // Register and verify
-    const reg = await request(app).post('/api/auth/register').send({ name: 'Lock User', email, password, confirmPassword: password }).expect(201);
+    const reg = await request(app).post('/api/auth/register').send({ name: 'Lock User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 2).slice(-8)}` }).expect(201);
     const otp = reg.body.otp;
     await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
 
@@ -111,9 +113,9 @@ describe('Auth extra flows', () => {
     const email = `dupuser+${Date.now()}@example.com`;
     const password = 'Dup12345';
 
-    await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password }).expect(201);
-    // Attempt duplicate
-    const dup = await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password }).expect(409);
+    const phone = `98${String(Date.now() + 3).slice(-8)}`;
+    await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, phone }).expect(201);
+    const dup = await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 4).slice(-8)}` }).expect(409);
     expect(dup.body.message).toMatch(/already exists/);
   });
 
@@ -121,7 +123,7 @@ describe('Auth extra flows', () => {
     const email = `expuser+${Date.now()}@example.com`;
     const password = 'Exp12345';
 
-    const reg = await request(app).post('/api/auth/register').send({ name: 'Exp User', email, password, confirmPassword: password }).expect(201);
+    const reg = await request(app).post('/api/auth/register').send({ name: 'Exp User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 5).slice(-8)}` }).expect(201);
     const otp = reg.body.otp;
     await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
 
@@ -132,7 +134,8 @@ describe('Auth extra flows', () => {
     const expired = jwt.sign({ id: login.body.user.id, email }, process.env.JWT_SECRET, { expiresIn: -10 });
 
     // Call protected route with expired token
-    const res = await request(app).get('/api/auth/profile').set('Authorization', `Bearer ${expired}`).expect(403);
+    const res = await request(app).get('/api/auth/profile').set('Authorization', `Bearer ${expired}`).expect(401);
+    expect(res.body.message).toBe('Your session has expired. Please log in again.');
 
     // Re-login works
     const relogin = await request(app).post('/api/auth/login').send({ email, password }).expect(200);

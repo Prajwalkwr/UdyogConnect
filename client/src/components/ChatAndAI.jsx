@@ -16,6 +16,8 @@ export default function ChatAndAI({ user, lang }) {
   const [dmImage, setDmImage] = useState(null);
 
   const scrollRef = useRef(null);
+  const selectedContactRef = useRef(null);
+  selectedContactRef.current = selectedContact;
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -34,6 +36,7 @@ export default function ChatAndAI({ user, lang }) {
       setOnlineUserIds(new Set());
       return undefined;
     }
+    if (!isOpen) return undefined;
 
     let mounted = true;
     api.get('/api/users').then((res) => {
@@ -48,7 +51,7 @@ export default function ChatAndAI({ user, lang }) {
       if (mounted) setOnlineUserIds(new Set((res.data?.onlineUserIds || []).map(String)));
     }).catch(() => {});
 
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '')
       || (import.meta.env.DEV ? window.location.origin : 'https://udyogconnect.onrender.com');
     const socket = socketIO(backendUrl, {
@@ -65,14 +68,15 @@ export default function ChatAndAI({ user, lang }) {
       });
     });
     socket.on('new_message', (message) => {
-      if (!mounted || !selectedContact || (String(message.senderId) !== String(selectedContact.id) && String(message.receiverId) !== String(selectedContact.id))) return;
+      const contact = selectedContactRef.current;
+      if (!mounted || !contact || (String(message.senderId) !== String(contact.id) && String(message.receiverId) !== String(contact.id))) return;
       setDmHistory((previous) => previous.some((item) => item._id === message._id) ? previous : [...previous, message]);
     });
     return () => {
       mounted = false;
       socket.disconnect();
     };
-  }, [user, selectedContact]);
+  }, [user?._id, user?.id, user?.role, isOpen]);
 
   // Scroll body container to bottom
   useEffect(() => {

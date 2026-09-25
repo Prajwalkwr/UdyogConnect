@@ -23,7 +23,7 @@ export default function PaymentSuccess() {
         if (resp.data && resp.data.paid) {
           Swal.fire({ icon: 'success', title: 'Payment successful', text: 'Your payment was confirmed.' });
           localStorage.removeItem('cart');
-          navigate('/customer');
+          navigate('/');
           return;
         }
         Swal.fire({ icon: 'error', text: 'Payment verification failed.' });
