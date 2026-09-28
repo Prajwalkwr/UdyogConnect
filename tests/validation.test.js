@@ -147,6 +147,7 @@ describe('System Validation & Security Test Suite', () => {
         .send({
           businessId,
           name: 'Negative Price Product',
+          brand: 'Test Brand',
           category: 'Retail',
           description: 'Test product with negative price',
           price: -100,
@@ -164,6 +165,7 @@ describe('System Validation & Security Test Suite', () => {
         .send({
           businessId,
           name: 'Negative Stock Product',
+          brand: 'Test Brand',
           category: 'Retail',
           description: 'Test product with negative stock',
           price: 500,
@@ -322,10 +324,12 @@ describe('System Validation & Security Test Suite', () => {
         .send({
           businessId: b1Id,
           name: 'Product Belonging to Seller 1',
+          brand: 'Test Brand',
           category: 'Retail',
           description: 'Unique product for seller 1 ownership check',
           price: 1500,
           stock: 20,
+          imageUrl: 'https://example.com/product.jpg',
         });
 
       product1Id = p1.body.product._id;
