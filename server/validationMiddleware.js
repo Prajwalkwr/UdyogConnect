@@ -2,6 +2,20 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BUSINESS_EMAIL_REGEX = /^[A-Za-z]+@[0-9]+\.com$/i;
 const PHONE_REGEX = /^(97|98)\d{8}$/;
 const PERSON_NAME_REGEX = /^[\p{L}]+(?:[ ][\p{L}]+)*$/u;
+const PRODUCT_WORD_NAME_REGEX = /^[\p{L}0-9]+(?:[ ][\p{L}0-9]+)*$/u;
+
+const validateProductWordName = (value, fieldLabel) => {
+  if (!value || !String(value).trim()) return `${fieldLabel} is required.`;
+  const trimmed = String(value).trim();
+  if (trimmed.length < 2) return `${fieldLabel} must be at least 2 characters.`;
+  if (!PRODUCT_WORD_NAME_REGEX.test(trimmed)) {
+    return `${fieldLabel} can only contain letters and spaces (no special characters). Up to 2 numbers are allowed.`;
+  }
+  if (!/\p{L}/u.test(trimmed)) return `${fieldLabel} must include letters.`;
+  const digitCount = (trimmed.match(/\d/g) || []).length;
+  if (digitCount > 2) return `${fieldLabel} can include at most 2 numbers.`;
+  return '';
+};
 
 // Helper to check if string looks like valid Mongo ObjectId or non-empty ID
 const isValidId = (id) => {
@@ -128,34 +142,52 @@ const validateBusinessPayload = (req, res, next) => {
 };
 
 const validateProductPayload = (req, res, next) => {
-  const { name, price, quantity, stock, category, description } = req.body || {};
+  const { name, brand, price, quantity, stock, discount, category, description, imageUrl } = req.body || {};
   const errors = {};
 
-  if (!name || !String(name).trim()) {
-    errors.name = 'Product name is required.';
-  }
+  const nameErr = validateProductWordName(name, 'Product name');
+  if (nameErr) errors.name = nameErr;
+
+  const brandErr = validateProductWordName(brand, 'Brand');
+  if (brandErr) errors.brand = brandErr;
 
   const numPrice = Number(price);
-  if (price === undefined || price === null || price === '' || isNaN(numPrice)) {
+  if (price === undefined || price === null || price === '' || Number.isNaN(numPrice)) {
     errors.price = 'Valid price is required.';
   } else if (numPrice < 0) {
     errors.price = 'Price cannot be negative.';
   }
 
+  const discountRaw = discount === undefined || discount === null || discount === '' ? 0 : discount;
+  const numDiscount = Number(discountRaw);
+  if (Number.isNaN(numDiscount)) {
+    errors.discount = 'Discount must be a valid number.';
+  } else if (numDiscount < 0) {
+    errors.discount = 'Discount cannot be negative.';
+  } else if (numDiscount > 100) {
+    errors.discount = 'Discount cannot exceed 100%.';
+  }
+
   const q = quantity !== undefined ? quantity : stock;
   const numQty = Number(q);
-  if (q === undefined || q === null || q === '' || isNaN(numQty) || !Number.isInteger(numQty)) {
-    errors.quantity = 'Valid integer stock quantity is required.';
+  if (q === undefined || q === null || q === '' || Number.isNaN(numQty) || !Number.isInteger(numQty)) {
+    errors.stock = 'Valid integer stock quantity is required.';
   } else if (numQty < 0) {
-    errors.quantity = 'Quantity cannot be negative.';
+    errors.stock = 'Stock cannot be negative.';
   }
 
   if (!category || !String(category).trim()) {
     errors.category = 'Category is required.';
   }
 
-  if (description && String(description).trim().length < 10) {
+  if (!description || String(description).trim().length < 10) {
     errors.description = 'Description must be at least 10 characters.';
+  }
+
+  const hasImageFile = Boolean(req.file);
+  const hasImageUrl = Boolean(imageUrl && String(imageUrl).trim());
+  if (req.method === 'POST' && !hasImageFile && !hasImageUrl) {
+    errors.image = 'Product image is required.';
   }
 
   if (Object.keys(errors).length > 0) {

@@ -1,118 +1,6 @@
-export const CAFE_XYZ_ID = 'cafe-xyz';
-
-export const IMG_COVER =
-  'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1600&q=80';
-export const IMG_COFFEE =
-  'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=800&q=80';
-export const IMG_BURGER =
-  'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=800&q=80';
-export const IMG_MOMOS =
-  'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=800&q=80';
-export const IMG_CATERING =
-  'https://images.unsplash.com/photo-1511920170033-f8396924c348?auto=format&fit=crop&w=800&q=80';
-
-export const THAMEL = { lat: 27.7152, lng: 85.3126 };
-
-export const cafeDemo = {
-  business: {
-    _id: CAFE_XYZ_ID,
-    name: 'Cafe XYZ',
-    category: 'Restaurants & Food',
-    location: 'Thamel, Kathmandu',
-    description:
-      'Cafe XYZ is a cozy neighborhood cafe in the heart of Thamel. We serve specialty coffee, fresh bakery, and hearty meals made with locally sourced ingredients.',
-    phone: '9812345678',
-    contactEmail: 'cafexyz@gmail.com',
-    website: 'https://www.cafexyz.com',
-    verified: true,
-    rating: 4.8,
-    reviewCount: 126,
-    latitude: THAMEL.lat,
-    longitude: THAMEL.lng,
-    imageUrl: IMG_COFFEE,
-    coverUrl: IMG_COVER,
-    hours: '10:00-20:00',
-    openingHours: [
-      { label: 'Monday – Friday', value: '10:00 AM – 8:00 PM', closed: false },
-      { label: 'Saturday', value: '11:00 AM – 9:00 PM', closed: false },
-      { label: 'Sunday', value: 'Closed', closed: true },
-    ],
-    closesAt: '8:00 PM',
-  },
-  products: [
-    {
-      _id: 'cafe-xyz-coffee',
-      name: 'Hot Coffee',
-      description: 'Freshly brewed coffee with rich aroma',
-      price: 150,
-      rating: 4.7,
-      imageUrl: IMG_COFFEE,
-      badge: 'Best Seller',
-      stock: 40,
-      category: 'Drinks',
-    },
-    {
-      _id: 'cafe-xyz-burger',
-      name: 'Chicken Burger',
-      description: 'Juicy chicken patty with fresh veggies',
-      price: 250,
-      rating: 4.6,
-      imageUrl: IMG_BURGER,
-      stock: 25,
-      category: 'Food',
-    },
-    {
-      _id: 'cafe-xyz-momos',
-      name: 'Veg Momos',
-      description: 'Steamed momos with spicy sauce',
-      price: 120,
-      rating: 4.5,
-      imageUrl: IMG_MOMOS,
-      stock: 30,
-      category: 'Food',
-    },
-  ],
-  services: [
-    {
-      _id: 'cafe-xyz-catering',
-      name: 'Coffee Catering Service',
-      description: 'We provide special coffee catering for events and occasions.',
-      price: 1500,
-      duration: '1 Hour',
-      imageUrl: IMG_CATERING,
-    },
-  ],
-  reviews: [
-    {
-      _id: 'rev-sita',
-      userName: 'Sita Thapa',
-      rating: 5,
-      comment: 'Great coffee and friendly service! Loved the place.',
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      imageUrl: IMG_COFFEE,
-    },
-    {
-      _id: 'rev-ram',
-      userName: 'Ram Shrestha',
-      rating: 5,
-      comment: 'Best momos in Thamel. The cafe is cozy and perfect for work.',
-      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-      imageUrl: IMG_MOMOS,
-    },
-    {
-      _id: 'rev-anjali',
-      userName: 'Anjali KC',
-      rating: 4,
-      comment: 'Loved the burger. A bit crowded on weekends but worth the wait.',
-      createdAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
-      imageUrl: IMG_BURGER,
-    },
-  ],
-  distribution: { 5: 78, 4: 14, 3: 5, 2: 2, 1: 1 },
-};
-
-export function formatRs(value) {
-  return `Rs. ${Number(value || 0).toLocaleString('en-NP')}`;
+export function formatRs(value, { plus = false } = {}) {
+  const amount = Number(value || 0).toLocaleString('en-NP');
+  return `NPR ${amount}${plus ? '+' : ''}`;
 }
 
 export function timeAgo(iso) {
@@ -124,7 +12,7 @@ export function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-export function mapsDirectionsUrl(lat, lng, label) {
+export function mapsDirectionsUrl(lat, lng) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
 }
 
@@ -149,23 +37,92 @@ export function computeDistribution(reviews = []) {
   };
 }
 
-export function isOpenNow(now = new Date()) {
-  const day = now.getDay();
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  if (day === 0) return { open: false, label: 'Closed', until: 'Closed on Sunday' };
-  const saturday = day === 6;
-  const start = saturday ? 11 * 60 : 10 * 60;
-  const end = saturday ? 21 * 60 : 20 * 60;
-  if (minutes >= start && minutes < end) {
-    return { open: true, label: 'Open Now', until: `Closes at ${saturday ? '9:00 PM' : '8:00 PM'}` };
+function parseHourRange(hours = '') {
+  if (typeof hours !== 'string') return null;
+  const match = hours.match(/(\d{1,2})(?::(\d{2}))?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?/i);
+  if (!match) return null;
+  const start = Number(match[1]) * 60 + Number(match[2] || 0);
+  const end = Number(match[3]) * 60 + Number(match[4] || 0);
+  return { start, end };
+}
+
+export function isOpenNow(business, now = new Date()) {
+  // Lazy import pattern avoided — keep local mirror of day/hours check for profile UI.
+  const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const todayKey = dayKeys[now.getDay()];
+  const openingDays = Array.isArray(business?.openingDays) && business.openingDays.length
+    ? business.openingDays.map((d) => String(d).toLowerCase().slice(0, 3))
+    : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const openToday = openingDays.includes(todayKey);
+
+  if (business?.manualOpenOverride !== null && business?.manualOpenOverride !== undefined) {
+    const forced = Boolean(business.manualOpenOverride);
+    return {
+      open: forced,
+      label: forced ? 'Open Now' : 'Closed',
+      until: forced
+        ? (business.hours || `${business.opensAt || '7:00 AM'} - ${business.closesAt || '10:00 PM'}`)
+        : (openToday ? `Hours ${business.hours || ''}`.trim() : 'Closed today'),
+    };
   }
-  return { open: false, label: 'Closed', until: 'Opens at 10:00 AM' };
+
+  if (!openToday) {
+    return { open: false, label: 'Closed Today', until: 'Not open on this day' };
+  }
+
+  const opensAt = business?.opensAt || '7:00 AM';
+  const closesAt = business?.closesAt || '10:00 PM';
+  const range = parseHourRange(business?.hours) || { start: 7 * 60, end: 22 * 60 };
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const open = range.start <= range.end
+    ? minutes >= range.start && minutes < range.end
+    : minutes >= range.start || minutes < range.end;
+  if (open) {
+    return { open: true, label: 'Open Now', until: business.hours || `${opensAt} - ${closesAt}` };
+  }
+  return { open: false, label: 'Closed', until: `Opens at ${business.hours?.split('-')?.[0]?.trim() || opensAt}` };
+}
+
+export function emptyProfile(id = '') {
+  return {
+    business: {
+      _id: id,
+      name: '',
+      category: '',
+      subcategory: '',
+      location: '',
+      distanceLabel: '',
+      description: '',
+      phone: '',
+      contactEmail: '',
+      website: '',
+      verified: false,
+      rating: 0,
+      reviewCount: 0,
+      latitude: null,
+      longitude: null,
+      imageUrl: '',
+      coverUrl: '',
+      openingHours: [],
+      closesAt: '',
+      opensAt: '',
+      hours: '',
+      tags: [],
+      highlights: [],
+      whyChooseUs: [],
+      paymentMethods: [],
+      specialOffer: null,
+    },
+    products: [],
+    services: [],
+    reviews: [],
+    distribution: computeDistribution([]),
+    reviewFilters: [{ id: 'all', label: 'All', count: 0 }],
+  };
 }
 
 export function normalizeProfile(id, payload) {
-  if (!payload?.business || id === CAFE_XYZ_ID) {
-    return { ...cafeDemo, fromDemo: true };
-  }
+  if (!payload?.business) return null;
 
   const business = payload.business;
   const products = Array.isArray(payload.products) ? payload.products : [];
@@ -173,32 +130,74 @@ export function normalizeProfile(id, payload) {
   const reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
   const ratingAvg = reviews.length
     ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length
-    : 0;
+    : Number(business.rating || 0);
 
   return {
-    fromDemo: false,
     business: {
       ...business,
       _id: business._id || id,
       name: business.name || 'Business',
       category: business.category || 'Local Business',
+      subcategory: business.subcategory || business.businessType || '',
       location: business.location || '',
+      distanceLabel: business.distanceLabel || '',
       description: business.description || '',
       phone: business.phone || '',
       contactEmail: business.contactEmail || business.email || '',
       website: business.website || '',
-      verified: Boolean(business.verified === true || business.verified === 'verified' || business.verified === 'approved'),
-      rating: Number(ratingAvg.toFixed(1)),
-      reviewCount: reviews.length,
+      verified: Boolean(business.verified === true || business.verified === 'verified' || business.verified === 'approved' || business.isVerified === true),
+      rating: Number((ratingAvg || 0).toFixed(1)),
+      reviewCount: reviews.length || Number(business.reviewCount || 0),
       latitude: Number(business.latitude) || null,
       longitude: Number(business.longitude) || null,
       imageUrl: business.imageUrl || business.logoUrl || '',
       coverUrl: business.coverUrl || '',
       openingHours: Array.isArray(business.openingHours) && business.openingHours.length
         ? business.openingHours
-        : undefined,
+        : (() => {
+            const dayOrder = [
+              { key: 'mon', label: 'Monday' },
+              { key: 'tue', label: 'Tuesday' },
+              { key: 'wed', label: 'Wednesday' },
+              { key: 'thu', label: 'Thursday' },
+              { key: 'fri', label: 'Friday' },
+              { key: 'sat', label: 'Saturday' },
+              { key: 'sun', label: 'Sunday' },
+            ];
+            const openDays = Array.isArray(business.openingDays) && business.openingDays.length
+              ? business.openingDays.map((d) => String(d).toLowerCase().slice(0, 3))
+              : dayOrder.map((d) => d.key);
+            const hoursValue = business.hours || '9:00 AM – 6:00 PM';
+            return dayOrder.map((day) => {
+              const open = openDays.includes(day.key);
+              return {
+                label: day.label,
+                value: open ? hoursValue : 'Closed',
+                closed: !open,
+              };
+            });
+          })(),
       closesAt: business.closesAt || '',
+      opensAt: business.opensAt || '',
       hours: business.hours || '',
+      openingDays: Array.isArray(business.openingDays) ? business.openingDays : [],
+      tags: Array.isArray(business.tags) ? business.tags : [],
+      highlights: Array.isArray(business.highlights) ? business.highlights : [
+        { id: 'quality', label: 'Quality Service', icon: 'utensils' },
+        { id: 'local', label: 'Local Business', icon: 'store' },
+      ],
+      whyChooseUs: Array.isArray(business.whyChooseUs) ? business.whyChooseUs : [
+        'Trusted Local Business',
+        'Friendly Staff',
+        'Quality Products',
+        'Customer Focused',
+      ],
+      paymentMethods: Array.isArray(business.paymentMethods) ? business.paymentMethods : [
+        'Cash on Delivery',
+        'eSewa',
+        'Card Payment',
+      ],
+      specialOffer: business.specialOffer || null,
     },
     products: products.map((product, index) => ({
       _id: product._id || `p-${index}`,
@@ -217,18 +216,28 @@ export function normalizeProfile(id, payload) {
       name: service.name,
       description: service.description || '',
       price: Number(service.price || 0),
+      priceLabel: service.priceLabel || null,
       duration: service.duration || service.timeSlot || '1 Hour',
-      imageUrl: service.imageUrl || service.image || '',
+      imageUrl: service.imageUrl || service.image || service.images?.[0] || '',
+      icon: service.icon || 'table',
     })),
     reviews: reviews.map((review, index) => ({
       _id: review._id || `r-${index}`,
+      customerId: review.customerId ? String(review.customerId) : '',
       userName: review.userName || review.customerName || review.user?.name || review.name || 'Customer',
       rating: Number(review.rating || 0),
+      category: review.category || 'Food',
       comment: review.comment || review.text || '',
       createdAt: review.createdAt || new Date().toISOString(),
-      // Never fall back to the business logo as a fake review photo.
       imageUrl: review.imageUrl || review.image || '',
+      photos: Array.isArray(review.photos) ? review.photos : (review.imageUrl ? [review.imageUrl] : []),
     })),
     distribution: computeDistribution(reviews),
+    reviewFilters: [
+      { id: 'all', label: 'All', count: reviews.length },
+      { id: 'Food', label: 'Food', count: reviews.filter((r) => (r.category || 'Food') === 'Food').length },
+      { id: 'Service', label: 'Service', count: reviews.filter((r) => r.category === 'Service').length },
+      { id: 'Ambience', label: 'Ambience', count: reviews.filter((r) => r.category === 'Ambience').length },
+    ],
   };
 }

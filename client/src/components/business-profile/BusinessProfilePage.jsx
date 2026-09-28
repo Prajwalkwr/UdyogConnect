@@ -1,15 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { BadgeCheck, Coffee, Heart, MapPin, Share2, Star, UtensilsCrossed, Camera } from 'lucide-react';
+import {
+  BadgeCheck,
+  Camera,
+  Flag,
+  Heart,
+  MapPin,
+  MessageCircle,
+  Share2,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Store,
+  UtensilsCrossed,
+  Zap,
+} from 'lucide-react';
 import Swal from 'sweetalert2';
 import api from '../../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../../utils/submitProtection';
 import { uploadFilesToCloudinary } from '../../utils/mediaUpload';
+import { trackView } from '../../utils/activityTracking';
+import { openReportDialog } from '../../utils/reports';
 import ProductCard from './ProductCard';
 import ServiceRow from './ServiceRow';
 import ReviewsPanel from './ReviewsPanel';
 import InfoSidebar from './InfoSidebar';
-import { CAFE_XYZ_ID, formatRs, isOpenNow, mapsDirectionsUrl, normalizeProfile } from './cafeDemo';
+import ServiceBookingForm from '../ServiceBookingForm';
+import { emptyProfile, formatRs, isOpenNow, mapsDirectionsUrl, mapsEmbedUrl, normalizeProfile } from './cafeDemo';
 import './businessProfile.css';
 
 const TABS = [
@@ -17,8 +34,17 @@ const TABS = [
   { id: 'products', label: 'Products' },
   { id: 'services', label: 'Services' },
   { id: 'reviews', label: 'Reviews' },
+  { id: 'location', label: 'Location' },
   { id: 'about', label: 'About' },
 ];
+
+const HIGHLIGHT_ICONS = {
+  zap: Zap,
+  shield: ShieldCheck,
+  utensils: UtensilsCrossed,
+  store: Store,
+  sparkles: Sparkles,
+};
 
 function Modal({ title, children, onClose }) {
   return (
@@ -38,12 +64,14 @@ export default function BusinessProfilePage({
   onToggleWishlist,
   onRequireAuth,
   onOpenChat,
+  onOpenMessages,
 }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [profile, setProfile] = useState(() => normalizeProfile(id || CAFE_XYZ_ID, null));
+  const [profile, setProfile] = useState(() => emptyProfile(id || ''));
   const [unavailable, setUnavailable] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [tab, setTab] = useState(searchParams.get('tab') || 'overview');
   const [query, setQuery] = useState(searchQuery || '');
   const [sort, setSort] = useState('featured');
@@ -51,15 +79,14 @@ export default function BusinessProfilePage({
   const [saved, setSaved] = useState(false);
   const [product, setProduct] = useState(null);
   const [booking, setBooking] = useState(null);
-  const [bookingForm, setBookingForm] = useState({ date: '', slot: '10:00 AM' });
   const [contactOpen, setContactOpen] = useState(false);
-  const [chat, setChat] = useState([{ from: 'them', text: 'Namaste! How can Cafe XYZ help you today?' }]);
+  const [chatStarting, setChatStarting] = useState(false);
+  const [chat, setChat] = useState([{ from: 'them', text: 'Namaste! How can we help you today?' }]);
   const [draftMessage, setDraftMessage] = useState('');
   const [reviewDraft, setReviewDraft] = useState({ rating: 5, comment: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitGuard = useMemo(() => createSubmissionGuard(), []);
-  const openMeta = isOpenNow();
-
+  const openMeta = isOpenNow(profile.business);
   const isOwner = user?.role === 'seller' && String(profile?.business?.ownerId) === String(user._id || user.id);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -76,22 +103,22 @@ export default function BusinessProfilePage({
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading(),
       });
-      
+
       const fd = new FormData();
       const uploadedUrls = await uploadFilesToCloudinary([file]);
       if (uploadedUrls && uploadedUrls[0]) {
         fd.append(type === 'cover' ? 'coverUrl' : 'logoUrl', uploadedUrls[0]);
       }
       fd.append(type === 'cover' ? 'cover' : 'logo', file);
-      
+
       const response = await api.put(`/api/businesses/${profile.business._id}`, fd, {
         headers: createIdempotencyHeader(`update-biz-${type}`),
       });
 
       if (response.data?.business) {
-        setProfile((prev) => ({ ...prev, business: response.data.business }));
+        setProfile((prev) => ({ ...prev, business: { ...prev.business, ...response.data.business } }));
       }
-      
+
       Swal.fire({ icon: 'success', title: 'Updated!', timer: 1200, showConfirmButton: false });
     } catch (error) {
       console.error(error);
@@ -105,27 +132,38 @@ export default function BusinessProfilePage({
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (!id || id === CAFE_XYZ_ID) {
-        setUnavailable(false);
-        setProfile(normalizeProfile(CAFE_XYZ_ID, null));
+      if (!id) {
+        setUnavailable(true);
+        setLoadingProfile(false);
         return;
       }
+      setLoadingProfile(true);
       try {
         const { data } = await api.get(`/api/businesses/${id}`);
         if (!active) return;
         const business = data?.business || data;
         const isLive = business?.approvalStatus === 'approved'
           || business?.isVerified === true
-          || business?.verified === 'verified';
-        // Owners/admins can still view via API; public pending businesses are blocked server-side.
+          || business?.verified === 'verified'
+          || business?.verified === 'approved';
         if (!isLive && !(user?.role === 'admin' || String(business?.ownerId || '') === String(user?._id || user?.id || ''))) {
           setUnavailable(true);
+          setLoadingProfile(false);
+          return;
+        }
+        const next = normalizeProfile(id, data);
+        if (!next) {
+          setUnavailable(true);
+          setLoadingProfile(false);
           return;
         }
         setUnavailable(false);
-        setProfile(normalizeProfile(id, data));
+        setProfile(next);
+        if (isLive) trackView({ businessId: id });
       } catch {
         if (active) setUnavailable(true);
+      } finally {
+        if (active) setLoadingProfile(false);
       }
     };
     load();
@@ -218,26 +256,63 @@ export default function BusinessProfilePage({
     }
   };
 
-  const submitBooking = async (event) => {
-    event.preventDefault();
-    if (!requireUser() || !booking) return;
-    if (!submitGuard.begin()) return;
-    try {
-      if (!profile.fromDemo) {
-        await api.post('/api/bookings', {
-          businessId: profile.business._id,
-          serviceId: booking._id,
-          date: bookingForm.date,
-          timeSlot: bookingForm.slot,
-        }, { headers: { ...createIdempotencyHeader('booking-create') } });
-      }
-      Swal.fire({ icon: 'success', title: 'Booking requested', text: `${booking.name} on ${bookingForm.date} at ${bookingForm.slot}.` });
-      setBooking(null);
-    } catch {
-      Swal.fire({ icon: 'error', text: 'Could not complete booking.' });
-    } finally {
-      submitGuard.finish();
+  const startBusinessChat = async () => {
+    if (!requireUser()) return;
+    if (user?.role !== 'customer') {
+      Swal.fire({ icon: 'info', text: 'Only customers can chat with businesses from this page.' });
+      return;
     }
+    if (chatStarting) return;
+    setChatStarting(true);
+    try {
+      const businessId = profile.business._id || profile.business.id;
+      if (!businessId) {
+        Swal.fire({ icon: 'error', text: 'Business id missing. Please refresh the page.' });
+        return;
+      }
+      const { data } = await api.post('/api/conversations', { businessId: String(businessId) });
+      const conversationId = data?.conversation?._id;
+      if (!conversationId) {
+        Swal.fire({ icon: 'error', text: 'Chat opened but no conversation id was returned.' });
+        return;
+      }
+      if (onOpenMessages) {
+        onOpenMessages(conversationId);
+      } else {
+        navigate(`/customer/messages?c=${conversationId}`);
+      }
+    } catch (error) {
+      const message = error.response?.data?.message
+        || error.message
+        || 'Could not open chat.';
+      console.error('Chat open failed:', error.response?.status, error.response?.data || error);
+      Swal.fire({ icon: 'error', text: message });
+    } finally {
+      setChatStarting(false);
+    }
+  };
+
+  const reportBusiness = () => {
+    if (!requireUser()) return;
+    openReportDialog({ targetType: 'business', targetId: profile.business._id, targetLabel: profile.business.name });
+  };
+
+  const reportReview = (review) => {
+    if (!requireUser()) return;
+    openReportDialog({
+      targetType: 'review',
+      targetId: review._id,
+      targetLabel: `${review.userName}: "${review.comment}"`,
+    });
+  };
+
+  const handleBookingSuccess = ({ date, slot, service }) => {
+    Swal.fire({
+      icon: 'success',
+      title: 'Booking requested',
+      text: `${service.name} on ${date} at ${slot}.`,
+    });
+    setBooking(null);
   };
 
   const submitReview = async (event) => {
@@ -248,6 +323,7 @@ export default function BusinessProfilePage({
       return;
     }
     if (!submitGuard.begin()) return;
+    setIsSubmitting(true);
     try {
       const response = await api.post('/api/reviews', {
         businessId: profile.business._id,
@@ -261,9 +337,11 @@ export default function BusinessProfilePage({
         ...savedReview,
         userName: savedReview?.userName || savedReview?.customerName || user?.name || user?.fullName || 'You',
         rating: Number(savedReview?.rating ?? reviewDraft.rating),
+        category: savedReview?.category || 'Food',
         comment: savedReview?.comment || reviewDraft.comment.trim(),
         createdAt: savedReview?.createdAt || new Date().toISOString(),
-        imageUrl: savedReview?.imageUrl || profile.business.imageUrl,
+        imageUrl: savedReview?.imageUrl || '',
+        photos: savedReview?.photos || [],
       };
       setProfile((current) => ({
         ...current,
@@ -293,6 +371,23 @@ export default function BusinessProfilePage({
     onOpenChat?.();
   };
 
+  const viewOffer = () => {
+    Swal.fire({
+      icon: 'info',
+      title: profile.business.specialOffer?.title || 'Special Offer',
+      text: profile.business.specialOffer?.subtitle || 'Ask the business about this offer when you visit.',
+      confirmButtonColor: '#f2b71d',
+    });
+  };
+
+  if (loadingProfile) {
+    return (
+      <div className="bp-page" style={{ padding: '48px 20px', textAlign: 'center' }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#102341' }}>Loading business…</h2>
+      </div>
+    );
+  }
+
   if (unavailable) {
     return (
       <div className="bp-page" style={{ padding: '48px 20px', textAlign: 'center' }}>
@@ -315,196 +410,302 @@ export default function BusinessProfilePage({
     );
   }
 
+  const categoryLine = [business.category, business.subcategory].filter(Boolean).join(' • ');
+  const reviewTotal = business.reviewCount || profile.reviews.length;
+
   return (
     <div className="bp-page">
-      <section className="bp-hero" style={{ position: 'relative' }}>
-        <img className="bp-hero-img" src={business.coverUrl} alt={`${business.name} cover`} />
-        <div className="bp-hero-overlay" />
-        {isOwner && (
-          <label style={{
-            position: 'absolute', top: 16, right: 16, zIndex: 10,
-            background: 'rgba(0,0,0,0.6)', color: 'white', padding: '8px 16px',
-            borderRadius: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13,
-            transition: 'background 0.2s', 
-          }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.8)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.6)'}>
-            <Camera size={16} /> Edit Cover
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(e, 'cover')} disabled={isUploading} />
-          </label>
-        )}
-        <div className="bp-hero-inner">
-          <div className="bp-logo-card" style={{ position: 'relative', padding: business.imageUrl ? 0 : undefined, overflow: 'hidden' }}>
+      <section className="bp-hero">
+        <div className="bp-cover" style={{ position: 'relative' }}>
+          {business.coverUrl ? (
+            <img className="bp-cover-img" src={business.coverUrl} alt={`${business.name} cover`} />
+          ) : (
+            <div className="bp-cover-fallback" />
+          )}
+          {isOwner && (
+            <label className="bp-edit-cover">
+              <Camera size={16} /> Edit Cover
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(e, 'cover')} disabled={isUploading} />
+            </label>
+          )}
+        </div>
+
+        <div className="bp-identity">
+          <div className="bp-logo" style={{ position: 'relative' }}>
             {business.imageUrl ? (
-              <img src={business.imageUrl} alt={business.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={business.imageUrl} alt={business.name} />
             ) : (
-              <>
-                <Coffee size={36} color="#f2b71d" />
-                <span>{business.name.split(' ')[0]}</span>
-              </>
+              <span className="bp-logo-fallback">{String(business.name || 'B').charAt(0)}</span>
             )}
             {isOwner && (
-              <label style={{
-                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', 
-                display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                opacity: 0, transition: 'opacity 0.2s', cursor: 'pointer'
-              }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0}>
-                <Camera size={24} color="white" />
+              <label className="bp-edit-logo">
+                <Camera size={20} color="white" />
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(e, 'logo')} disabled={isUploading} />
               </label>
             )}
           </div>
-          <div className="bp-hero-copy">
-            <h1>
-              {business.name}
-              {business.verified ? <BadgeCheck size={22} color="#60a5fa" fill="#2563eb" /> : null}
-            </h1>
-            <div className="bp-meta">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Star size={14} fill="#f2b71d" stroke="#f2b71d" /> {Number(business.rating).toFixed(1)} ({business.reviewCount || profile.reviews.length} Reviews)
-              </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <UtensilsCrossed size={14} /> {business.category}
-              </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <MapPin size={14} /> {business.location}
-              </span>
+
+          <div className="bp-identity-main">
+            <div className="bp-title-row">
+              <h1>{business.name}</h1>
+              {business.verified ? <BadgeCheck size={22} color="#60a5fa" fill="#2563eb" aria-label="Verified" /> : null}
             </div>
-            <div className="bp-status">
-              <span className={`bp-pill ${openMeta.open ? '' : 'closed'}`}>{openMeta.label}</span>
-              <span>{openMeta.until}</span>
+            <p className="bp-category-line">{categoryLine}</p>
+            <div className="bp-meta-row">
+              <span className="bp-rating-inline">
+                <Star size={14} fill="#f2b71d" stroke="#f2b71d" />
+                {Number(business.rating || 0).toFixed(1)} ({reviewTotal} reviews)
+              </span>
+              {business.verified ? (
+                <span className="bp-verified-tag">
+                  <ShieldCheck size={13} /> Verified Business
+                </span>
+              ) : null}
+            </div>
+            <div className="bp-highlights">
+              {(business.highlights || []).map((item) => {
+                const Icon = HIGHLIGHT_ICONS[item.icon] || Sparkles;
+                return (
+                  <span key={item.id || item.label} className="bp-highlight">
+                    <Icon size={14} /> {item.label}
+                  </span>
+                );
+              })}
             </div>
           </div>
-          <div className="bp-hero-actions">
-            <button type="button" className={`bp-ghost ${saved ? 'saved' : ''}`} onClick={toggleSave}>
-              <Heart size={16} fill={saved ? '#e11d48' : 'none'} /> {saved ? 'Saved' : 'Save'}
-            </button>
-            <button type="button" className="bp-ghost" onClick={shareBusiness}>
-              <Share2 size={16} /> Share
-            </button>
+
+          <div className="bp-identity-aside">
+            {business.distanceLabel ? (
+              <div className="bp-distance">
+                <MapPin size={14} /> {business.distanceLabel}
+              </div>
+            ) : business.location ? (
+              <div className="bp-distance">
+                <MapPin size={14} /> {business.location}
+              </div>
+            ) : null}
+            <div className="bp-status-row">
+              <span className={`bp-pill ${openMeta.open ? '' : 'closed'}`}>{openMeta.label}</span>
+              <span className="bp-hours-inline">{openMeta.until}</span>
+            </div>
+            <div className="bp-hero-actions">
+              <button type="button" className={`bp-btn bp-btn-gold ${saved ? 'bp-followed' : ''}`} onClick={toggleSave}>
+                <Heart size={16} fill={saved ? '#e11d48' : 'none'} color={saved ? '#e11d48' : '#0b1a30'} />
+                {saved ? 'Saved' : 'Save'}
+              </button>
+              <button type="button" className="bp-btn bp-btn-navy" onClick={startBusinessChat} disabled={chatStarting}>
+                <MessageCircle size={16} />
+                {chatStarting ? 'Opening…' : 'Chat with Business'}
+              </button>
+              <button type="button" className="bp-btn bp-btn-outline" onClick={shareBusiness}>
+                <Share2 size={16} /> Share
+              </button>
+            </div>
+            {!isOwner && user?.role !== 'admin' ? (
+              <button type="button" className="bp-report-link" onClick={reportBusiness}>
+                <Flag size={13} /> Report this business
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
 
-      <div className="bp-layout" style={{ marginTop: 16 }}>
-        <div>
-          <div className="bp-panel">
-            <div className="bp-tabs">
-              {TABS.map((item) => (
-                <button key={item.id} type="button" className={tab === item.id ? 'active' : ''} onClick={() => changeTab(item.id)}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
+      <div className="bp-tabs-wrap">
+        <div className="bp-tabs">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={tab === item.id ? 'active' : ''}
+              onClick={() => changeTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {tab === 'overview' && (
-              <div className="bp-section">
+      <div className={`bp-layout ${tab === 'overview' ? '' : 'bp-layout-single'}`}>
+        <div className="bp-main">
+          {tab === 'overview' && (
+            <>
+              <section className="bp-card">
+                <h2>About This Business</h2>
+                <p className="bp-about-text">{business.description}</p>
+                {(business.tags || []).length > 0 ? (
+                  <div className="bp-tags">
+                    {business.tags.map((tag) => (
+                      <span key={tag} className="bp-tag">{tag}</span>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="bp-card">
                 <div className="bp-section-head">
-                  <h2>Popular Products</h2>
+                  <h2>Featured Products</h2>
                   <button type="button" className="bp-link" onClick={() => changeTab('products')}>View All</button>
                 </div>
-                <div className="bp-products">
-                  {popularProducts.length > 0 ? (
-                    popularProducts.map((item) => (
-                      <ProductCard key={item._id} product={item} onOpen={setProduct} onAdd={addToCart} onBuy={buyNow} />
-                    ))
-                  ) : (
-                    <div className="bp-empty">No products available for this business yet.</div>
-                  )}
-                </div>
-                <div className="bp-section-head" style={{ marginTop: 18 }}>
-                  <h2>Services</h2>
-                  <button type="button" className="bp-link" onClick={() => changeTab('services')}>View All</button>
-                </div>
-                <div className="bp-review-list">
-                  {profile.services.slice(0, 1).map((service) => (
-                    <ServiceRow key={service._id} service={service} onBook={setBooking} />
-                  ))}
-                </div>
-                <div className="bp-section-head" style={{ marginTop: 18 }}>
+                {popularProducts.length > 0 ? (
+                  <div className="bp-products">
+                    {popularProducts.map((item) => (
+                      <ProductCard
+                        key={item._id}
+                        product={item}
+                        onOpen={setProduct}
+                        onAdd={addToCart}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bp-empty">No products available for this business yet.</div>
+                )}
+              </section>
+
+              <section className="bp-card">
+                <div className="bp-section-head">
                   <h2>Customer Reviews</h2>
                   <button type="button" className="bp-link" onClick={() => changeTab('reviews')}>View All</button>
                 </div>
                 <ReviewsPanel
                   rating={business.rating}
-                  count={business.reviewCount || profile.reviews.length}
-                  distribution={profile.distribution}
+                  count={reviewTotal}
                   reviews={profile.reviews}
+                  filters={profile.reviewFilters}
                   preview
                   draft={reviewDraft}
                   setDraft={setReviewDraft}
                   onSubmit={submitReview}
                   isSubmitting={isSubmitting}
+                  onReport={user?.role === 'admin' ? undefined : reportReview}
+                  currentUserId={user?._id || user?.id || ''}
                 />
-              </div>
-            )}
+              </section>
+            </>
+          )}
 
-            {tab === 'products' && (
-              <div className="bp-section">
-                <div className="bp-section-head"><h2>Products</h2></div>
-                <div className="bp-toolbar">
-                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products..." />
-                  <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                    {categories.map((item) => (
-                      <option key={item} value={item}>{item === 'all' ? 'All categories' : item}</option>
-                    ))}
-                  </select>
-                  <select value={sort} onChange={(event) => setSort(event.target.value)}>
-                    <option value="featured">Featured</option>
-                    <option value="rating">Top rated</option>
-                    <option value="price-low">Price: low to high</option>
-                    <option value="price-high">Price: high to low</option>
-                  </select>
-                </div>
-                {products.length ? (
-                  <div className="bp-products">
-                    {products.map((item) => (
-                      <ProductCard key={item._id} product={item} onOpen={setProduct} onAdd={addToCart} onBuy={buyNow} />
-                    ))}
-                  </div>
-                ) : <div className="bp-empty">No products match your search.</div>}
+          {tab === 'products' && (
+            <section className="bp-card">
+              <div className="bp-section-head"><h2>Products</h2></div>
+              <div className="bp-toolbar">
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products..." />
+                <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                  {categories.map((item) => (
+                    <option key={item} value={item}>{item === 'all' ? 'All categories' : item}</option>
+                  ))}
+                </select>
+                <select value={sort} onChange={(event) => setSort(event.target.value)}>
+                  <option value="featured">Featured</option>
+                  <option value="rating">Top rated</option>
+                  <option value="price-low">Price: low to high</option>
+                  <option value="price-high">Price: high to low</option>
+                </select>
               </div>
-            )}
-
-            {tab === 'services' && (
-              <div className="bp-section">
-                <div className="bp-section-head"><h2>Services</h2></div>
-                <div className="bp-review-list">
-                  {profile.services.map((service) => (
-                    <ServiceRow key={service._id} service={service} onBook={setBooking} />
+              {products.length ? (
+                <div className="bp-products bp-products-full">
+                  {products.map((item) => (
+                    <ProductCard
+                      key={item._id}
+                      product={item}
+                      onOpen={setProduct}
+                      onAdd={addToCart}
+                    />
                   ))}
                 </div>
-              </div>
-            )}
+              ) : <div className="bp-empty">No products match your search.</div>}
+            </section>
+          )}
 
-            {tab === 'reviews' && (
-              <div className="bp-section">
-                <div className="bp-section-head"><h2>Reviews</h2></div>
-                <ReviewsPanel
-                  rating={business.rating}
-                  count={business.reviewCount || profile.reviews.length}
-                  distribution={profile.distribution}
-                  reviews={profile.reviews}
-                  draft={reviewDraft}
-                  setDraft={setReviewDraft}
-                  onSubmit={submitReview}
-                />
+          {tab === 'services' && (
+            <section className="bp-card">
+              <div className="bp-section-head"><h2>Services</h2></div>
+              <div className="bp-service-list">
+                {profile.services.length ? profile.services.map((service) => (
+                  <ServiceRow key={service._id} service={service} onBook={setBooking} />
+                )) : <div className="bp-empty">No services listed yet.</div>}
               </div>
-            )}
+            </section>
+          )}
 
-            {tab === 'about' && (
-              <div className="bp-section bp-about">
-                <h2>{business.name}</h2>
-                <p>{business.description}</p>
-                <p>
-                  Visit us in {business.location}. We are {openMeta.open ? 'open now' : 'currently closed'} and typically close at {business.closesAt}.
-                  Call <a href={`tel:${business.phone}`}>{business.phone}</a> or email <a href={`mailto:${business.contactEmail}`}>{business.contactEmail}</a>.
-                </p>
-                <a className="bp-btn bp-btn-gold" href={mapsDirectionsUrl(business.latitude, business.longitude)} target="_blank" rel="noreferrer">Get Directions</a>
-              </div>
-            )}
-          </div>
+          {tab === 'reviews' && (
+            <section className="bp-card">
+              <div className="bp-section-head"><h2>Reviews</h2></div>
+              <ReviewsPanel
+                rating={business.rating}
+                count={reviewTotal}
+                reviews={profile.reviews}
+                filters={profile.reviewFilters}
+                draft={reviewDraft}
+                setDraft={setReviewDraft}
+                onSubmit={submitReview}
+                isSubmitting={isSubmitting}
+                onReport={user?.role === 'admin' ? undefined : reportReview}
+                currentUserId={user?._id || user?.id || ''}
+              />
+            </section>
+          )}
+
+          {tab === 'location' && (
+            <section className="bp-card">
+              <div className="bp-section-head"><h2>Location</h2></div>
+              <p className="bp-about-text">{business.location || 'Location details coming soon.'}</p>
+              {Number.isFinite(business.latitude) && Number.isFinite(business.longitude) ? (
+                <>
+                  <div className="bp-map bp-map-large">
+                    <iframe
+                      title={`${business.name} map`}
+                      src={mapsEmbedUrl(business.latitude, business.longitude)}
+                      loading="lazy"
+                    />
+                  </div>
+                  <a
+                    className="bp-btn bp-btn-navy"
+                    href={mapsDirectionsUrl(business.latitude, business.longitude)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ marginTop: 12, width: 'fit-content' }}
+                  >
+                    Get Directions
+                  </a>
+                </>
+              ) : null}
+            </section>
+          )}
+
+          {tab === 'about' && (
+            <section className="bp-card bp-about">
+              <h2>{business.name}</h2>
+              <p>{business.description}</p>
+              <p>
+                Visit us in {business.location}. We are {openMeta.open ? 'open now' : 'currently closed'}
+                {openMeta.until ? ` (${openMeta.until})` : ''}.
+                {business.phone ? <> Call <a href={`tel:${business.phone}`}>{business.phone}</a></> : null}
+                {business.contactEmail ? <> or email <a href={`mailto:${business.contactEmail}`}>{business.contactEmail}</a></> : null}.
+              </p>
+              {(business.tags || []).length > 0 ? (
+                <div className="bp-tags">
+                  {business.tags.map((tag) => (
+                    <span key={tag} className="bp-tag">{tag}</span>
+                  ))}
+                </div>
+              ) : null}
+              {Number.isFinite(business.latitude) && Number.isFinite(business.longitude) ? (
+                <a className="bp-btn bp-btn-gold" href={mapsDirectionsUrl(business.latitude, business.longitude)} target="_blank" rel="noreferrer" style={{ marginTop: 12, width: 'fit-content' }}>
+                  Get Directions
+                </a>
+              ) : null}
+            </section>
+          )}
         </div>
 
-        <InfoSidebar business={business} openMeta={openMeta} onContact={() => setContactOpen(true)} />
+        {tab === 'overview' ? (
+          <InfoSidebar
+            business={business}
+            services={profile.services}
+            onBook={setBooking}
+            onViewOffer={viewOffer}
+          />
+        ) : null}
       </div>
 
       {product && (
@@ -525,20 +726,15 @@ export default function BusinessProfilePage({
 
       {booking && (
         <Modal title={`Book ${booking.name}`} onClose={() => setBooking(null)}>
-          <p style={{ color: '#6b7280', fontSize: 13 }}>{booking.description}</p>
-          <p><strong>{formatRs(booking.price)}</strong> · {booking.duration}</p>
-          <form onSubmit={submitBooking}>
-            <div className="bp-write">
-              <input type="date" required value={bookingForm.date} onChange={(event) => setBookingForm((current) => ({ ...current, date: event.target.value }))} />
-              <select value={bookingForm.slot} onChange={(event) => setBookingForm((current) => ({ ...current, slot: event.target.value }))}>
-                {['10:00 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM'].map((slot) => <option key={slot}>{slot}</option>)}
-              </select>
-            </div>
-            <div className="bp-modal-actions">
-              <button type="button" className="bp-btn bp-btn-outline" onClick={() => setBooking(null)}>Cancel</button>
-              <button type="submit" className="bp-btn bp-btn-gold">Confirm Booking</button>
-            </div>
-          </form>
+          <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 12 }}>{booking.description}</p>
+          <ServiceBookingForm
+            businessId={profile.business._id}
+            service={booking}
+            user={user}
+            variant="light"
+            onCancel={() => setBooking(null)}
+            onSuccess={handleBookingSuccess}
+          />
         </Modal>
       )}
 

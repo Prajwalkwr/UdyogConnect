@@ -7,12 +7,13 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^9[\d\s\-()]{8,18}$/;
 const URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const MEDIA_URL_PATTERN = /^(https?:\/\/\S+|data:[a-z0-9.+\/-]+;base64,[a-z0-9+/=\s]+)$/i;
+const MEDIA_URL_PATTERN = /^(https?:\/\/\S+|data:[a-z0-9.+\/-]+;base64,[a-z0-9+/=\s]+|\/uploads\/[A-Za-z0-9._-]+)$/i;
 
 const optionalUrlValidator = {
   validator(value) {
     if (value === undefined || value === null || value === '') return true;
-    return MEDIA_URL_PATTERN.test(String(value)) || URL_PATTERN.test(String(value));
+    const str = String(value);
+    return MEDIA_URL_PATTERN.test(str) || URL_PATTERN.test(str) || str.startsWith('/uploads/');
   },
   message: 'Invalid URL',
 };
@@ -157,12 +158,55 @@ const DEMO_USERS = [
   },
 ];
 
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const INLINE_IMAGE_PATTERN = /^data:image\/([a-z0-9.+-]+);base64,/i;
+const INLINE_IMAGE_MIN_LENGTH = 2048;
+// Chat media stays inline so it remains behind conversation access checks instead of public /uploads.
+const KEEP_INLINE_MEDIA_MODELS = new Set(['Chat', 'Conversation', 'Message', 'SupportTicket']);
+
+function saveInlineImage(dataUrl) {
+  const match = dataUrl.match(INLINE_IMAGE_PATTERN);
+  const subtype = match[1].toLowerCase();
+  const ext = subtype === 'jpeg' ? 'jpg' : subtype === 'svg+xml' ? 'svg' : subtype.replace(/[^a-z0-9]/g, '') || 'img';
+  const buffer = Buffer.from(dataUrl.slice(match[0].length), 'base64');
+  const hash = require('crypto').createHash('sha1').update(buffer).digest('hex').slice(0, 20);
+  const filename = `inline-${hash}.${ext}`;
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    fs.writeFileSync(filePath, buffer);
+  }
+  return `/uploads/${filename}`;
+}
+
+/** Replaces large base64 images with /uploads files in place; returns true if anything changed. */
+function externalizeInlineImages(node) {
+  let changed = false;
+  const entries = Array.isArray(node) ? node.entries() : Object.entries(node);
+  for (const [key, value] of entries) {
+    if (typeof value === 'string') {
+      if (value.length >= INLINE_IMAGE_MIN_LENGTH && INLINE_IMAGE_PATTERN.test(value)) {
+        try {
+          node[key] = saveInlineImage(value);
+          changed = true;
+        } catch (e) {
+          console.warn('Could not move inline image to uploads:', e.message);
+        }
+      }
+    } else if (value && typeof value === 'object') {
+      changed = externalizeInlineImages(value) || changed;
+    }
+  }
+  return changed;
+}
+
 // Mock database model wrapper mimicking Mongoose methods
 class MockModel {
   constructor(name, defaultData = []) {
     this.name = name;
     this.filePath = path.join(__dirname, '.data', `${name}.json`);
     this.defaultData = defaultData;
+    this.externalizeMedia = !KEEP_INLINE_MEDIA_MODELS.has(name);
 
     // ensure dir exists
     const dir = path.dirname(this.filePath);
@@ -172,6 +216,22 @@ class MockModel {
     // ensure file exists
     if (!fs.existsSync(this.filePath)) {
       fs.writeFileSync(this.filePath, JSON.stringify(defaultData, null, 2));
+    }
+    this._migrateInlineImages();
+  }
+
+  _migrateInlineImages() {
+    if (!this.externalizeMedia) return;
+    try {
+      const content = fs.readFileSync(this.filePath, 'utf8');
+      if (!content.includes(';base64,')) return;
+      const data = JSON.parse(content);
+      if (externalizeInlineImages(data)) {
+        fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
+        console.log(`[db] Moved inline images in ${this.name}.json to /uploads`);
+      }
+    } catch (e) {
+      console.warn(`Inline image migration skipped for ${this.name}:`, e.message);
     }
   }
 
@@ -186,6 +246,7 @@ class MockModel {
 
   _write(data) {
     try {
+      if (this.externalizeMedia) externalizeInlineImages(data);
       fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
     } catch (e) {
       console.error(`Failed to write database file: ${this.name}`, e);
@@ -196,7 +257,7 @@ class MockModel {
     let data = this._read();
     return data.filter((item) => {
       for (let key in query) {
-        if (query[key] !== undefined && item[key] !== query[key]) {
+        if (query[key] !== undefined && String(item[key]) !== String(query[key])) {
           return false;
         }
       }
@@ -208,7 +269,7 @@ class MockModel {
     let data = this._read();
     return data.find((item) => {
       for (let key in query) {
-        if (query[key] !== undefined && item[key] !== query[key]) {
+        if (query[key] !== undefined && String(item[key]) !== String(query[key])) {
           return false;
         }
       }
@@ -235,11 +296,17 @@ class MockModel {
 
   async findByIdAndUpdate(id, update, options = {}) {
     let data = this._read();
-    let index = data.findIndex((item) => item._id === id);
+    const idStr = String(id);
+    let index = data.findIndex((item) => String(item._id) === idStr);
     if (index === -1) return null;
+    // Support mongoose-style $set updates as well as plain objects
+    const patch = update && typeof update === 'object' && update.$set && typeof update.$set === 'object'
+      ? update.$set
+      : (update || {});
     const updated = {
       ...data[index],
-      ...update,
+      ...patch,
+      _id: data[index]._id,
       updatedAt: new Date().toISOString(),
     };
     data[index] = updated;
@@ -296,10 +363,102 @@ class MockModel {
     const results = await this.find(query);
     return results.length;
   }
+
+  /**
+   * Conditional update used for idempotency claims. Read-modify-write is fully synchronous,
+   * so it cannot interleave with other requests in this process.
+   * Supports equality, $exists, $ne, $in, $lt, $or filters and $set/$inc/$unset updates.
+   */
+  async findOneAndUpdate(filter = {}, update = {}, options = {}) {
+    const data = this._read();
+    let index = data.findIndex((item) => matchesMockFilter(item, filter));
+    if (index === -1 && !options.upsert) return null;
+
+    const now = new Date().toISOString();
+    let doc;
+    if (index === -1) {
+      doc = { _id: filter._id !== undefined ? filter._id : Math.random().toString(36).substr(2, 9), createdAt: now };
+      for (const [key, value] of Object.entries(filter)) {
+        if (!key.startsWith('$') && (value === null || typeof value !== 'object')) doc[key] = value;
+      }
+      data.unshift(doc);
+      index = 0;
+    } else {
+      doc = data[index];
+    }
+    const before = { ...doc };
+
+    const hasOperators = Object.keys(update).some((key) => key.startsWith('$'));
+    const toStorable = (value) => (value instanceof Date ? value.toISOString() : value);
+    const set = hasOperators ? (update.$set || {}) : update;
+    for (const [key, value] of Object.entries(set)) doc[key] = toStorable(value);
+    for (const [key, value] of Object.entries(update.$inc || {})) doc[key] = (Number(doc[key]) || 0) + Number(value);
+    for (const key of Object.keys(update.$unset || {})) delete doc[key];
+    doc.updatedAt = now;
+
+    data[index] = doc;
+    this._write(data);
+    return options.new || options.returnDocument === 'after' ? doc : before;
+  }
+}
+
+function mockValuesEqual(actual, expected) {
+  if (expected === null) return actual === null || actual === undefined;
+  return String(actual) === String(expected);
+}
+
+function toComparable(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) return new Date(value).getTime();
+  return value;
+}
+
+function matchesMockFilter(item, filter) {
+  return Object.entries(filter).every(([key, condition]) => {
+    if (key === '$or') return condition.some((sub) => matchesMockFilter(item, sub));
+    const actual = item[key];
+    if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
+      if ('$exists' in condition) {
+        const exists = actual !== undefined;
+        if (exists !== Boolean(condition.$exists)) return false;
+      }
+      if ('$ne' in condition && mockValuesEqual(actual, condition.$ne)) return false;
+      if ('$in' in condition && !condition.$in.some((value) => mockValuesEqual(actual, value))) return false;
+      if ('$lt' in condition) {
+        if (actual === undefined || actual === null) return false;
+        if (!(toComparable(actual) < toComparable(condition.$lt))) return false;
+      }
+      return true;
+    }
+    return mockValuesEqual(actual, condition instanceof Date ? condition.toISOString() : condition);
+  });
 }
 
 // Default Seed Data
 const defaultBusinesses = [
+  {
+    _id: 'cafe-xyz',
+    ownerId: 's1',
+    name: 'The Himalayan Café',
+    category: 'Food & Beverages',
+    subcategory: 'Cafe & Restaurant',
+    location: 'Thamel, Kathmandu',
+    price: '200',
+    description: 'Cozy café serving specialty coffee, snacks, and comforting meals made with locally sourced ingredients.',
+    contactEmail: 'hello@himalayancafe.com',
+    phone: '9812345678',
+    website: 'https://www.himalayancafe.com',
+    hours: '07:00-22:00',
+    openingDays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+    imageUrl: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=400&q=80',
+    coverUrl: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=1600&q=80',
+    latitude: 27.7152,
+    longitude: 85.3126,
+    verified: 'verified',
+    approvalStatus: 'approved',
+    rating: 4.7,
+    reviewCount: 162,
+  },
   {
     _id: 'b1',
     ownerId: 's1',
@@ -447,7 +606,7 @@ const defaultProducts = [
     stock: 20,
     sku: 'BHOJ-RICE-01',
     brand: 'Homegrown',
-    images: [],
+    images: ['https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=800&q=80'],
     availability: true,
   },
   {
@@ -462,7 +621,7 @@ const defaultProducts = [
     stock: 5,
     sku: 'SUNAR-BASKET-02',
     brand: 'Sunar Crafts',
-    images: [],
+    images: ['https://images.unsplash.com/photo-1594737625785-c668dffdad9c?auto=format&fit=crop&w=800&q=80'],
     availability: true,
   },
   {
@@ -477,20 +636,26 @@ const defaultProducts = [
     stock: 6,
     sku: 'LHE-DINING-03',
     brand: 'Lalitpur Wood',
-    images: [],
+    images: ['https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=800&q=80'],
     availability: true,
   },
   {
     _id: 'p4', businessId: 'b4', name: 'Himalayan Turmeric Powder', category: 'Grocery', subcategory: 'Spices',
-    description: 'Stone-ground turmeric sourced from Nepali hill farms.', price: 220, discount: 0, stock: 40, sku: 'HSC-TURMERIC-04', brand: 'Himalayan Spice Corner', images: [], availability: true,
+    description: 'Stone-ground turmeric sourced from Nepali hill farms.', price: 220, discount: 0, stock: 40, sku: 'HSC-TURMERIC-04', brand: 'Himalayan Spice Corner',
+    images: ['https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=800&q=80'],
+    availability: true,
   },
   {
     _id: 'p5', businessId: 'b5', name: 'Lokta Paper Journal', category: 'Gift Shop', subcategory: 'Stationery',
-    description: 'Handmade lokta paper journal crafted by Nepali artisans.', price: 450, discount: 5, stock: 25, sku: 'PLT-JOURNAL-05', brand: 'Pokhara Lakeside Treasures', images: [], availability: true,
+    description: 'Handmade lokta paper journal crafted by Nepali artisans.', price: 450, discount: 5, stock: 25, sku: 'PLT-JOURNAL-05', brand: 'Pokhara Lakeside Treasures',
+    images: ['https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80'],
+    availability: true,
   },
   {
     _id: 'p6', businessId: 'b6', name: 'Home Electrical Safety Check', category: 'Home Services', subcategory: 'Electrical',
-    description: 'A professional inspection of household wiring and electrical fittings.', price: 1500, discount: 0, stock: 20, sku: 'BHR-SAFETY-06', brand: 'Bagmati Home Repair', images: [], availability: true,
+    description: 'A professional inspection of household wiring and electrical fittings.', price: 1500, discount: 0, stock: 20, sku: 'BHR-SAFETY-06', brand: 'Bagmati Home Repair',
+    images: ['https://images.unsplash.com/photo-1621905251189-08b45d6a809e?auto=format&fit=crop&w=800&q=80'],
+    availability: true,
   },
 ];
 
@@ -554,11 +719,29 @@ const seedDemoUsers = async () => {
 
 const seedDemoBusinesses = async () => {
   if (!db.Business || !shouldSeedDemoData()) return;
+
+  const ownerIdMap = {};
+  const seller = await db.User.findOne({ email: 'seller@udyog.np' });
+  if (seller) ownerIdMap.s1 = String(seller._id);
+  for (const userData of DEMO_USERS) {
+    if (userData.role !== 'seller' || !userData.demoId) continue;
+    const found = await db.User.findOne({ email: userData.email });
+    if (found) ownerIdMap[userData.demoId] = String(found._id);
+  }
+
   for (const businessData of defaultBusinesses) {
     const existing = await db.Business.findOne({ name: businessData.name });
     if (!existing) {
-      const seedData = isMongo ? (({ _id, ...data }) => data)(businessData) : businessData;
-      await db.Business.create({ ...seedData });
+      const mappedOwner = ownerIdMap[businessData.ownerId] || businessData.ownerId;
+      const seedData = isMongo
+        ? (({ _id, ...data }) => ({ ...data, ownerId: mappedOwner }))(businessData)
+        : { ...businessData, ownerId: mappedOwner };
+      await db.Business.create(seedData);
+    } else if (ownerIdMap[existing.ownerId] || (businessData.ownerId && ownerIdMap[businessData.ownerId] && String(existing.ownerId) !== ownerIdMap[businessData.ownerId])) {
+      const nextOwner = ownerIdMap[existing.ownerId] || ownerIdMap[businessData.ownerId];
+      if (nextOwner && String(existing.ownerId) !== String(nextOwner)) {
+        await db.Business.findByIdAndUpdate(existing._id, { ownerId: nextOwner });
+      }
     }
   }
 };
@@ -569,7 +752,12 @@ const seedDemoCatalog = async () => {
     const business = isMongo ? null : await db.Business.findOne({ _id: productData.businessId });
     const seedData = { ...productData, businessId: business?._id || productData.businessId };
     const existing = await db.Product.findOne({ sku: productData.sku });
-    if (!existing) await db.Product.create(isMongo ? (({ _id, ...data }) => data)(seedData) : seedData);
+    if (!existing) {
+      await db.Product.create(isMongo ? (({ _id, ...data }) => data)(seedData) : seedData);
+    } else if (Array.isArray(productData.images) && productData.images.length
+      && (!Array.isArray(existing.images) || existing.images.length === 0)) {
+      await db.Product.findByIdAndUpdate(existing._id, { images: productData.images });
+    }
   }
   for (const serviceData of defaultServices) {
     const business = isMongo ? null : await db.Business.findOne({ _id: serviceData.businessId });
@@ -603,6 +791,7 @@ const initMongooseModels = async () => {
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockUntil: { type: Date, default: null },
     resetOtp: { type: String, default: '' },
+    lastSeen: { type: Date, default: null },
   }, { timestamps: true });
 
   const businessSchema = new mongoose.Schema({
@@ -617,6 +806,17 @@ const initMongooseModels = async () => {
     phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
     website: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     hours: { type: String, default: '09:00 - 18:00', trim: true },
+    openingDays: {
+      type: [String],
+      default: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+    },
+    holidays: { type: Array, default: [] },
+    blockedDates: { type: Array, default: [] },
+    openingTime: { type: String, default: '', trim: true },
+    closingTime: { type: String, default: '', trim: true },
+    minBookingNoticeMinutes: { type: Number, default: 30, min: 0 },
+    maxAdvanceBookingDays: { type: Number, default: 60, min: 1 },
+    bookingSlotIntervalMinutes: { type: Number, default: 30, min: 5 },
     imageUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     coverUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     qrUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
@@ -645,6 +845,16 @@ const initMongooseModels = async () => {
     manualOpenOverride: { type: Boolean, default: null },
     deliveryAvailable: { type: Boolean, default: true },
     deliveryRadiusKm: { type: Number, default: 5, min: 0 },
+    // The eSewa secret key is kept in PaymentCredential, never on the business document.
+    paymentSettings: {
+      provider: { type: String, enum: ['eSewa'], default: 'eSewa' },
+      merchantCode: { type: String, default: '', trim: true },
+      environment: { type: String, enum: ['sandbox', 'live'], default: 'sandbox' },
+      successUrl: { type: String, default: '', trim: true },
+      failureUrl: { type: String, default: '', trim: true },
+      isConnected: { type: Boolean, default: false },
+      connectedAt: { type: Date, default: null },
+    },
   }, { timestamps: true });
 
   const productSchema = new mongoose.Schema({
@@ -669,9 +879,13 @@ const initMongooseModels = async () => {
     price: { type: Number, required: true, min: 0 },
     duration: { type: Number, default: 60, min: 0 },
     availability: { type: Boolean, default: true },
+    availableFrom: { type: String, default: '', trim: true },
+    availableTo: { type: String, default: '', trim: true },
     slots: { type: Array, default: [] },
     staff: { type: Array, default: [] },
     homeService: { type: Boolean, default: false },
+    imageUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
+    images: { type: Array, default: [] },
   }, { timestamps: true });
 
   const deliveryAddressSchema = new mongoose.Schema({
@@ -692,27 +906,103 @@ const initMongooseModels = async () => {
     tax: { type: Number, default: 0, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     total: { type: Number, required: true, min: 0 },
-    status: { type: String, enum: ['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled'], default: 'placed' },
-    paymentMethod: { type: String, enum: ['COD', 'Card', 'Wallet', 'QR'], required: true },
+    status: { type: String, enum: ['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled', 'rejected'], default: 'placed' },
+    paymentMethod: { type: String, enum: ['COD', 'Card', 'Wallet', 'QR', 'eSewa'], required: true },
     paymentStatus: { type: String, enum: ['pending', 'paid', 'refunded'], default: 'pending' },
     deliveryAddress: { type: deliveryAddressSchema, required: true },
     deliveryRiderId: { type: String, default: '' },
     deliveryOtp: { type: String, default: '' },
+    deliveryOtpAttempts: { type: Number, default: 0, min: 0 },
     deliveryProof: { type: String, default: '' },
+    rejectionReason: { type: String, default: '' },
+    esewaTransactionUuid: { type: String, trim: true },
+    dispatchedAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
     trackingHistory: { type: Array, default: [] },
+    checkoutKey: { type: String, trim: true },
+    paidAt: { type: Date, default: null },
+    paymentTransactionId: { type: String, default: '' },
+    stripeSessionId: { type: String, default: '' },
+    billNumber: { type: String, trim: true },
+    billGeneratedAt: { type: Date, default: null },
+    billPdfFilename: { type: String, default: null },
+    billEmailSent: { type: Boolean, default: false },
+    billEmailSentAt: { type: Date, default: null },
+    billEmailStatus: { type: String, enum: ['not_sent', 'sending', 'sent', 'failed'], default: 'not_sent' },
+    billEmailTo: { type: String, default: '' },
+    billEmailError: { type: String, default: '' },
+    billEmailAttempts: { type: Number, default: 0 },
+    billEmailLastAttemptAt: { type: Date, default: null },
+    billEmailLockedAt: { type: Date, default: null },
   }, { timestamps: true });
+  // Sparse so legacy orders without a bill (or checkout key) don't collide on null.
+  orderSchema.index({ billNumber: 1 }, { unique: true, sparse: true });
+  orderSchema.index({ customerId: 1, checkoutKey: 1 }, { unique: true, partialFilterExpression: { checkoutKey: { $type: 'string' } } });
+  orderSchema.index({ esewaTransactionUuid: 1 }, { unique: true, partialFilterExpression: { esewaTransactionUuid: { $type: 'string' } } });
+
+  const paymentCredentialSchema = new mongoose.Schema({
+    businessId: { type: String, required: true, trim: true, unique: true },
+    provider: { type: String, enum: ['eSewa'], default: 'eSewa' },
+    secretKeyEncrypted: { type: String, required: true },
+  }, { timestamps: true });
+
+  // One eSewa checkout attempt. The order is only created after eSewa confirms the payment.
+  const esewaPaymentSchema = new mongoose.Schema({
+    transactionUuid: { type: String, required: true, trim: true, unique: true },
+    customerId: { type: String, required: true, trim: true },
+    businessId: { type: String, required: true, trim: true },
+    merchantCode: { type: String, required: true, trim: true },
+    environment: { type: String, enum: ['sandbox', 'live'], default: 'sandbox' },
+    checkoutKey: { type: String, trim: true },
+    items: { type: Array, required: true },
+    subtotal: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
+    deliveryFee: { type: Number, default: 0, min: 0 },
+    tax: { type: Number, default: 0, min: 0 },
+    total: { type: Number, required: true, min: 0 },
+    deliveryAddress: { type: Object, required: true },
+    status: { type: String, enum: ['initiated', 'processing', 'completed', 'failed'], default: 'initiated' },
+    orderId: { type: String, default: '' },
+    transactionCode: { type: String, default: '' },
+    refId: { type: String, default: '' },
+    failureReason: { type: String, default: '' },
+    verifiedAt: { type: Date, default: null },
+    simulatedAt: { type: Date, default: null },
+  }, { timestamps: true });
+  esewaPaymentSchema.index({ customerId: 1, checkoutKey: 1 });
+
+  const counterSchema = new mongoose.Schema({
+    _id: { type: String, required: true },
+    seq: { type: Number, default: 0 },
+  });
 
   const bookingSchema = new mongoose.Schema({
     customerId: { type: String, required: true },
+    customerName: { type: String, default: '', trim: true },
+    customerEmail: { type: String, default: '', trim: true },
+    customerPhone: { type: String, default: '', trim: true },
     businessId: { type: String, required: true },
+    businessName: { type: String, default: '', trim: true },
     serviceId: { type: String, required: true },
+    serviceName: { type: String, default: '', trim: true },
+    servicePrice: { type: Number, default: 0, min: 0 },
     date: { type: String, required: true },
     timeSlot: { type: String, required: true },
+    durationMinutes: { type: Number, default: 60, min: 5 },
+    startAt: { type: Date, default: null },
+    endAt: { type: Date, default: null },
     staffMember: { type: String },
-    status: { type: String, enum: ['pending', 'confirmed', 'completed', 'cancelled'], default: 'pending' },
+    status: {
+      type: String,
+      enum: ['pending', 'confirmed', 'completed', 'cancelled', 'rejected'],
+      default: 'pending',
+    },
     homeService: { type: Boolean, default: false },
     reminderSent: { type: Boolean, default: false },
+    timezone: { type: String, default: 'Asia/Kathmandu' },
   }, { timestamps: true });
+  bookingSchema.index({ businessId: 1, date: 1, status: 1 });
+  bookingSchema.index({ businessId: 1, serviceId: 1, date: 1, timeSlot: 1 });
 
   const reviewSchema = new mongoose.Schema({
     customerId: { type: String, required: true, trim: true },
@@ -724,7 +1014,26 @@ const initMongooseModels = async () => {
     comment: { type: String, required: true, trim: true },
     images: { type: Array, default: [] },
     reported: { type: Boolean, default: false },
+    reportCount: { type: Number, default: 0, min: 0 },
   }, { timestamps: true });
+
+  const reportSchema = new mongoose.Schema({
+    targetType: { type: String, enum: ['review', 'business'], required: true },
+    targetId: { type: String, required: true, trim: true },
+    businessId: { type: String, default: '', trim: true },
+    reporterId: { type: String, required: true, trim: true },
+    reporterName: { type: String, default: '', trim: true },
+    reporterRole: { type: String, default: '', trim: true },
+    reason: { type: String, required: true, trim: true },
+    details: { type: String, default: '', trim: true, maxlength: 500 },
+    status: { type: String, enum: ['open', 'resolved', 'dismissed'], default: 'open' },
+    resolution: { type: String, default: '', trim: true },
+    resolvedBy: { type: String, default: '' },
+    resolvedAt: { type: Date, default: null },
+    targetSnapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
+  }, { timestamps: true });
+  reportSchema.index({ targetType: 1, targetId: 1, reporterId: 1 }, { unique: true });
+  reportSchema.index({ status: 1, createdAt: -1 });
 
   const chatSchema = new mongoose.Schema({
     senderId: { type: String, required: true },
@@ -734,12 +1043,55 @@ const initMongooseModels = async () => {
     mediaUrl: { type: String, default: '' },
   }, { timestamps: true });
 
+  const conversationSchema = new mongoose.Schema({
+    customerId: { type: String, required: true, trim: true, index: true },
+    businessId: { type: String, required: true, trim: true, index: true },
+    lastMessage: { type: String, default: '' },
+    lastMessageAt: { type: Date, default: null },
+    customerUnreadCount: { type: Number, default: 0, min: 0 },
+    businessUnreadCount: { type: Number, default: 0, min: 0 },
+    status: { type: String, enum: ['active', 'archived', 'blocked'], default: 'active' },
+    customerArchived: { type: Boolean, default: false },
+    businessArchived: { type: Boolean, default: false },
+    blockedBy: { type: String, default: '' },
+    reportedBy: { type: String, default: '' },
+    reportReason: { type: String, default: '' },
+    reportedAt: { type: Date, default: null },
+  }, { timestamps: true });
+  conversationSchema.index({ customerId: 1, businessId: 1 }, { unique: true });
+  conversationSchema.index({ updatedAt: -1 });
+  conversationSchema.index({ lastMessageAt: -1 });
+
+  const messageSchema = new mongoose.Schema({
+    conversationId: { type: String, required: true, trim: true, index: true },
+    senderId: { type: String, required: true, trim: true, index: true },
+    senderRole: { type: String, enum: ['customer', 'seller', 'business', 'system', 'admin'], required: true },
+    receiverId: { type: String, required: true, trim: true, index: true },
+    message: { type: String, default: '' },
+    messageType: {
+      type: String,
+      enum: ['text', 'image', 'file', 'product', 'order', 'system'],
+      default: 'text',
+    },
+    attachmentUrl: { type: String, default: '', trim: true, validate: optionalUrlValidator },
+    productId: { type: String, default: '' },
+    orderId: { type: String, default: '' },
+    clientMessageId: { type: String, default: '', trim: true, index: true },
+    isRead: { type: Boolean, default: false },
+    readAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
+  }, { timestamps: true });
+  messageSchema.index({ conversationId: 1, createdAt: -1 });
+  messageSchema.index({ conversationId: 1, clientMessageId: 1 }, { unique: true, partialFilterExpression: { clientMessageId: { $type: 'string', $gt: '' } } });
+
   const notificationSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
     type: { type: String, default: 'general' },
     read: { type: Boolean, default: false },
+    conversationId: { type: String, default: '' },
+    link: { type: String, default: '' },
   }, { timestamps: true });
 
   const couponSchema = new mongoose.Schema({
@@ -766,6 +1118,19 @@ const initMongooseModels = async () => {
     value: { type: mongoose.Schema.Types.Mixed, required: true },
   }, { timestamps: true });
 
+  const activityEventSchema = new mongoose.Schema({
+    type: { type: String, enum: ['view_business', 'view_product', 'wishlist_add'], required: true },
+    userId: { type: String, default: '', trim: true },
+    visitorId: { type: String, default: '', trim: true },
+    businessId: { type: String, default: '', trim: true },
+    productId: { type: String, default: '', trim: true },
+  }, { timestamps: true });
+  activityEventSchema.index({ userId: 1, createdAt: -1 });
+  activityEventSchema.index({ businessId: 1, createdAt: -1 });
+  activityEventSchema.index({ visitorId: 1, createdAt: -1 });
+  // Behaviour signals only matter while recent; let MongoDB expire them.
+  activityEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
+
   userSchema.index({ role: 1 });
   userSchema.index({ phone: 1 }, { unique: true, sparse: true });
   businessSchema.index({ ownerId: 1 });
@@ -788,9 +1153,16 @@ const initMongooseModels = async () => {
   db.Product = model('Product', productSchema);
   db.Service = model('Service', serviceSchema);
   db.Order = model('Order', orderSchema);
+  db.Counter = model('Counter', counterSchema);
+  db.ActivityEvent = model('ActivityEvent', activityEventSchema);
+  db.PaymentCredential = model('PaymentCredential', paymentCredentialSchema);
+  db.EsewaPayment = model('EsewaPayment', esewaPaymentSchema);
   db.Booking = model('Booking', bookingSchema);
   db.Review = model('Review', reviewSchema);
+  db.Report = model('Report', reportSchema);
   db.Chat = model('Chat', chatSchema);
+  db.Conversation = model('Conversation', conversationSchema);
+  db.Message = model('Message', messageSchema);
   db.Notification = model('Notification', notificationSchema);
   db.Coupon = model('Coupon', couponSchema);
   db.AuditLog = model('AuditLog', auditLogSchema);
@@ -823,7 +1195,10 @@ const initMongooseModels = async () => {
       db.Service.createIndexes(),
       db.Order.createIndexes(),
       db.Review.createIndexes(),
+      db.Report.createIndexes(),
       db.Notification.createIndexes(),
+      db.Conversation.createIndexes(),
+      db.Message.createIndexes(),
     ]);
     console.log('Database indexes ensured');
   } catch (e) {
@@ -852,6 +1227,10 @@ const initMockModels = async () => {
   db.Product = new MockModel('Product', shouldSeedDemoData() ? defaultProducts : []);
   db.Service = new MockModel('Service', shouldSeedDemoData() ? defaultServices : []);
   db.Order = new MockModel('Order', []);
+  db.Counter = new MockModel('Counter', []);
+  db.ActivityEvent = new MockModel('ActivityEvent', []);
+  db.PaymentCredential = new MockModel('PaymentCredential', []);
+  db.EsewaPayment = new MockModel('EsewaPayment', []);
   db.Booking = new MockModel('Booking', []);
   db.Review = new MockModel('Review', [
     {
@@ -881,6 +1260,7 @@ const initMockModels = async () => {
       createdAt: new Date().toISOString(),
     },
   ]);
+  db.Report = new MockModel('Report', []);
   db.Chat = new MockModel('Chat', [
     {
       _id: 'ch1',
@@ -899,6 +1279,8 @@ const initMockModels = async () => {
       createdAt: new Date(Date.now() - 3000000).toISOString(),
     },
   ]);
+  db.Conversation = new MockModel('Conversation', []);
+  db.Message = new MockModel('Message', []);
   db.Notification = new MockModel('Notification', [
     {
       _id: 'n1',
@@ -978,7 +1360,7 @@ async function connectDb() {
 
   if (process.env.MONGODB_URI) {
     if (mongoose.connection.readyState === 1) {
-      if (!db.User || !db.Business) {
+      if (!db.User || !db.Business || !db.Conversation || !db.Message) {
         isMongo = true;
         await initMongooseModels();
       }
@@ -1045,9 +1427,20 @@ const getModel = (name) => {
   return db[name];
 };
 
+/** Atomically increments and returns a named sequence (used for readable bill numbers). */
+async function nextSequence(key) {
+  const counter = await getModel('Counter').findOneAndUpdate(
+    { _id: key },
+    { $inc: { seq: 1 } },
+    { upsert: true, returnDocument: 'after' }
+  );
+  return Number(counter.seq);
+}
+
 module.exports = {
   connectDb,
   getIsMongo: () => isMongo,
+  nextSequence,
   db,
   // Helper to dynamically return correct models
   User: () => getModel('User'),
@@ -1055,9 +1448,16 @@ module.exports = {
   Product: () => getModel('Product'),
   Service: () => getModel('Service'),
   Order: () => getModel('Order'),
+  Counter: () => getModel('Counter'),
+  ActivityEvent: () => getModel('ActivityEvent'),
+  PaymentCredential: () => getModel('PaymentCredential'),
+  EsewaPayment: () => getModel('EsewaPayment'),
   Booking: () => getModel('Booking'),
   Review: () => getModel('Review'),
+  Report: () => getModel('Report'),
   Chat: () => getModel('Chat'),
+  Conversation: () => getModel('Conversation'),
+  Message: () => getModel('Message'),
   Notification: () => getModel('Notification'),
   Coupon: () => getModel('Coupon'),
   AuditLog: () => getModel('AuditLog'),

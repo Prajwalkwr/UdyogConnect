@@ -1,27 +1,38 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  FiShoppingBag, FiStar, FiCalendar, FiClock, FiHeart, FiChevronRight, FiMapPin,
+  FiShoppingBag, FiStar, FiCalendar, FiClock, FiChevronRight, FiMapPin,
   FiHome, FiCreditCard, FiPackage, FiShoppingCart, FiCheckCircle, FiCircle,
-  FiHeadphones, FiGift, FiGrid, FiTool, FiMoreHorizontal,
+  FiHeadphones, FiGift, FiGrid, FiTool, FiMoreHorizontal, FiHeart,
 } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import AccountProfileCard from './AccountProfileCard';
+import BillViewer from './bill/BillViewer';
+import BillDownloadButton from './bill/BillDownloadButton';
+import { billEmailMeta, formatRs, paymentStatusMeta, PAYMENT_METHOD_LABELS } from '../utils/bill';
+import OrderTracking from './orders/OrderTracking';
 
-const hasWishlistId = (items, id) => Array.isArray(items)
-  && items.some((item) => String(item?._id || item?.id || item) === String(id));
+const toIdList = (items) => (Array.isArray(items) ? items : [])
+  .map((item) => String(item?._id || item?.id || item || '').trim())
+  .filter(Boolean);
 
-const PRODUCT_FALLBACKS = [
-  'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=80',
-  'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=400&q=80',
-  'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=400&q=80',
-  'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=400&q=80',
-  'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=400&q=80',
-];
+const isLiveBusiness = (business) => {
+  if (!business) return false;
+  if (business.approvalStatus === 'approved') return true;
+  if (business.isVerified === true) return true;
+  return business.verified === 'verified' || business.verified === 'approved';
+};
+
+const productImageUrl = (product) =>
+  product?.images?.[0] || product?.imageUrl || product?.image || '';
 
 const statusStyle = (status) => {
   const key = String(status || 'pending').toLowerCase();
   if (key.includes('deliver') || key === 'completed') return { bg: '#D1FAE5', color: '#059669', label: 'Delivered' };
+  if (key === 'dispatched') return { bg: '#EDE9FE', color: '#7C3AED', label: 'Out for Delivery' };
+  if (key === 'accepted') return { bg: '#E0F2FE', color: '#0284C7', label: 'Accepted' };
+  if (key === 'placed') return { bg: '#E0E7FF', color: '#4338CA', label: 'Pending Seller Acceptance' };
+  if (key === 'rejected') return { bg: '#FEE2E2', color: '#DC2626', label: 'Rejected' };
   if (key.includes('process')) return { bg: '#DBEAFE', color: '#2563EB', label: 'Processing' };
   if (key.includes('prepar')) return { bg: '#FFEDD5', color: '#EA580C', label: 'Preparing' };
   if (key.includes('confirm')) return { bg: '#FEF3C7', color: '#D97706', label: 'Confirmed' };
@@ -38,6 +49,7 @@ export default function CustomerDashboard({
   onAddToCart,
   onOpenDashboard,
   onOpenBusiness,
+  onToggleSavedBusiness,
   activeTab,
   onTabChange,
   searchQuery = '',
@@ -50,6 +62,9 @@ export default function CustomerDashboard({
   const [internalTab, setInternalTab] = useState('dashboard');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [reviewForm, setReviewForm] = useState({});
+  const [savedBusinesses, setSavedBusinesses] = useState([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [billOrderId, setBillOrderId] = useState(null);
 
   const currentTab = activeTab ?? internalTab;
   const changeTab = (tab) => {
@@ -59,26 +74,24 @@ export default function CustomerDashboard({
 
   const resolveTab = (tab) => {
     if (!tab || tab === 'dashboard') return 'dashboard';
-    if (tab === 'settings' || tab === 'addresses' || tab === 'profile') return 'profile';
-    if (tab === 'saved' || tab === 'wishlist') return 'wishlist';
+    if (tab === 'settings' || tab === 'profile') return 'profile';
+    if (tab === 'addresses') return 'profile';
+    if (tab === 'saved' || tab === 'wishlist') return 'saved';
     if (tab === 'reviews') return 'reviews';
     if (tab === 'orders') return 'orders';
+    if (tab === 'bookings') return 'bookings';
     if (tab === 'wallet' || tab === 'offers' || tab === 'notifications') return tab;
     if (tab === 'cart') return 'orders';
     return tab;
   };
   const activeView = resolveTab(currentTab);
 
-  const favorites = useMemo(() => {
+  const savedBusinessIds = useMemo(() => {
     const wishlist = user?.wishlist || profileData?.wishlist || {};
-    const favoriteBusinesses = (Array.isArray(businesses) ? businesses : [])
-      .filter((business) => hasWishlistId(wishlist.businesses, business._id || business.id));
-    const favoriteProducts = (Array.isArray(products) ? products : [])
-      .filter((product) => hasWishlistId(wishlist.products, product._id || product.id));
-    return { products: favoriteProducts, businesses: favoriteBusinesses };
-  }, [user?.wishlist, profileData?.wishlist, businesses, products]);
+    return toIdList(wishlist.businesses);
+  }, [user?.wishlist, profileData?.wishlist]);
 
-  const wishlistCount = favorites.products.length + favorites.businesses.length;
+  const savedCount = savedBusinessIds.length;
   const recentOrders = orders.slice(0, 5);
   const firstName = String(user?.name || user?.fullName || 'there').split(' ')[0];
   const walletBalance = Number(user?.loyaltyPoints || profileData?.loyaltyPoints || 0) * 10 || 0;
@@ -86,18 +99,34 @@ export default function CustomerDashboard({
   const profileChecks = [
     { label: 'Basic Information', done: Boolean(user?.name) },
     { label: 'Phone Number', done: Boolean(user?.phone) },
-    { label: 'Address', done: Boolean(user?.location || user?.address) },
+    { label: 'Address', done: Array.isArray(user?.addresses) ? user.addresses.length > 0 : Boolean(user?.location || user?.address) },
     { label: 'Profile Picture', done: Boolean(user?.profilePicture) },
     { label: 'Payment Setup', done: Boolean(user?.paymentSetup || profileData?.paymentSetup) },
   ];
   const profilePct = Math.round((profileChecks.filter((c) => c.done).length / profileChecks.length) * 100);
 
   const recommendedProducts = useMemo(() => {
-    const list = Array.isArray(products) ? [...products] : [];
-    return list
-      .sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0))
+    const bizById = new Map(
+      (Array.isArray(businesses) ? businesses : [])
+        .filter((biz) => isLiveBusiness(biz))
+        .map((biz) => [String(biz._id || biz.id), biz])
+    );
+
+    return (Array.isArray(products) ? products : [])
+      .filter((product) => {
+        if (!product || product.availability === false) return false;
+        if (!product.name || /^Product [A-Z]$/i.test(String(product.name))) return false;
+        return bizById.has(String(product.businessId));
+      })
+      .sort((a, b) => {
+        const aImg = productImageUrl(a) ? 1 : 0;
+        const bImg = productImageUrl(b) ? 1 : 0;
+        if (bImg !== aImg) return bImg - aImg;
+        return (Number(b.rating) || 0) - (Number(a.rating) || 0)
+          || (Number(b.discount) || 0) - (Number(a.discount) || 0);
+      })
       .slice(0, 5);
-  }, [products]);
+  }, [products, businesses]);
 
   const popularCategories = [
     { name: 'Food & Beverages', icon: '🍽️', key: 'Food & Restaurant' },
@@ -148,12 +177,73 @@ export default function CustomerDashboard({
   };
 
   useEffect(() => {
-    if ((user?._id || user?.id) && activeView === 'wishlist') {
-      api.get('/api/auth/profile')
-        .then((pRes) => setProfileData(pRes.data))
-        .catch(() => {});
-    }
-  }, [activeView, user?._id, user?.id, user?.wishlist]);
+    const onOrdersUpdated = async () => {
+      try {
+        const oRes = await api.get('/api/orders');
+        setOrders(Array.isArray(oRes.data) ? oRes.data : []);
+      } catch (_) { /* keep current list */ }
+    };
+    window.addEventListener('orders-updated', onOrdersUpdated);
+    return () => window.removeEventListener('orders-updated', onOrdersUpdated);
+  }, []);
+
+  useEffect(() => {
+    const onBookingsUpdated = () => {
+      if (activeView === 'bookings') fetchDashboardData();
+    };
+    window.addEventListener('bookings-updated', onBookingsUpdated);
+    return () => window.removeEventListener('bookings-updated', onBookingsUpdated);
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!(user?._id || user?.id) || activeView !== 'saved') return undefined;
+
+    let cancelled = false;
+    const loadSavedBusinesses = async () => {
+      setSavedLoading(true);
+      try {
+        const profileRes = await api.get('/api/auth/profile').catch(() => null);
+        if (profileRes?.data) setProfileData(profileRes.data);
+
+        const ids = toIdList(profileRes?.data?.wishlist?.businesses || user?.wishlist?.businesses);
+        if (!ids.length) {
+          if (!cancelled) setSavedBusinesses([]);
+          return;
+        }
+
+        const byId = new Map(
+          (Array.isArray(businesses) ? businesses : []).map((biz) => [String(biz._id || biz.id), biz])
+        );
+        const missing = ids.filter((id) => !byId.has(id));
+        if (missing.length) {
+          const fetched = await Promise.all(
+            missing.map(async (id) => {
+              try {
+                const { data } = await api.get(`/api/businesses/${id}`);
+                return data?.business || data;
+              } catch {
+                return { _id: id, name: 'Saved business', category: 'Local Business' };
+              }
+            })
+          );
+          fetched.forEach((biz) => {
+            if (biz) byId.set(String(biz._id || biz.id), biz);
+          });
+        }
+
+        if (!cancelled) {
+          setSavedBusinesses(
+            ids.map((id) => byId.get(id)).filter(Boolean)
+          );
+        }
+      } finally {
+        if (!cancelled) setSavedLoading(false);
+      }
+    };
+
+    loadSavedBusinesses();
+    return () => { cancelled = true; };
+  }, [activeView, user?._id, user?.id, user?.wishlist, businesses]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -183,30 +273,82 @@ export default function CustomerDashboard({
     });
   };
 
-  const handleRescheduleBooking = async (bookingId) => {
+  const handleRescheduleBooking = async (booking) => {
+    const bookingId = booking?._id || booking;
+    const businessId = booking?.businessId;
+    const serviceId = booking?.serviceId;
+    let minDate = '';
+    let maxDate = '';
+    let slotsHtml = '<option value="">Select a date first</option>';
+
     const { value: formValues } = await Swal.fire({
       title: translate('Reschedule Appointment', 'अपोइन्टमेन्ट समय सार्नुहोस्'),
       html:
-        '<input id="swal-input1" type="date" class="swal2-input">' +
-        '<select id="swal-input2" class="swal2-input">' +
-        '<option value="09:00 - 11:00">09:00 - 11:00</option>' +
-        '<option value="12:00 - 14:00">12:00 - 14:00</option>' +
-        '<option value="15:00 - 17:00">15:00 - 17:00</option>' +
-        '</select>',
+        `<input id="swal-input1" type="date" class="swal2-input" value="">` +
+        `<select id="swal-input2" class="swal2-input">${slotsHtml}</select>` +
+        `<p id="swal-avail-msg" class="swal2-html-container" style="font-size:12px;color:#b45309"></p>`,
       focusConfirm: false,
-      preConfirm: () => [
-        document.getElementById('swal-input1').value,
-        document.getElementById('swal-input2').value,
-      ],
+      didOpen: () => {
+        const dateInput = document.getElementById('swal-input1');
+        const slotSelect = document.getElementById('swal-input2');
+        const msg = document.getElementById('swal-avail-msg');
+        const loadSlots = async () => {
+          if (!dateInput.value || !businessId || !serviceId) return;
+          slotSelect.innerHTML = '<option value="">Loading…</option>';
+          try {
+            const res = await api.get('/api/bookings/availability', {
+              params: { businessId, serviceId, date: dateInput.value },
+            });
+            const data = res.data || {};
+            if (data.minDate) {
+              minDate = data.minDate;
+              dateInput.min = data.minDate;
+            }
+            if (data.maxDate) {
+              maxDate = data.maxDate;
+              dateInput.max = data.maxDate;
+            }
+            const slots = Array.isArray(data.slots) ? data.slots : [];
+            if (!slots.length) {
+              slotSelect.innerHTML = '<option value="">No slots</option>';
+              msg.textContent = data.message || 'No available time slots for this date.';
+              return;
+            }
+            msg.textContent = '';
+            slotSelect.innerHTML = slots
+              .map((s) => `<option value="${s.label || s.value}">${s.label || s.value}</option>`)
+              .join('');
+          } catch (err) {
+            slotSelect.innerHTML = '<option value="">Unavailable</option>';
+            msg.textContent = err.response?.data?.message || 'Could not load slots.';
+          }
+        };
+        dateInput.addEventListener('change', loadSlots);
+        if (minDate) dateInput.min = minDate;
+        if (maxDate) dateInput.max = maxDate;
+      },
+      preConfirm: () => {
+        const date = document.getElementById('swal-input1').value;
+        const timeSlot = document.getElementById('swal-input2').value;
+        if (!date || !timeSlot) {
+          Swal.showValidationMessage('Please select a future date and available time.');
+          return false;
+        }
+        return [date, timeSlot];
+      },
     });
 
     if (formValues && formValues[0]) {
       try {
-        await api.put(`/api/bookings/${bookingId}`, { date: formValues[0], timeSlot: formValues[1], status: 'pending' });
+        await api.put(`/api/bookings/${bookingId}`, {
+          date: formValues[0],
+          timeSlot: formValues[1],
+          status: 'pending',
+        });
         Swal.fire('Success', 'Rescheduled booking slot.', 'success');
         fetchDashboardData();
       } catch (e) {
-        Swal.fire('Error', 'Action failed.', 'error');
+        Swal.fire('Error', e.response?.data?.message || 'Action failed.', 'error');
       }
     }
   };
@@ -248,10 +390,24 @@ export default function CustomerDashboard({
   };
 
   const orderNo = (order) => `#UC-${String(order._id || '').slice(-4).toUpperCase() || '0000'}`;
-  const productImage = (product, index) => product?.images?.[0] || PRODUCT_FALLBACKS[index % PRODUCT_FALLBACKS.length];
   const businessNameForProduct = (product) => {
     const biz = businesses.find((b) => String(b._id) === String(product.businessId));
     return biz?.name || product.brand || 'Local Store';
+  };
+
+  const addRecommendedToCart = (product) => {
+    const biz = businesses.find((b) => String(b._id) === String(product.businessId));
+    const image = productImageUrl(product);
+    onAddToCart?.({
+      id: product._id || product.id,
+      name: product.name,
+      price: Number(product.price) || 0,
+      stock: product.stock ?? 20,
+      seller: biz?.name || product.brand || 'Local Store',
+      businessId: product.businessId,
+      image,
+      images: image ? [image] : [],
+    });
   };
 
   const ringStyle = {
@@ -312,12 +468,12 @@ export default function CustomerDashboard({
                   action: () => onOpenDashboard?.('checkout'),
                 },
                 {
-                  label: 'Wishlist Items',
-                  value: String(wishlistCount),
-                  hint: 'View Wishlist →',
-                  icon: <FiHeart className="h-5 w-5 text-[#EF4444]" />,
+                  label: 'Saved Businesses',
+                  value: String(savedCount),
+                  hint: 'View Saved →',
+                  icon: <FiStar className="h-5 w-5 text-[#EF4444]" />,
                   iconBg: '#FEE2E2',
-                  action: () => changeTab('wishlist'),
+                  action: () => changeTab('saved'),
                 },
                 {
                   label: 'Wallet Balance',
@@ -467,47 +623,60 @@ export default function CustomerDashboard({
                     </button>
                   </div>
                   {recommendedProducts.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-[#68778c]">Products will appear here soon.</div>
+                    <div className="py-8 text-center text-sm text-[#68778c]">
+                      {translate(
+                        'No products from verified businesses yet.',
+                        'अहिले प्रमाणित व्यवसायका उत्पादनहरू छैनन्।'
+                      )}
+                    </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                      {recommendedProducts.map((product, index) => {
+                      {recommendedProducts.map((product) => {
                         const discount = Number(product.discount) || 0;
                         const price = Number(product.price) || 0;
                         const finalPrice = discount > 0 ? price - (price * discount) / 100 : price;
+                        const image = productImageUrl(product);
+                        const rating = Number(product.rating);
                         return (
                           <article key={product._id} className="overflow-hidden rounded-2xl border border-[#EEF2F7] bg-[#FCFCFD]">
-                            <div className="relative h-32 bg-[#F1F5F9]">
-                              <img
-                                src={productImage(product, index)}
-                                alt={product.name}
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
+                            <button
+                              type="button"
+                              onClick={() => onOpenProduct?.(product._id)}
+                              className="relative block h-32 w-full bg-[#F1F5F9]"
+                            >
+                              {image ? (
+                                <img
+                                  src={image}
+                                  alt={product.name}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[#94A3B8]">
+                                  No image
+                                </span>
+                              )}
                               {discount > 0 && (
                                 <span className="absolute left-2 top-2 rounded-md bg-[#F97316] px-1.5 py-0.5 text-[9px] font-bold text-white">
                                   {discount}% OFF
                                 </span>
                               )}
-                              <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#EF4444] shadow">
-                                <FiHeart className="h-3.5 w-3.5" />
-                              </span>
-                            </div>
+                            </button>
                             <div className="p-3">
                               <h3 className="truncate text-xs font-bold text-[#102341]">{product.name}</h3>
                               <p className="mt-0.5 truncate text-[10px] text-[#68778c]">{businessNameForProduct(product)}</p>
-                              <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-[#F2B71D]">
-                                <FiStar className="h-3 w-3 fill-[#F2B71D]" />
-                                {(Number(product.rating) || 4.5).toFixed(1)}
-                              </div>
+                              {Number.isFinite(rating) && rating > 0 ? (
+                                <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-[#F2B71D]">
+                                  <FiStar className="h-3 w-3 fill-[#F2B71D]" />
+                                  {rating.toFixed(1)}
+                                </div>
+                              ) : null}
                               <p className="mt-1 text-sm font-extrabold text-[#102341]">
                                 NPR {finalPrice.toLocaleString('en-IN')}
                               </p>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onAddToCart) onAddToCart({ ...product, quantity: 1 });
-                                  else onOpenProduct?.(product._id);
-                                }}
+                                onClick={() => addRecommendedToCart(product)}
                                 className="mt-2 w-full rounded-lg bg-[#F2B71D] py-2 text-[11px] font-bold text-[#102341] transition hover:bg-[#E0A615]"
                               >
                                 Add to Cart
@@ -645,11 +814,15 @@ export default function CustomerDashboard({
           <div className="space-y-4">
             <h3 className="text-lg font-extrabold text-[#102341]">{translate('Order Status', 'अर्डर स्थिति')}</h3>
             {orders.length === 0 ? (
-              <div className="py-10 text-center text-xs text-[#52627a]">You have not placed any orders yet.</div>
+              <div className="py-10 text-center text-xs text-[#52627a]">You have not placed any product orders yet.</div>
             ) : (
               <div className="space-y-3">
                 {orders.map((o) => {
                   const style = statusStyle(o.status);
+                  const payment = paymentStatusMeta(o.paymentStatus);
+                  const emailMeta = billEmailMeta(o.billEmailStatus || (o.billEmailSent ? 'sent' : 'not_sent'));
+                  const businessName = businesses.find((biz) => String(biz._id || biz.id) === String(o.businessId))?.name || o.items?.[0]?.seller;
+                  const billAvailable = Boolean(o.billNumber) || (o.status !== 'cancelled' && !(o.paymentMethod === 'Card' && o.paymentStatus !== 'paid'));
                   return (
                     <div key={o._id} className="flex flex-col justify-between gap-3 rounded-2xl border border-[#E5EBF2] bg-white p-4 sm:flex-row sm:items-center">
                       <div>
@@ -658,16 +831,41 @@ export default function CustomerDashboard({
                           <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase" style={{ background: style.bg, color: style.color }}>
                             {style.label}
                           </span>
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase" style={{ background: payment.bg, color: payment.color }}>
+                            {payment.label}
+                          </span>
                         </div>
+                        {o.billNumber && (
+                          <p className="mt-1 text-[11px] text-[#52627a]">
+                            Bill No: <span className="font-mono font-bold text-[#102341]">{o.billNumber}</span>
+                          </p>
+                        )}
+                        {businessName && <p className="mt-0.5 text-[11px] text-[#52627a]">Business: {businessName}</p>}
                         <p className="mt-1 text-[11px] text-[#52627a]">
                           Items: {(o.items || []).map((i) => `${i.name} (x${i.quantity})`).join(', ') || '—'}
                         </p>
                         <span className="mt-1 block text-[10px] text-[#68778c]">
                           Placed: {o.createdAt ? new Date(o.createdAt).toLocaleString() : '—'}
+                          {o.paymentMethod ? ` · ${PAYMENT_METHOD_LABELS[o.paymentMethod] || o.paymentMethod}` : ''}
                         </span>
+                        {o.billNumber && (
+                          <span className="mt-1 block text-[10px] font-semibold" style={{ color: emailMeta.color }}>
+                            {emailMeta.label}
+                            {o.billEmailSent && o.billEmailTo ? <span className="font-normal text-[#68778c]"> · Bill sent to {o.billEmailTo}</span> : null}
+                          </span>
+                        )}
+                        {billAvailable && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setBillOrderId(o._id)} className="rounded-lg border border-[#E5EBF2] px-3 py-1.5 text-[10px] font-bold text-[#102341] hover:bg-[#F8FAFC]">
+                              View Bill
+                            </button>
+                            <BillDownloadButton orderId={o._id} className="rounded-lg bg-[#102341] px-3 py-1.5 text-[10px] font-bold text-white hover:bg-[#1b3358]" />
+                          </div>
+                        )}
+                        <OrderTracking order={o} onUpdated={(updated) => setOrders((prev) => prev.map((item) => (item._id === updated._id ? updated : item)))} />
                       </div>
                       <div className="text-right">
-                        <span className="text-sm font-black text-[#F2B71D]">NPR {Number(o.total || 0).toLocaleString('en-IN')}</span>
+                        <span className="text-sm font-black text-[#F2B71D]">{formatRs(o.total)}</span>
                         {String(o.status).toLowerCase() === 'completed' || String(o.status).toLowerCase() === 'delivered' ? (
                           <div className="mt-2 min-w-[220px] rounded-xl border border-[#E5EBF2] bg-[#F8FAFC] p-3 text-left">
                             <div className="mb-2 flex items-center justify-between gap-2">
@@ -698,6 +896,34 @@ export default function CustomerDashboard({
                 })}
               </div>
             )}
+
+            <div className="space-y-3 border-t border-[#E5EBF2] pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-lg font-extrabold text-[#102341]">{translate('Service Bookings', 'सेवा बुकिङ')}</h3>
+                <button type="button" onClick={() => changeTab('bookings')} className="text-xs font-bold text-[#F2B71D]">
+                  {translate('View all', 'सबै हेर्नुहोस्')}
+                </button>
+              </div>
+              {bookings.length === 0 ? (
+                <div className="py-6 text-center text-xs text-[#52627a]">No service appointments scheduled.</div>
+              ) : (
+                <div className="space-y-3">
+                  {bookings.slice(0, 5).map((b) => (
+                    <div key={`ord-bk-${b._id}`} className="flex flex-col justify-between gap-3 rounded-2xl border border-[#E5EBF2] bg-white p-4 sm:flex-row sm:items-center">
+                      <div>
+                        <h4 className="text-sm font-bold text-[#102341]">{b.serviceName || translate('Service booking', 'सेवा बुकिङ')}</h4>
+                        <p className="mt-0.5 text-xs text-[#52627a]">{b.businessName || translate('Business', 'व्यवसाय')}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span className="flex items-center gap-1 text-xs text-[#52627a]"><FiCalendar /> {b.date}</span>
+                          <span className="flex items-center gap-1 text-xs text-[#52627a]"><FiClock /> {b.timeSlot}</span>
+                          <span className="rounded-full border border-[#E5EBF2] px-2 py-0.5 text-[9px] font-bold uppercase text-[#52627a]">{b.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -711,15 +937,20 @@ export default function CustomerDashboard({
                 {bookings.map((b) => (
                   <div key={b._id} className="flex flex-col justify-between gap-3 rounded-2xl border border-[#E5EBF2] bg-white p-4 sm:flex-row sm:items-center">
                     <div>
-                      <h4 className="text-sm font-bold text-[#102341]">Appointment Booking</h4>
-                      <div className="mt-1 flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-[#102341]">{b.serviceName || translate('Service booking', 'सेवा बुकिङ')}</h4>
+                      <p className="mt-0.5 text-xs text-[#52627a]">{b.businessName || translate('Business', 'व्यवसाय')}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className="flex items-center gap-1 text-xs text-[#52627a]"><FiCalendar /> {b.date}</span>
                         <span className="flex items-center gap-1 text-xs text-[#52627a]"><FiClock /> {b.timeSlot}</span>
+                        {b.durationMinutes ? <span className="text-xs text-[#52627a]">{b.durationMinutes} min</span> : null}
+                        <span className="rounded-full border border-[#E5EBF2] px-2 py-0.5 text-[9px] font-bold uppercase text-[#52627a]">{b.status}</span>
                       </div>
                     </div>
-                    {b.status === 'pending' && (
+                    {(b.status === 'pending' || b.status === 'confirmed') && (
                       <div className="flex gap-2">
-                        <button onClick={() => handleRescheduleBooking(b._id)} className="rounded-lg border border-[#E5EBF2] px-3 py-1.5 text-[10px] font-bold">Reschedule</button>
+                        {b.status === 'pending' && (
+                          <button onClick={() => handleRescheduleBooking(b)} className="rounded-lg border border-[#E5EBF2] px-3 py-1.5 text-[10px] font-bold">Reschedule</button>
+                        )}
                         <button onClick={() => handleCancelBooking(b._id)} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-bold text-rose-600">Cancel</button>
                       </div>
                     )}
@@ -753,44 +984,67 @@ export default function CustomerDashboard({
           </div>
         )}
 
-        {activeView === 'wishlist' && (
+        {activeView === 'saved' && (
           <div className="space-y-4">
             <h3 className="text-lg font-extrabold text-[#102341]">
-              {currentTab === 'saved'
-                ? translate('Saved Businesses', 'सुरक्षित व्यवसाय')
-                : translate('Wishlist & Favorites', 'मनपर्ने सूची')}
+              {translate('Saved Businesses', 'सुरक्षित व्यवसाय')}
             </h3>
-            {favorites.products.length === 0 && favorites.businesses.length === 0 ? (
+            {savedLoading ? (
               <div className="py-10 text-center text-xs text-[#52627a]">
-                {translate('Your wishlist catalog is empty.', 'मनपर्ने सूची खाली छ।')}
+                {translate('Loading saved businesses…', 'सुरक्षित व्यवसायहरू लोड हुँदैछन्…')}
+              </div>
+            ) : savedBusinesses.length === 0 ? (
+              <div className="py-10 text-center text-xs text-[#52627a]">
+                {translate('No saved businesses yet. Heart a shop from the marketplace to save it here.', 'अहिले कुनै सुरक्षित व्यवसाय छैन। बजारबाट व्यवसाय सुरक्षित गर्नुहोस्।')}
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
-                {favorites.businesses.map((business) => (
-                  <button type="button" key={business._id} onClick={() => onOpenBusiness?.(business._id)} className="flex gap-3 rounded-2xl border border-[#e5ebf2] bg-white p-3 text-left hover:border-[#f2c229]">
-                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-[#fff5ce] text-lg">
-                      {(business.imageUrl || business.logoUrl) ? <img src={business.imageUrl || business.logoUrl} alt={business.name} className="h-full w-full object-cover" /> : '🏪'}
+                {savedBusinesses.map((business) => {
+                  const bizId = business._id || business.id;
+                  return (
+                    <div
+                      key={bizId}
+                      className="flex items-center gap-3 rounded-2xl border border-[#e5ebf2] bg-white p-3"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onOpenBusiness?.(bizId)}
+                        className="flex min-w-0 flex-1 gap-3 text-left hover:opacity-90"
+                      >
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#fff5ce] text-lg">
+                          {(business.imageUrl || business.logoUrl) ? (
+                            <img src={business.imageUrl || business.logoUrl} alt={business.name} className="h-full w-full object-cover" />
+                          ) : '🏪'}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="truncate text-xs font-bold text-[#102341]">{business.name}</h4>
+                          <p className="text-[10px] text-[#52627a]">{business.category || 'Local Business'}</p>
+                          {business.location ? (
+                            <p className="mt-0.5 flex items-center gap-1 text-[10px] text-[#68778c]">
+                              <FiMapPin className="h-3 w-3" /> {business.location}
+                            </p>
+                          ) : null}
+                        </div>
+                      </button>
+                      {onToggleSavedBusiness ? (
+                        <button
+                          type="button"
+                          onClick={() => onToggleSavedBusiness('businesses', bizId)}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#FEE2E2] text-[#EF4444]"
+                          aria-label="Remove from saved"
+                        >
+                          <FiHeart className="h-4 w-4" fill="currentColor" />
+                        </button>
+                      ) : null}
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#102341]">{business.name}</h4>
-                      <p className="text-[10px] text-[#52627a]">{business.category || 'Local Business'}</p>
-                    </div>
-                  </button>
-                ))}
-                {(currentTab !== 'saved' ? favorites.products : []).map((p) => (
-                  <div key={p._id} onClick={() => onOpenProduct(p._id)} className="flex cursor-pointer gap-3 rounded-2xl border border-[#e5ebf2] bg-white p-3 hover:border-[#f2c229]">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-lg">🛍️</div>
-                    <div>
-                      <h4 className="max-w-[150px] truncate text-xs font-bold text-[#102341]">{p.name}</h4>
-                      <span className="mt-1 block text-xs font-bold text-[#F2B71D]">NPR {p.price}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
       </main>
+      {billOrderId && <BillViewer orderId={billOrderId} onClose={() => setBillOrderId(null)} allowEmailActions />}
     </div>
   );
 }

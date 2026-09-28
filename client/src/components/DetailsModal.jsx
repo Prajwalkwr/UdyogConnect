@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUser, FiInfo, FiTruck, FiHeart } from 'react-icons/fi';
+import { FiX, FiClock, FiMapPin, FiStar, FiShoppingBag, FiCalendar, FiFlag, FiUser, FiInfo } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { useDispatch } from 'react-redux';
 import { updateSessionUser } from '../utils/sessionAuth';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { validateReviewForm, validateImageFile } from '../utils/validation';
+import { formatOpeningDaysLabel, getBusinessAvailabilityMeta } from '../utils/businessAvailability';
+import ServiceBookingForm from './ServiceBookingForm';
+import { trackView } from '../utils/activityTracking';
+import { openReportDialog } from '../utils/reports';
 
 export default function DetailsModal({
   businessId,
@@ -23,10 +27,6 @@ export default function DetailsModal({
 
   // Booking Form State
   const [bookingService, setBookingService] = useState(null);
-  const [bookingDate, setBookingDate] = useState('');
-  const [bookingSlot, setBookingSlot] = useState('');
-  const [bookingStaff, setBookingStaff] = useState('');
-  const [bookingHome, setBookingHome] = useState(false);
 
   // Add Review State
   const [reviewRating, setReviewRating] = useState(5);
@@ -38,6 +38,11 @@ export default function DetailsModal({
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
   };
+
+  useEffect(() => {
+    if (productId) trackView({ productId });
+    else if (businessId) trackView({ businessId });
+  }, [businessId, productId]);
 
   useEffect(() => {
     let targetBizId = businessId;
@@ -82,56 +87,16 @@ export default function DetailsModal({
 
   const businessImage = businessData?.business?.imageUrl || businessData?.business?.logoUrl || businessData?.business?.logo || businessData?.business?.image || '';
 
-  const isWishlisted = (id) => Array.isArray(user?.wishlist?.products)
-    && user.wishlist.products.some((item) => String(item?._id || item?.id || item) === String(id));
+  const isBusinessSaved = Array.isArray(user?.wishlist?.businesses)
+    && user.wishlist.businesses.some((item) => String(item?._id || item?.id || item) === String(businessData?.business?._id));
 
-  const handleBooking = async (e) => {
-    e.preventDefault();
-    if (!submitGuard.begin()) return;
-    if (!user) {
-      Swal.fire({ icon: 'warning', text: translate('Please sign in to book an appointment.', 'कृपया अपोइन्टमेन्ट बुक गर्न लगइन गर्नुहोस्।') });
-      submitGuard.finish();
-      return;
-    }
-    if (!bookingDate || !bookingSlot) {
-      Swal.fire({ icon: 'error', text: 'Select date and slot.' });
-      submitGuard.finish();
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await api.post(
-        '/api/bookings',
-        {
-          businessId: businessData.business._id,
-          serviceId: bookingService._id,
-          date: bookingDate,
-          timeSlot: bookingSlot,
-          staffMember: bookingStaff,
-          homeService: bookingHome,
-        },
-        { headers: { ...createIdempotencyHeader('booking-create') } }
-      );
-
-      Swal.fire({
-        icon: 'success',
-        title: translate('Booking Confirmed!', 'बुकिङ सफल!'),
-        text: `${bookingService.name} is booked on ${bookingDate} at ${bookingSlot}.`,
-      });
-
-      setBookingService(null);
-      setBookingDate('');
-      setBookingSlot('');
-      setBookingStaff('');
-      setBookingHome(false);
-      fetchBusinessDetails(businessData.business._id);
-    } catch (err) {
-      Swal.fire({ icon: 'error', text: 'Booking request failed.' });
-    } finally {
-      setIsSubmitting(false);
-      submitGuard.finish();
-    }
+  const handleBookingSuccess = ({ date, slot, service }) => {
+    Swal.fire({
+      icon: 'success',
+      title: translate('Booking Confirmed!', 'बुकिङ सफल!'),
+      text: `${service.name} is booked on ${date} at ${slot}.`,
+    });
+    setBookingService(null);
   };
 
   const handlePostReview = async (e) => {
@@ -196,22 +161,25 @@ export default function DetailsModal({
     }
   };
 
-  const handleReportReview = async (reviewId) => {
-    try {
-      await api.put(`/api/reviews/${reviewId}/report`, {});
-      Swal.fire({
-        icon: 'success',
-        title: translate('Report Submitted', 'रिपोर्ट पेश भयो'),
-        text: translate('This review has been flagged for admin safety moderation.', 'यस समीक्षालाई प्रशासक समक्ष फ्ल्याग गरिएको छ।'),
-      });
-    } catch (err) {
-      Swal.fire({ icon: 'error', text: 'Failed to flag review.' });
+  const handleReportReview = async (review) => {
+    if (!user) {
+      Swal.fire({ icon: 'warning', text: 'Log in to report a review.' });
+      return;
     }
+    await openReportDialog({
+      targetType: 'review',
+      targetId: review._id,
+      targetLabel: `${review.customerName}: "${review.comment}"`,
+    });
   };
 
-  const handleWishlistAdd = async (type, id) => {
+  const handleSaveBusiness = async (id) => {
     if (!user) {
-      Swal.fire({ icon: 'warning', text: 'Log in to add to wishlist.' });
+      Swal.fire({ icon: 'warning', text: 'Log in to save businesses.' });
+      return;
+    }
+    if (onToggleWishlist) {
+      await onToggleWishlist('businesses', id);
       return;
     }
     try {
@@ -219,30 +187,36 @@ export default function DetailsModal({
         .map((item) => String(item?._id || item?.id || item || '').trim())
         .filter(Boolean);
       const itemId = String(id);
-      const updatedWishlist = {
-        products: toIdList(user.wishlist?.products),
-        services: toIdList(user.wishlist?.services),
-        businesses: toIdList(user.wishlist?.businesses),
-      };
-      const current = toIdList(updatedWishlist[type]);
+      const current = toIdList(user.wishlist?.businesses);
       const isSaved = current.includes(itemId);
-      updatedWishlist[type] = isSaved
-        ? current.filter((item) => item !== itemId)
-        : [...current, itemId];
+      const updatedWishlist = {
+        products: [],
+        services: [],
+        businesses: isSaved
+          ? current.filter((item) => item !== itemId)
+          : [...current, itemId],
+      };
 
       const response = await api.put('/api/auth/wishlist', { wishlist: updatedWishlist });
       const savedWishlist = response.data?.wishlist || updatedWishlist;
-      const updatedUser = { ...(response.data?.user || user), wishlist: savedWishlist };
+      const updatedUser = {
+        ...(response.data?.user || user),
+        wishlist: {
+          products: [],
+          services: [],
+          businesses: toIdList(savedWishlist.businesses),
+        },
+      };
       updateSessionUser(updatedUser);
       dispatch({ type: 'SET_USER', payload: updatedUser });
       Swal.fire({
         icon: 'success',
-        text: isSaved ? 'Removed from favorites' : 'Added to favorites',
+        text: isSaved ? 'Removed from saved businesses' : 'Business saved',
         timer: 1200,
         showConfirmButton: false,
       });
     } catch (e) {
-      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'Unable to update wishlist.' });
+      Swal.fire({ icon: 'error', text: e.response?.data?.message || 'Unable to update saved businesses.' });
     }
   };
 
@@ -310,7 +284,15 @@ export default function DetailsModal({
                   <div className="pt-2 space-y-2 text-xs text-slate-400">
                     <div className="flex items-center gap-2">
                       <FiClock className="text-amber-400" />
-                      <span>{businessData.business.hours}</span>
+                      <span>{businessData.business.hours || '—'}</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <FiCalendar className="mt-0.5 text-amber-400" />
+                      <span>{formatOpeningDaysLabel(businessData.business)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${getBusinessAvailabilityMeta(businessData.business).isOpen ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                      <span>{getBusinessAvailabilityMeta(businessData.business).openLabel}</span>
                     </div>
                     {businessData.business.phone && (
                       <div className="flex items-center gap-2">
@@ -328,13 +310,13 @@ export default function DetailsModal({
 
                   <div className="pt-2">
                     <button
-                      onClick={() => onToggleWishlist
-                        ? onToggleWishlist('businesses', businessData.business._id)
-                        : handleWishlistAdd('businesses', businessData.business._id)}
+                      onClick={() => handleSaveBusiness(businessData.business._id)}
                       className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800"
                     >
-                      <FiStar className="text-amber-400" />
-                      <span>{translate('Favorite Shop', 'मनपर्ने सूचीमा थप्नुहोस्')}</span>
+                      <FiStar className="text-amber-400" fill={isBusinessSaved ? 'currentColor' : 'none'} />
+                      <span>{isBusinessSaved
+                        ? translate('Saved', 'सुरक्षित')
+                        : translate('Save Business', 'व्यवसाय सुरक्षित गर्नुहोस्')}</span>
                     </button>
                   </div>
                 </div>
@@ -387,14 +369,6 @@ export default function DetailsModal({
                                 ) : (
                                   <span className="text-xl">🛍️</span>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => onToggleWishlist?.('products', p._id)}
-                                  aria-label={isWishlisted(p._id) ? 'Remove from wishlist' : 'Add to wishlist'}
-                                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/80 text-amber-300 hover:text-rose-400"
-                                >
-                                  <FiHeart className="h-3.5 w-3.5" fill={isWishlisted(p._id) ? 'currentColor' : 'none'} />
-                                </button>
                               </div>
                               <h4 className="font-bold text-slate-200 text-sm mt-2">{p.name}</h4>
                               <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{p.description}</p>
@@ -432,77 +406,21 @@ export default function DetailsModal({
                 {activeTab === 'services' && (
                   <div className="space-y-3">
                     {bookingService ? (
-                      /* Slot Booking overlay form */
-                      <form onSubmit={handleBooking} className="rounded-2xl border border-amber-400/20 bg-slate-950/30 p-4 space-y-3">
-                        <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                      <div className="rounded-2xl border border-amber-400/20 bg-slate-950/30 p-4">
+                        <div className="flex justify-between items-center pb-2 mb-3 border-b border-slate-800">
                           <h4 className="font-bold text-sm text-white">{translate('Schedule Appointment', 'अपोइन्टमेन्ट तालिका')}</h4>
                           <button type="button" onClick={() => setBookingService(null)} className="text-xs text-rose-400">{translate('Cancel', 'रद्द गर्नुहोस्')}</button>
                         </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-450 uppercase">{translate('Service Name', 'सेवाको नाम')}</label>
-                          <p className="text-sm font-bold text-slate-200">{bookingService.name}</p>
-                          <p className="text-xs text-amber-400 font-bold mt-1">{displayPrice(bookingService.price)} ({bookingService.duration} mins)</p>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">{translate('Choose Date', 'मिति चयन')}</label>
-                            <input
-                              type="date"
-                              value={bookingDate}
-                              onChange={(e) => setBookingDate(e.target.value)}
-                              className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">{translate('Available Slot', 'उपलब्ध समय')}</label>
-                            <select
-                              value={bookingSlot}
-                              onChange={(e) => setBookingSlot(e.target.value)}
-                              className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
-                              required
-                            >
-                              <option value="">-- select slot --</option>
-                              {bookingService.slots.map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">{translate('Staff Member', 'कर्मचारी')}</label>
-                            <select
-                              value={bookingStaff}
-                              onChange={(e) => setBookingStaff(e.target.value)}
-                              className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
-                            >
-                              <option value="">Any Staff</option>
-                              {bookingService.staff.map((st) => (
-                                <option key={st} value={st}>{st}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {bookingService.homeService && (
-                            <div className="flex items-center gap-2 mt-4">
-                              <input
-                                type="checkbox"
-                                checked={bookingHome}
-                                onChange={(e) => setBookingHome(e.target.checked)}
-                                className="h-4 w-4 rounded accent-amber-400"
-                              />
-                              <span className="text-xs text-slate-300 flex items-center gap-1"><FiTruck /> {translate('Provide Home Service', 'घरमै सेवा उपलब्ध')}</span>
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="w-full rounded-xl bg-amber-400 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
-                        >
-                          {isSubmitting ? translate('Processing...', 'प्रोसेस हुँदै...') : translate('Confirm Appointment', 'अपोइन्टमेन्ट पक्का गर्नुहोस्')}
-                        </button>
-                      </form>
+                        <ServiceBookingForm
+                          businessId={businessData.business._id}
+                          service={bookingService}
+                          user={user}
+                          lang={lang}
+                          variant="dark"
+                          onCancel={() => setBookingService(null)}
+                          onSuccess={handleBookingSuccess}
+                        />
+                      </div>
                     ) : (
                       /* Services List */
                       businessData.services.length === 0 ? (
@@ -511,13 +429,18 @@ export default function DetailsModal({
                         </div>
                       ) : (
                         businessData.services.map((s) => (
-                          <div key={s._id} className="rounded-xl border border-slate-850 bg-slate-950/20 p-4 flex flex-col justify-between sm:flex-row sm:items-center">
-                            <div>
-                              <h4 className="font-bold text-slate-200 text-sm">{s.name}</h4>
-                              <p className="text-xs text-slate-400 mt-1 leading-relaxed">{s.description}</p>
-                              <div className="mt-2 flex gap-3 text-[10px] text-slate-450">
-                                <span>⏱ {s.duration} mins</span>
-                                {s.homeService && <span className="text-emerald-400">✓ Home Service Available</span>}
+                          <div key={s._id} className="rounded-xl border border-slate-850 bg-slate-950/20 p-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                            <div className="flex gap-3 min-w-0">
+                              {s.imageUrl || s.images?.[0] ? (
+                                <img src={s.imageUrl || s.images[0]} alt={s.name} className="h-14 w-14 shrink-0 rounded-xl object-cover border border-slate-700" />
+                              ) : null}
+                              <div className="min-w-0">
+                                <h4 className="font-bold text-slate-200 text-sm">{s.name}</h4>
+                                <p className="text-xs text-slate-400 mt-1 leading-relaxed">{s.description}</p>
+                                <div className="mt-2 flex gap-3 text-[10px] text-slate-450">
+                                  <span>⏱ {s.duration} mins</span>
+                                  {s.homeService && <span className="text-emerald-400">✓ Home Service Available</span>}
+                                </div>
                               </div>
                             </div>
                             <div className="mt-4 sm:mt-0 text-right flex flex-col items-end gap-2">
@@ -607,7 +530,7 @@ export default function DetailsModal({
                                 </div>
                               </div>
                               <button
-                                onClick={() => handleReportReview(r._id)}
+                                onClick={() => handleReportReview(r)}
                                 className="text-slate-550 hover:text-rose-450 p-1 rounded transition"
                                 title="Report Fake / Offensive Review"
                               >

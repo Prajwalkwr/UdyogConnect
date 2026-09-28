@@ -12,11 +12,48 @@ import Swal from 'sweetalert2';
 import api, { getApiErrorMessage } from '../utils/api';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { uploadFilesToCloudinary } from '../utils/mediaUpload';
-import { getBusinessAvailabilityMeta } from '../utils/businessAvailability';
+import { getBusinessAvailabilityMeta, WEEKDAY_OPTIONS, ALL_OPENING_DAYS, normalizeOpeningDays, formatOpeningDaysLabel } from '../utils/businessAvailability';
 import AccountProfileCard from './AccountProfileCard';
-import { validateBusinessForm, validateProductForm, validateServiceForm, validateImageFile, BUSINESS_HOURS_OPTIONS, BUSINESS_CATEGORY_OPTIONS, countWords, PERSON_NAME_REGEX, BUSINESS_EMAIL_REGEX, PHONE_REGEX } from '../utils/validation';
+import BusinessMessagesPanel from './messaging/BusinessMessagesPanel';
+import BillViewer from './bill/BillViewer';
+import EsewaPaymentSettings from './EsewaPaymentSettings';
+import { ORDER_STATUS_LABELS } from '../utils/esewa';
+import { PAYMENT_METHOD_LABELS } from '../utils/bill';
+import { validateBusinessForm, validateProductForm, validateServiceForm, validateImageFile, BUSINESS_HOURS_OPTIONS, BUSINESS_CATEGORY_OPTIONS, countWords, PERSON_NAME_REGEX, BUSINESS_EMAIL_REGEX, PHONE_REGEX, sanitizeProductWordName } from '../utils/validation';
 
 const fmt = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN')}`;
+
+/** Convert "09:00 - 18:00" / "9:00 AM - 5:00 PM" into 24h HH:MM for <input type="time">. */
+const toTimeInputValue = (value = '') => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return '';
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const mer = (match[3] || '').toUpperCase();
+  if (mer === 'PM' && hour < 12) hour += 12;
+  if (mer === 'AM' && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return '';
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
+
+const splitHoursRange = (hours = '') => {
+  const cleaned = String(hours || '').replace(/\u2013|\u2014/g, '-').replace(/\s+to\s+/gi, ' - ');
+  const parts = cleaned.split(/\s*-\s*/);
+  if (parts.length < 2) return { openingTime: '', closingTime: '' };
+  return {
+    openingTime: toTimeInputValue(parts[0]),
+    closingTime: toTimeInputValue(parts[1]),
+  };
+};
+
+const composeHours = (openingTime, closingTime) => {
+  const open = String(openingTime || '').trim();
+  const close = String(closingTime || '').trim();
+  if (!open || !close) return '';
+  return `${open} - ${close}`;
+};
 
 const getBusinessApprovalStatus = (business) => {
   if (business?.approvalStatus === 'suspended' || business?.verified === 'suspended') return 'suspended';
@@ -29,6 +66,8 @@ const getBusinessApprovalStatus = (business) => {
 const statusColor = (s) => {
   const m = {
     placed:     'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    accepted:   'bg-sky-500/15 text-sky-300 border-sky-500/30',
+    rejected:   'bg-rose-500/15 text-rose-300 border-rose-500/30',
     preparing:  'bg-amber-500/15 text-amber-300 border-amber-500/30',
     dispatched: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
     completed:  'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -96,7 +135,17 @@ function TextAreaField({ label, error, ...props }) {
 /* ══════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════ */
-export default function SellerDashboard({ user, lang, activeTab, onTabChange, onOpenBusiness, liveOrderTick = 0, notifications = [] }) {
+export default function SellerDashboard({
+  user,
+  lang,
+  activeTab,
+  onTabChange,
+  onOpenBusiness,
+  liveOrderTick = 0,
+  notifications = [],
+  socket = null,
+  onMessageUnreadChange,
+}) {
   const t = (en, ne) => lang === 'en' ? en : ne;
 
   const [myBusiness, setMyBusiness]   = useState(null);
@@ -105,7 +154,13 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const [pollingMsg, setPollingMsg]   = useState('');
   const offeringType = myBusiness?.offeringType || 'both';
   const requestedTab = activeTab ?? internalTab;
-  const resolvedTab = requestedTab === 'ratings' ? 'reviews' : requestedTab === 'settings' ? 'profile' : requestedTab;
+  const resolvedTab = requestedTab === 'ratings'
+    ? 'reviews'
+    : requestedTab === 'settings'
+      ? 'profile'
+      : (requestedTab === 'dashboard' || !requestedTab)
+        ? 'overview'
+        : requestedTab;
   const currentTab = (offeringType === 'products' && resolvedTab === 'services') || (offeringType === 'services' && resolvedTab === 'products')
     ? 'overview'
     : resolvedTab;
@@ -134,15 +189,17 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const [products,  setProducts]  = useState([]);
   const [services,  setServices]  = useState([]);
   const [orders,    setOrders]    = useState([]);
+  const [billOrderId, setBillOrderId] = useState(null);
   const [bookings,  setBookings]  = useState([]);
   const [reviews,   setReviews]   = useState([]);
 
   // Onboarding form
   const [bizForm, setBizForm] = useState({
     name: '', category: '', location: '', description: '', offeringType: 'both',
-    hours: '', contactEmail: '', phone: '',
+    hours: '09:00 - 18:00', openingTime: '09:00', closingTime: '18:00', contactEmail: '', phone: '',
     registrationNumber: '', panVatNumber: '', qrUrl: '',
     isOpen: true, deliveryAvailable: true, deliveryRadiusKm: '5',
+    openingDays: [...ALL_OPENING_DAYS],
   });
   const [bizDoc, setBizDoc] = useState(null);
   const [bizQr, setBizQr] = useState(null);
@@ -154,7 +211,11 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const [editingService, setEditingService] = useState(null);
   const [prodForm, setProdForm] = useState({ name: '', brand: '', price: '', discount: '0', stock: '10', description: '', category: '' });
   const [prodImg, setProdImg]   = useState(null);
-  const [servForm, setServForm] = useState({ name: '', price: '', duration: '60', description: '', homeService: false });
+  const [servImg, setServImg]   = useState(null);
+  const [servForm, setServForm] = useState({
+    name: '', price: '', duration: '60', description: '', homeService: false,
+    availableFrom: '09:00', availableTo: '18:00',
+  });
 
   // Profile edit
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -202,9 +263,15 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
           api.get('/api/bookings'),
           api.get('/api/admin/coupons'),
         ]);
-        if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data);
-        if (bkRes.status  === 'fulfilled') setBookings(bkRes.value.data);
-        if (cpRes.status  === 'fulfilled') setCoupons(cpRes.value.data);
+        if (ordRes.status === 'fulfilled') {
+          setOrders(Array.isArray(ordRes.value.data) ? ordRes.value.data : []);
+        }
+        if (bkRes.status === 'fulfilled') {
+          setBookings(Array.isArray(bkRes.value.data) ? bkRes.value.data : []);
+        }
+        if (cpRes.status === 'fulfilled') {
+          setCoupons(Array.isArray(cpRes.value.data) ? cpRes.value.data : []);
+        }
       } else {
         setMyBusiness(null);
       }
@@ -224,8 +291,13 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   useEffect(() => {
     if (!user) return undefined;
     const handleReviewCreated = () => fetchAll(true);
+    const handleBookingsUpdated = () => fetchAll(true);
     window.addEventListener('review-created', handleReviewCreated);
-    return () => window.removeEventListener('review-created', handleReviewCreated);
+    window.addEventListener('bookings-updated', handleBookingsUpdated);
+    return () => {
+      window.removeEventListener('review-created', handleReviewCreated);
+      window.removeEventListener('bookings-updated', handleBookingsUpdated);
+    };
   }, [fetchAll, user]);
 
   useEffect(() => {
@@ -262,15 +334,134 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
 
   /* ────────────────────────────────── HANDLERS ────────────────── */
 
+  const buildProfileFormFromBusiness = (biz = {}) => {
+    const split = splitHoursRange(biz.hours);
+    return {
+      name: biz.name || '',
+      description: biz.description || '',
+      location: biz.location || '',
+      hours: biz.hours || '',
+      openingTime: biz.openingTime || split.openingTime || '09:00',
+      closingTime: biz.closingTime || split.closingTime || '18:00',
+      openingDays: normalizeOpeningDays(biz.openingDays),
+      contactEmail: biz.contactEmail || '',
+      phone: biz.phone || '',
+      website: biz.website || '',
+      qrUrl: biz.qrUrl || '',
+      isOpen: biz.isOpen !== false,
+      deliveryAvailable: biz.deliveryAvailable !== false,
+      deliveryRadiusKm: biz.deliveryRadiusKm ?? 5,
+      offeringType: biz.offeringType || 'both',
+      holidays: Array.isArray(biz.holidays) ? biz.holidays.join('\n') : '',
+      blockedDates: Array.isArray(biz.blockedDates) ? biz.blockedDates.join('\n') : '',
+      minBookingNoticeMinutes: biz.minBookingNoticeMinutes ?? 30,
+      maxAdvanceBookingDays: biz.maxAdvanceBookingDays ?? 60,
+      bookingSlotIntervalMinutes: biz.bookingSlotIntervalMinutes ?? 30,
+    };
+  };
+
+  const appendProfileFormData = (fd, form, selectedDays) => {
+    const composedHours = composeHours(form.openingTime, form.closingTime) || form.hours;
+    const normalized = {
+      ...form,
+      hours: composedHours,
+      openingTime: form.openingTime || splitHoursRange(composedHours).openingTime,
+      closingTime: form.closingTime || splitHoursRange(composedHours).closingTime,
+    };
+    Object.entries(normalized).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      if (k === 'openingDays') {
+        fd.append(k, JSON.stringify(selectedDays));
+        return;
+      }
+      if (k === 'holidays' || k === 'blockedDates') {
+        const list = String(v || '')
+          .split(/[\n,]+/)
+          .map((d) => d.trim())
+          .filter(Boolean);
+        fd.append(k, JSON.stringify(list));
+        return;
+      }
+      fd.append(k, typeof v === 'boolean' ? String(v) : v);
+    });
+  };
+
+  const renderBookingSettingsFields = () => (
+    <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3 space-y-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-amber-400">Service booking settings</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Min notice (minutes)</label>
+          <input
+            type="number"
+            min="0"
+            value={profileForm.minBookingNoticeMinutes ?? 30}
+            onChange={(e) => setProfileForm({ ...profileForm, minBookingNoticeMinutes: e.target.value })}
+            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Max advance (days)</label>
+          <input
+            type="number"
+            min="1"
+            value={profileForm.maxAdvanceBookingDays ?? 60}
+            onChange={(e) => setProfileForm({ ...profileForm, maxAdvanceBookingDays: e.target.value })}
+            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Slot interval (minutes)</label>
+          <input
+            type="number"
+            min="5"
+            step="5"
+            value={profileForm.bookingSlotIntervalMinutes ?? 30}
+            onChange={(e) => setProfileForm({ ...profileForm, bookingSlotIntervalMinutes: e.target.value })}
+            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+          />
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Holidays (YYYY-MM-DD, one per line)</label>
+          <textarea
+            rows={3}
+            value={profileForm.holidays || ''}
+            onChange={(e) => setProfileForm({ ...profileForm, holidays: e.target.value })}
+            placeholder="2026-10-20"
+            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Blocked dates (YYYY-MM-DD)</label>
+          <textarea
+            rows={3}
+            value={profileForm.blockedDates || ''}
+            onChange={(e) => setProfileForm({ ...profileForm, blockedDates: e.target.value })}
+            placeholder="2026-12-25"
+            className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+          />
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Customers book in Nepal time (Asia/Kathmandu). Past times and overlapping slots are blocked automatically.
+      </p>
+    </div>
+  );
+
   const handleResubmitBusiness = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
+    const selectedDays = normalizeOpeningDays(profileForm.openingDays, { defaultAll: false });
+    if (!selectedDays.length) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', text: 'Select at least one opening day.' });
+    }
     setIsSubmitting(true);
     try {
       const fd = new FormData();
-      Object.entries(profileForm).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') fd.append(k, v);
-      });
+      appendProfileFormData(fd, profileForm, selectedDays);
 
       const uploadedFiles = [];
       if (profileLogo) uploadedFiles.push(profileLogo);
@@ -333,9 +524,12 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
     const radius = Math.round(Number(bizForm.deliveryRadiusKm));
     const deliveryEnabled = Boolean(bizForm.deliveryAvailable);
     const wordCount = countWords(bizForm.description);
-    const normalizedHours = BUSINESS_HOURS_OPTIONS.includes(String(bizForm.hours || '').trim())
-      ? String(bizForm.hours).trim()
-      : '';
+    const composedHours = composeHours(bizForm.openingTime, bizForm.closingTime) || String(bizForm.hours || '').trim();
+    const normalizedHours = composedHours;
+    if (!normalizedHours || !bizForm.openingTime || !bizForm.closingTime) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Business Hours Required', text: 'Please set opening and closing times.' });
+    }
 
     if (!bizDoc) {
       submitGuard.finish();
@@ -352,10 +546,6 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
     if (!lettersOnly(bizForm.location)) {
       submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Invalid Location', text: 'Location can only contain letters and spaces (no numbers or special characters).' });
-    }
-    if (!normalizedHours) {
-      submitGuard.finish();
-      return Swal.fire({ icon: 'warning', title: 'Business Hours Required', text: 'Please select business hours from the list.' });
     }
     if (!BUSINESS_EMAIL_REGEX.test(String(bizForm.contactEmail || '').trim().toLowerCase())) {
       submitGuard.finish();
@@ -377,14 +567,30 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
       submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Invalid Delivery Radius', text: 'Delivery radius must be a whole number between 1 and 50 km.' });
     }
+    if (!normalizeOpeningDays(bizForm.openingDays, { defaultAll: false }).length) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Opening Days Required', text: 'Select at least one day your business is open.' });
+    }
     setIsSubmitting(true);
     try {
       const fd = new FormData();
-      Object.entries({ ...bizForm, hours: normalizedHours, deliveryRadiusKm: String(deliveryEnabled ? radius : (bizForm.deliveryRadiusKm || 5)) }).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') fd.append(k, typeof v === 'boolean' ? String(v) : v);
+      Object.entries({
+        ...bizForm,
+        hours: normalizedHours,
+        openingTime: bizForm.openingTime,
+        closingTime: bizForm.closingTime,
+        deliveryRadiusKm: String(deliveryEnabled ? radius : (bizForm.deliveryRadiusKm || 5)),
+      }).forEach(([k, v]) => {
+        if (v === undefined || v === null || v === '') return;
+        if (k === 'openingDays') {
+          fd.append(k, JSON.stringify(normalizeOpeningDays(v, { defaultAll: false })));
+          return;
+        }
+        fd.append(k, typeof v === 'boolean' ? String(v) : v);
       });
       if (!fd.get('offeringType')) fd.append('offeringType', 'both');
       if (!fd.has('deliveryAvailable')) fd.append('deliveryAvailable', String(Boolean(bizForm.deliveryAvailable)));
+      if (!fd.has('openingDays')) fd.append('openingDays', JSON.stringify([...ALL_OPENING_DAYS]));
 
       // Prefer server-side upload so registration still works when Cloudinary is offline.
       if (bizDoc) fd.append('document', bizDoc);
@@ -417,6 +623,43 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
+
+    const hasExistingImage = Boolean(editingProduct?.images?.[0]);
+    const validation = validateProductForm(
+      {
+        ...prodForm,
+        category: prodForm.category || myBusiness?.category,
+        imageFile: prodImg,
+      },
+      {
+        requireImage: true,
+        hasExistingImage: Boolean(editingProduct && hasExistingImage),
+      }
+    );
+
+    if (!editingProduct && !prodImg) {
+      validation.isValid = false;
+      validation.errors.image = 'Product image is required.';
+    } else if (editingProduct && !hasExistingImage && !prodImg) {
+      validation.isValid = false;
+      validation.errors.image = 'Product image is required.';
+    }
+
+    if (prodImg) {
+      const imageErr = validateImageFile(prodImg);
+      if (imageErr) {
+        validation.isValid = false;
+        validation.errors.image = imageErr;
+      }
+    }
+
+    if (!validation.isValid) {
+      submitGuard.finish();
+      const firstError = Object.values(validation.errors)[0];
+      Swal.fire({ icon: 'warning', text: firstError || 'Please fix the product form.' });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const fd = new FormData();
@@ -433,7 +676,9 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
       }
 
       if (editingProduct) {
-        await api.put(`/api/products/${editingProduct._id}`, prodForm, { headers: { ...createIdempotencyHeader('product-update') } });
+        await api.put(`/api/products/${editingProduct._id}`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data', ...createIdempotencyHeader('product-update') },
+        });
         Swal.fire({ icon: 'success', title: 'Product Updated', timer: 1200, showConfirmButton: false });
         setEditingProduct(null);
       } else {
@@ -453,20 +698,96 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
+
+    if (servImg) {
+      const imageErr = validateImageFile(servImg);
+      if (imageErr) {
+        submitGuard.finish();
+        Swal.fire({ icon: 'warning', text: imageErr });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
+      let imageUrl = editingService?.imageUrl || editingService?.images?.[0] || '';
+      if (servImg) {
+        try {
+          const uploadedUrls = await uploadFilesToCloudinary([servImg]);
+          imageUrl = uploadedUrls[0] || '';
+        } catch (uploadErr) {
+          // Absolute fallback: keep the photo even if every upload endpoint is down.
+          imageUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(uploadErr);
+            reader.readAsDataURL(servImg);
+          });
+        }
+        if (!imageUrl) {
+          throw new Error('Photo upload failed. Please try a smaller JPG/PNG (under 5MB).');
+        }
+      }
+
+      const payload = {
+        businessId: myBusiness._id,
+        name: servForm.name,
+        price: servForm.price,
+        duration: servForm.duration,
+        description: servForm.description,
+        homeService: Boolean(servForm.homeService),
+        availableFrom: servForm.availableFrom || '',
+        availableTo: servForm.availableTo || '',
+        imageUrl: imageUrl || undefined,
+      };
+
+      let savedService = null;
       if (editingService) {
-        await api.put(`/api/services/${editingService._id}`, servForm, { headers: { ...createIdempotencyHeader('service-update') } });
+        const response = await api.put(`/api/services/${editingService._id}`, payload, {
+          timeout: 90000,
+          headers: { ...createIdempotencyHeader('service-update') },
+        });
+        savedService = response.data?.service;
         Swal.fire({ icon: 'success', title: 'Service Updated', timer: 1200, showConfirmButton: false });
         setEditingService(null);
       } else {
-        await api.post('/api/services', { ...servForm, businessId: myBusiness._id }, { headers: { ...createIdempotencyHeader('service-create') } });
+        const response = await api.post('/api/services', payload, {
+          timeout: 90000,
+          headers: { ...createIdempotencyHeader('service-create') },
+        });
+        savedService = response.data?.service;
         Swal.fire({ icon: 'success', title: 'Service Added!', timer: 1200, showConfirmButton: false });
       }
-      setServForm({ name: '', price: '', duration: '60', description: '', homeService: false });
-      setShowAddServ(false); fetchAll();
+
+      if (savedService) {
+        const withImage = {
+          ...savedService,
+          imageUrl: savedService.imageUrl || savedService.images?.[0] || imageUrl || '',
+        };
+        setServices((prev) => {
+          const list = Array.isArray(prev) ? prev : [];
+          const idx = list.findIndex((s) => String(s._id) === String(withImage._id));
+          if (idx >= 0) {
+            const next = [...list];
+            next[idx] = { ...list[idx], ...withImage };
+            return next;
+          }
+          return [withImage, ...list];
+        });
+      }
+
+      setServForm({
+        name: '', price: '', duration: '60', description: '', homeService: false,
+        availableFrom: '09:00', availableTo: '18:00',
+      });
+      setServImg(null);
+      setShowAddServ(false);
+      fetchAll(true);
     } catch (err) {
-      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Service creation failed.' });
+      Swal.fire({
+        icon: 'error',
+        text: err.response?.data?.message || err.message || 'Could not save service.',
+      });
     } finally {
       setIsSubmitting(false);
       submitGuard.finish();
@@ -497,21 +818,156 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
     } catch { Swal.fire({ icon: 'error', text: 'Status update failed.' }); }
   };
 
-  const handleBookingStatus = async (id, status) => {
+  const ORDER_ACTION_LABELS = { accept: 'Order accepted', preparing: 'Marked as preparing', dispatch: 'Out for delivery — the customer now sees their delivery OTP' };
+  const handleOrderAction = async (orderId, action) => {
     try {
-      await api.put(`/api/bookings/${id}`, { status });
+      await api.patch(`/api/orders/${orderId}/${action}`);
+      Swal.fire({ icon: 'success', title: ORDER_ACTION_LABELS[action] || 'Order updated', timer: 1500, showConfirmButton: false });
+      fetchAll(true);
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(err, 'Order update failed.') });
+      fetchAll(true);
+    }
+  };
+
+  const handleRejectOrder = async (order) => {
+    const res = await Swal.fire({
+      icon: 'warning',
+      title: t('Reject this order?', 'यो अर्डर अस्वीकार गर्ने?'),
+      text: order.paymentStatus === 'paid'
+        ? t('This order is already paid. You must refund the customer from your eSewa merchant account.', 'यो अर्डरको भुक्तानी भइसकेको छ। ग्राहकलाई eSewa बाट रकम फिर्ता गर्नुहोस्।')
+        : '',
+      input: 'text',
+      inputPlaceholder: t('Reason (e.g. out of stock)', 'कारण (जस्तै: स्टक सकियो)'),
+      inputAttributes: { maxlength: 300 },
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: t('Reject order', 'अस्वीकार गर्नुहोस्'),
+    });
+    if (!res.isConfirmed) return;
+    try {
+      await api.patch(`/api/orders/${order._id}/reject`, { reason: res.value || '' });
+      Swal.fire({ icon: 'success', title: t('Order rejected', 'अर्डर अस्वीकार गरियो'), timer: 1200, showConfirmButton: false });
+      fetchAll(true);
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(err, 'Could not reject the order.') });
+    }
+  };
+
+  const handleVerifyDeliveryOtp = async (orderId) => {
+    const res = await Swal.fire({
+      title: t('Enter delivery OTP', 'डेलिभरी OTP लेख्नुहोस्'),
+      text: t('Ask the customer for the 6-digit code shown in their My Orders.', 'ग्राहकको My Orders मा देखिएको ६ अंकको कोड सोध्नुहोस्।'),
+      input: 'text',
+      inputAttributes: { maxlength: 6, inputmode: 'numeric', autocomplete: 'one-time-code' },
+      inputValidator: (value) => (/^\d{6}$/.test(String(value || '').trim()) ? undefined : t('Enter the 6-digit code.', '६ अंकको कोड लेख्नुहोस्।')),
+      showCancelButton: true,
+      confirmButtonText: t('Confirm delivery', 'डेलिभरी पुष्टि'),
+    });
+    if (!res.isConfirmed) return;
+    try {
+      await api.post(`/api/orders/${orderId}/verify-otp`, { otp: String(res.value).trim() });
+      Swal.fire({ icon: 'success', title: t('Delivery confirmed', 'डेलिभरी पुष्टि भयो'), timer: 1400, showConfirmButton: false });
+      fetchAll(true);
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(err, 'OTP verification failed.') });
+    }
+  };
+
+  const handleConfirmPayment = async (orderId) => {
+    const res = await Swal.fire({
+      icon: 'question',
+      title: t('Confirm payment received?', 'भुक्तानी प्राप्त भयो?'),
+      text: t('Only confirm once the QR transfer has reached your account.', 'QR भुक्तानी तपाईंको खातामा आएपछि मात्र पुष्टि गर्नुहोस्।'),
+      showCancelButton: true,
+      confirmButtonText: t('Yes, mark as paid', 'हो, भुक्तानी भयो'),
+    });
+    if (!res.isConfirmed) return;
+    try {
+      await api.post('/api/payment/confirm', { orderId, status: 'paid' });
+      Swal.fire({ icon: 'success', title: t('Payment confirmed', 'भुक्तानी पुष्टि भयो'), timer: 1200, showConfirmButton: false });
+      fetchAll(true);
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(err, 'Payment confirmation failed.') });
+    }
+  };
+
+  const handleBookingStatus = async (id, status) => {
+    const bookingId = String(id || '').trim();
+    if (!bookingId) {
+      Swal.fire({ icon: 'error', text: 'Missing booking id.' });
+      return;
+    }
+    try {
+      await api.put(`/api/bookings/${bookingId}`, { status });
       Swal.fire({ icon: 'success', title: `Booking → ${status}`, timer: 1200, showConfirmButton: false });
       fetchAll(true);
-    } catch { Swal.fire({ icon: 'error', text: 'Booking update failed.' }); }
+      window.dispatchEvent(new CustomEvent('bookings-updated'));
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Booking update failed.';
+      Swal.fire({ icon: 'error', text: msg });
+    }
+  };
+
+  const toggleOpeningDay = (formKey, dayKey) => {
+    const setter = formKey === 'biz' ? setBizForm : setProfileForm;
+    setter((prev) => {
+      const current = normalizeOpeningDays(prev.openingDays, { defaultAll: true });
+      const next = current.includes(dayKey)
+        ? current.filter((day) => day !== dayKey)
+        : [...current, dayKey];
+      return { ...prev, openingDays: next };
+    });
+  };
+
+  const renderOpeningDaysPicker = (selectedDays, formKey, tone = 'dark') => {
+    const selected = normalizeOpeningDays(selectedDays, { defaultAll: true });
+    const isDark = tone === 'dark';
+    return (
+      <div>
+        <label className={`mb-2 block text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-[#52627a]'}`}>
+          Opening Days *
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAY_OPTIONS.map((day) => {
+            const active = selected.includes(day.key);
+            return (
+              <button
+                key={day.key}
+                type="button"
+                onClick={() => toggleOpeningDay(formKey, day.key)}
+                className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                  active
+                    ? 'bg-amber-400 text-slate-950'
+                    : isDark
+                      ? 'border border-slate-700 bg-slate-950/50 text-slate-400 hover:border-amber-400/50'
+                      : 'border border-[#E5EBF2] bg-white text-[#68778c] hover:border-[#F2B71D]'
+                }`}
+              >
+                {day.short}
+              </button>
+            );
+          })}
+        </div>
+        <p className={`mt-1.5 text-[11px] ${isDark ? 'text-slate-500' : 'text-[#68778c]'}`}>
+          Customers see open/closed based on these days and your hours.
+        </p>
+      </div>
+    );
   };
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!submitGuard.begin()) return;
+    const selectedDays = normalizeOpeningDays(profileForm.openingDays, { defaultAll: false });
+    if (!selectedDays.length) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', text: 'Select at least one opening day.' });
+    }
     setIsSubmitting(true);
     try {
       const fd = new FormData();
-      Object.entries(profileForm).forEach(([k, v]) => fd.append(k, v));
+      appendProfileFormData(fd, profileForm, selectedDays);
 
       const uploadedFiles = [];
       if (profileLogo) uploadedFiles.push(profileLogo);
@@ -702,16 +1158,41 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 <InputField label={t('Location *', 'स्थान *')} placeholder="e.g. Thamel Kathmandu" value={bizForm.location} onChange={e => setBizForm({...bizForm, location: e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ')})} title="Letters and spaces only" required />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Business Hours (Nepal Time) *</label>
-                  <select value={bizForm.hours} onChange={e => setBizForm({...bizForm, hours: e.target.value})} className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" required>
-                    <option value="" disabled>Select hours</option>
-                    {BUSINESS_HOURS_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
-                  </select>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Opening time *</label>
+                  <input
+                    type="time"
+                    value={bizForm.openingTime || ''}
+                    onChange={(e) => setBizForm({
+                      ...bizForm,
+                      openingTime: e.target.value,
+                      hours: composeHours(e.target.value, bizForm.closingTime),
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Closing time *</label>
+                  <input
+                    type="time"
+                    value={bizForm.closingTime || ''}
+                    onChange={(e) => setBizForm({
+                      ...bizForm,
+                      closingTime: e.target.value,
+                      hours: composeHours(bizForm.openingTime, e.target.value),
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
                 </div>
                 <InputField label="Contact Email *" type="email" placeholder="words@number.com (e.g. shop@123.com)" value={bizForm.contactEmail} onChange={e => setBizForm({...bizForm, contactEmail: e.target.value.replace(/[^A-Za-z0-9@.]/g, '')})} pattern="[A-Za-z]+@[0-9]+\.com" title="Format: words@number.com" required />
                 <InputField label="Phone Number *" type="tel" placeholder="10 digits starting with 97 or 98" value={bizForm.phone} onChange={e => setBizForm({...bizForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10)})} inputMode="numeric" pattern="(97|98)[0-9]{8}" maxLength={10} minLength={10} required />
+              </div>
+
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4">
+                {renderOpeningDaysPicker(bizForm.openingDays, 'biz')}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -836,20 +1317,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
             <button
               type="button"
               onClick={() => {
-                setProfileForm({
-                  name: myBusiness.name,
-                  description: myBusiness.description,
-                  location: myBusiness.location,
-                  hours: myBusiness.hours,
-                  contactEmail: myBusiness.contactEmail,
-                  phone: myBusiness.phone || '',
-                  website: myBusiness.website || '',
-                  qrUrl: myBusiness.qrUrl || '',
-                  isOpen: myBusiness.isOpen !== false,
-                  deliveryAvailable: myBusiness.deliveryAvailable !== false,
-                  deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5,
-                  offeringType: myBusiness.offeringType || 'both',
-                });
+                setProfileForm(buildProfileFormFromBusiness(myBusiness));
                 setShowEditProfile(true);
               }}
               className="rounded-xl bg-amber-400 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 transition"
@@ -872,9 +1340,46 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 <InputField label="Location *" value={profileForm.location || ''} onChange={e => setProfileForm({...profileForm, location: e.target.value})} required />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <InputField label="Business Hours" value={profileForm.hours || ''} onChange={e => setProfileForm({...profileForm, hours: e.target.value})} placeholder="09:00 - 18:00" />
-                <InputField label="Website" type="url" value={profileForm.website || ''} onChange={e => setProfileForm({...profileForm, website: e.target.value})} placeholder="https://..." />
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Opening time</label>
+                  <input
+                    type="time"
+                    value={profileForm.openingTime || ''}
+                    onChange={(e) => setProfileForm({
+                      ...profileForm,
+                      openingTime: e.target.value,
+                      hours: composeHours(e.target.value, profileForm.closingTime) || profileForm.hours,
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Closing time</label>
+                  <input
+                    type="time"
+                    value={profileForm.closingTime || ''}
+                    onChange={(e) => setProfileForm({
+                      ...profileForm,
+                      closingTime: e.target.value,
+                      hours: composeHours(profileForm.openingTime, e.target.value) || profileForm.hours,
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
               </div>
+              <p className="text-[11px] text-slate-500 -mt-2">
+                Customers can book between these hours (Nepal time). Preset: {profileForm.hours || 'not set'}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InputField label="Website" type="url" value={profileForm.website || ''} onChange={e => setProfileForm({...profileForm, website: e.target.value})} placeholder="https://..." />
+                <div />
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3">
+                {renderOpeningDaysPicker(profileForm.openingDays, 'profile')}
+              </div>
+              {renderBookingSettingsFields()}
               <div className="grid gap-4 sm:grid-cols-2">
                 <InputField label="Contact Email" type="email" value={profileForm.contactEmail || ''} onChange={e => setProfileForm({...profileForm, contactEmail: e.target.value})} />
                 <InputField label="Phone" type="tel" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
@@ -914,10 +1419,10 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
      4. FULL DASHBOARD (approved / verified)
   ══════════════════════════════════════════════════════════════ */
   return (
-    <div className="mx-auto max-w-full px-3 py-5 sm:px-5 xl:px-8">
-      <main className="bg-[#f7f1e8] p-4 text-[#142835] sm:p-6">
+    <div className="mx-auto max-w-full px-3 py-3 sm:px-5 xl:px-8">
+      <main className="bg-[#f7f1e8] p-3 text-[#142835] sm:p-4">
       {currentTab === 'overview' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* ─── 1. BUSINESS PROFILE HEADER ─── */}
           <div style={{
@@ -989,11 +1494,18 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
             </div>
           </div>
 
-          {/* ─── 2. STATS CARDS + BUSINESS STATUS + NOTIFICATIONS ─── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(600px, 1fr)) 340px', gap: 20, alignItems: 'start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {/* Stats Row */}
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${offeringType === 'both' ? 4 : 3}, 1fr)`, gap: 14 }}>
+          {/* ─── 2–3. OVERVIEW: left (stats + sales) | right (status stack) ─── */}
+          <div
+            className="seller-overview-stats-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)',
+              gap: 16,
+              alignItems: 'start',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${offeringType === 'both' ? 4 : 3}, minmax(0, 1fr))`, gap: 12, alignContent: 'start', height: 'fit-content' }}>
                 {[
                   { icon: <FiShoppingBag />, label: t('Total Orders', 'कुल अर्डर'), value: orders.length, change: orderChange, color: '#3B82F6', bg: '#EFF6FF' },
                   { icon: <span style={{ fontSize: 16, fontWeight: 800 }}>Rs.</span>, label: t('Total Revenue', 'कुल राजस्व'), value: fmt(totalRevenue), change: revenueChange, color: '#059669', bg: '#ECFDF5' },
@@ -1001,12 +1513,12 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   ...(offeringType !== 'products' ? [{ icon: <FiSettings />, label: t('Services', 'सेवाहरू'), value: services.length, change: `${services.length} active`, color: '#8B5CF6', bg: '#F5F3FF' }] : []),
                 ].map((stat, idx) => (
                   <div key={idx} style={{
-                    background: stat.bg, borderRadius: 16, padding: '18px 16px',
+                    background: stat.bg, borderRadius: 16, padding: '16px 14px',
                     border: `1px solid ${stat.bg}`, position: 'relative', overflow: 'hidden',
                     transition: 'transform 0.2s, box-shadow 0.2s',
                   }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.06)'; }}
                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                       <div style={{
                         width: 36, height: 36, borderRadius: 10,
                         background: `${stat.color}20`, color: stat.color,
@@ -1026,9 +1538,128 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   </div>
                 ))}
               </div>
+
+              {/* Sales & Order Overview — directly under stats */}
+              <div style={{
+                background: '#FFFFFF', borderRadius: 16, padding: '22px 24px',
+                border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Sales & Order Overview', 'बिक्री र अर्डर सिंहावलोकन')}</h4>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['week', 'month', 'year'].map(p => (
+                      <button key={p} onClick={() => setOverviewTimePeriod(p)} style={{
+                        padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: 'none', cursor: 'pointer',
+                        background: overviewTimePeriod === p ? '#0B1A30' : '#F3F4F6',
+                        color: overviewTimePeriod === p ? '#FFFFFF' : '#6B7280',
+                        transition: 'all 0.2s',
+                      }}>
+                        {p === 'week' ? t('This Week', 'यो हप्ता') : p === 'month' ? t('This Month', 'यो महिना') : t('This Year', 'यो वर्ष')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 28, alignItems: 'start' }}>
+                  <div>
+                    <div style={{ marginBottom: 12 }}>
+                      <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Revenue', 'राजस्व')}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <span style={{ fontSize: 24, fontWeight: 800, color: '#0B1A30' }}>{fmt(totalRevenue)}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '2px 6px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <FiArrowUp style={{ width: 10, height: 10 }} /> 18%
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 140, paddingTop: 10 }}>
+                      {(() => {
+                        const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        const dayValues = dayLabels.map((_, i) => {
+                          const dayOrders = orders.filter(o => {
+                            const d = new Date(o.createdAt || Date.now());
+                            return d.getDay() === (i + 1) % 7;
+                          });
+                          return dayOrders.filter((o) => o.status === 'completed' || o.paymentStatus === 'paid').reduce((s, o) => s + Number(o.total || 0), 0);
+                        });
+                        const maxVal = Math.max(...dayValues, 1);
+                        return dayLabels.map((day, i) => (
+                          <div key={day} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <div style={{
+                              width: '100%', maxWidth: 32,
+                              height: Math.max(12, (dayValues[i] / maxVal) * 110),
+                              borderRadius: '6px 6px 2px 2px',
+                              background: i === 4 ? 'linear-gradient(180deg, #F2B71D, #E0A615)' : 'linear-gradient(180deg, #FDEAB0, #FDD95C)',
+                              transition: 'height 0.4s ease',
+                              position: 'relative',
+                            }}>
+                              {dayValues[i] > 0 && (
+                                <span style={{
+                                  position: 'absolute', top: -18, left: '50%', transform: 'translateX(-50%)',
+                                  fontSize: 9, fontWeight: 700, color: '#57657A', whiteSpace: 'nowrap',
+                                }}>{fmt(dayValues[i]).replace('Rs. ', '')}</span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>{day}</span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Order Type', 'अर्डर प्रकार')}</span>
+                    <div style={{ position: 'relative', width: 140, height: 140, margin: '12px auto 0' }}>
+                      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+                        {(() => {
+                          const prodOrders = productOrders.length;
+                          const servOrders = serviceOrders.length;
+                          const otherOrders = Math.max(0, orders.length - prodOrders - servOrders);
+                          const total = prodOrders + servOrders + otherOrders || 1;
+                          const segments = [
+                            { pct: prodOrders / total, color: '#F2B71D' },
+                            { pct: servOrders / total, color: '#059669' },
+                            { pct: otherOrders / total, color: '#3B82F6' },
+                          ];
+                          let offset = 0;
+                          return segments.map((seg, i) => {
+                            const circumference = Math.PI * 2 * 35;
+                            const strokeLen = seg.pct * circumference;
+                            const el = (
+                              <circle key={i} cx="50" cy="50" r="35" fill="none"
+                                stroke={seg.color} strokeWidth="12"
+                                strokeDasharray={`${strokeLen} ${circumference - strokeLen}`}
+                                strokeDashoffset={-offset}
+                                strokeLinecap="round" />
+                            );
+                            offset += strokeLen;
+                            return el;
+                          });
+                        })()}
+                      </svg>
+                      <div style={{
+                        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: '#0B1A30' }}>{orders.length || 0}</span>
+                        <span style={{ fontSize: 10, color: '#9CA3AF' }}>{t('Orders', 'अर्डर')}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
+                      {[
+                        { label: t('Products', 'उत्पादनहरू'), pct: `${productOrderPercent}%`, color: '#F2B71D' },
+                        { label: t('Services', 'सेवाहरू'), pct: `${serviceOrderPercent}%`, color: '#059669' },
+                        { label: t('Others', 'अन्य'), pct: `${Math.max(0, 100 - productOrderPercent - serviceOrderPercent)}%`, color: '#3B82F6' },
+                      ].map((item, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: item.color }} />
+                          <span style={{ color: '#57657A' }}>{item.label} ({item.pct})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Business Status + Notifications Column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Business Status Card */}
               <div style={{
@@ -1061,6 +1692,11 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                     <span style={{ color: '#57657A' }}>{t('Operating Hours:', 'सञ्चालन समय:')}</span>
                     <span style={{ fontWeight: 600, color: '#0B1A30' }}>{myBusiness.hours || '09:00 AM – 10:00 PM'}</span>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13 }}>
+                    <FiCalendar style={{ width: 14, height: 14, color: '#F2B71D', marginTop: 2 }} />
+                    <span style={{ color: '#57657A' }}>{t('Open Days:', 'खुला दिनहरू:')}</span>
+                    <span style={{ fontWeight: 600, color: '#0B1A30' }}>{formatOpeningDaysLabel(myBusiness)}</span>
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                     <FiMapPin style={{ width: 14, height: 14, color: '#F2B71D' }} />
                     <span style={{ color: '#57657A' }}>{t('Location:', 'स्थान:')}</span>
@@ -1068,7 +1704,6 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   </div>
                 </div>
               </div>
-
               {/* Recent Notifications */}
               <div style={{
                 background: '#FFFFFF', borderRadius: 16, padding: '18px 20px',
@@ -1105,162 +1740,36 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   })}
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* ─── 3. SALES & ORDER OVERVIEW + QUICK ACTIONS ─── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20 }}>
-            <div style={{
-              background: '#FFFFFF', borderRadius: 16, padding: '22px 24px',
-              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: 0 }}>{t('Sales & Order Overview', 'बिक्री र अर्डर सिंहावलोकन')}</h4>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {['week', 'month', 'year'].map(p => (
-                    <button key={p} onClick={() => setOverviewTimePeriod(p)} style={{
-                      padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                      border: 'none', cursor: 'pointer',
-                      background: overviewTimePeriod === p ? '#0B1A30' : '#F3F4F6',
-                      color: overviewTimePeriod === p ? '#FFFFFF' : '#6B7280',
-                      transition: 'all 0.2s',
-                    }}>
-                      {p === 'week' ? t('This Week', 'यो हप्ता') : p === 'month' ? t('This Month', 'यो महिना') : t('This Year', 'यो वर्ष')}
+              {/* Quick Actions */}
+              <div style={{
+                background: '#FFFFFF', borderRadius: 16, padding: '22px 20px',
+                border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              }}>
+                <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: '0 0 16px' }}>{t('Quick Actions', 'छिटो कार्यहरू')}</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {[
+                    { icon: <FiPackage />, label: t('Add Product', 'उत्पादन थप्नुहोस्'), action: () => { changeTab('products'); setTimeout(() => setShowAddProd(true), 100); } },
+                    { icon: <FiSettings />, label: t('Add Service', 'सेवा थप्नुहोस्'), action: () => { changeTab('services'); setTimeout(() => setShowAddServ(true), 100); } },
+                    { icon: <FiEye />, label: t('View Orders', 'अर्डर हेर्नुहोस्'), action: () => changeTab('orders') },
+                    { icon: <FiTag />, label: t('Manage Offers', 'अफर व्यवस्थापन'), action: () => changeTab('promos') },
+                  ].map((qa, i) => (
+                    <button key={i} onClick={qa.action} style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                      padding: '18px 12px', borderRadius: 14,
+                      background: '#FAFAF8', border: '1px solid #F0EAD6',
+                      cursor: 'pointer', transition: 'all 0.2s',
+                    }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#F2B71D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(242,183,29,0.12)'; }}
+                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#F0EAD6'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                      <div style={{
+                        width: 42, height: 42, borderRadius: 12,
+                        background: '#FFFBEB', color: '#F2B71D',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+                      }}>{qa.icon}</div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#0B1A30', textAlign: 'center' }}>{qa.label}</span>
                     </button>
                   ))}
                 </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 28, alignItems: 'start' }}>
-                {/* Revenue Chart */}
-                <div>
-                  <div style={{ marginBottom: 12 }}>
-                    <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Revenue', 'राजस्व')}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                      <span style={{ fontSize: 24, fontWeight: 800, color: '#0B1A30' }}>{fmt(totalRevenue)}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '2px 6px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <FiArrowUp style={{ width: 10, height: 10 }} /> 18%
-                      </span>
-                    </div>
-                  </div>
-                  {/* Bar Chart */}
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 140, paddingTop: 10 }}>
-                    {(() => {
-                      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                      const dayValues = dayLabels.map((_, i) => {
-                        const dayOrders = orders.filter(o => {
-                          const d = new Date(o.createdAt || Date.now());
-                          return d.getDay() === (i + 1) % 7;
-                        });
-                        return dayOrders.filter((o) => o.status === 'completed' || o.paymentStatus === 'paid').reduce((s, o) => s + Number(o.total || 0), 0);
-                      });
-                      const maxVal = Math.max(...dayValues, 1);
-                      return dayLabels.map((day, i) => (
-                        <div key={day} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1 }}>
-                          <div style={{
-                            width: '100%', maxWidth: 32,
-                            height: Math.max(12, (dayValues[i] / maxVal) * 110),
-                            borderRadius: '6px 6px 2px 2px',
-                            background: i === 4 ? 'linear-gradient(180deg, #F2B71D, #E0A615)' : 'linear-gradient(180deg, #FDEAB0, #FDD95C)',
-                            transition: 'height 0.4s ease',
-                            position: 'relative',
-                          }}>
-                            {dayValues[i] > 0 && (
-                              <span style={{
-                                position: 'absolute', top: -18, left: '50%', transform: 'translateX(-50%)',
-                                fontSize: 9, fontWeight: 700, color: '#57657A', whiteSpace: 'nowrap',
-                              }}>{fmt(dayValues[i]).replace('Rs. ', '')}</span>
-                            )}
-                          </div>
-                          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>{day}</span>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                </div>
-
-                {/* Donut Chart */}
-                <div>
-                  <span style={{ fontSize: 11, color: '#57657A', fontWeight: 500 }}>{t('Order Type', 'अर्डर प्रकार')}</span>
-                  <div style={{ position: 'relative', width: 140, height: 140, margin: '12px auto 0' }}>
-                    <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
-                      {(() => {
-                        const prodOrders = productOrders.length;
-                        const servOrders = serviceOrders.length;
-                        const otherOrders = Math.max(0, orders.length - prodOrders - servOrders);
-                        const total = prodOrders + servOrders + otherOrders || 1;
-                        const segments = [
-                          { pct: prodOrders / total, color: '#F2B71D' },
-                          { pct: servOrders / total, color: '#059669' },
-                          { pct: otherOrders / total, color: '#3B82F6' },
-                        ];
-                        let offset = 0;
-                        return segments.map((seg, i) => {
-                          const circumference = Math.PI * 2 * 35;
-                          const strokeLen = seg.pct * circumference;
-                          const el = (
-                            <circle key={i} cx="50" cy="50" r="35" fill="none"
-                              stroke={seg.color} strokeWidth="12"
-                              strokeDasharray={`${strokeLen} ${circumference - strokeLen}`}
-                              strokeDashoffset={-offset}
-                              strokeLinecap="round" />
-                          );
-                          offset += strokeLen;
-                          return el;
-                        });
-                      })()}
-                    </svg>
-                    <div style={{
-                      position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <span style={{ fontSize: 22, fontWeight: 800, color: '#0B1A30' }}>{orders.length || 0}</span>
-                      <span style={{ fontSize: 10, color: '#9CA3AF' }}>{t('Orders', 'अर्डर')}</span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
-                    {[
-                      { label: t('Products', 'उत्पादनहरू'), pct: `${productOrderPercent}%`, color: '#F2B71D' },
-                      { label: t('Services', 'सेवाहरू'), pct: `${serviceOrderPercent}%`, color: '#059669' },
-                      { label: t('Others', 'अन्य'), pct: `${Math.max(0, 100 - productOrderPercent - serviceOrderPercent)}%`, color: '#3B82F6' },
-                    ].map((item, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: item.color }} />
-                        <span style={{ color: '#57657A' }}>{item.label} ({item.pct})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div style={{
-              background: '#FFFFFF', borderRadius: 16, padding: '22px 20px',
-              border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
-            }}>
-              <h4 style={{ fontSize: 15, fontWeight: 700, color: '#0B1A30', margin: '0 0 16px' }}>{t('Quick Actions', 'छिटो कार्यहरू')}</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {[
-                  { icon: <FiPackage />, label: t('Add Product', 'उत्पादन थप्नुहोस्'), action: () => { changeTab('products'); setTimeout(() => setShowAddProd(true), 100); } },
-                  { icon: <FiSettings />, label: t('Add Service', 'सेवा थप्नुहोस्'), action: () => { changeTab('services'); setTimeout(() => setShowAddServ(true), 100); } },
-                  { icon: <FiEye />, label: t('View Orders', 'अर्डर हेर्नुहोस्'), action: () => changeTab('orders') },
-                  { icon: <FiTag />, label: t('Manage Offers', 'अफर व्यवस्थापन'), action: () => changeTab('promos') },
-                ].map((qa, i) => (
-                  <button key={i} onClick={qa.action} style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-                    padding: '18px 12px', borderRadius: 14,
-                    background: '#FAFAF8', border: '1px solid #F0EAD6',
-                    cursor: 'pointer', transition: 'all 0.2s',
-                  }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#F2B71D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(242,183,29,0.12)'; }}
-                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#F0EAD6'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
-                    <div style={{
-                      width: 42, height: 42, borderRadius: 12,
-                      background: '#FFFBEB', color: '#F2B71D',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-                    }}>{qa.icon}</div>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#0B1A30', textAlign: 'center' }}>{qa.label}</span>
-                  </button>
-                ))}
               </div>
             </div>
           </div>
@@ -1448,12 +1957,24 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
         </div>
       )}
 
+      {/* ══════════════ MESSAGES ══════════════ */}
+      {currentTab === 'messages' && (
+        <div className="seller-light-section space-y-4">
+          <SectionHeader title={t('Customer Messages', 'ग्राहक सन्देशहरू')} />
+          <BusinessMessagesPanel
+            user={user}
+            socket={socket}
+            onUnreadChange={onMessageUnreadChange}
+          />
+        </div>
+      )}
+
       {/* ══════════════ ORDERS ══════════════ */}
       {currentTab === 'orders' && (
         <div className="seller-light-section space-y-4">
           <SectionHeader title={t(`Orders (${orders.length})`, `अर्डरहरू (${orders.length})`)} />
           {orders.length === 0 ? (
-            <EmptyState icon={<FiShoppingBag />} msg={t('No orders yet.', 'अझैसम्म कुनै अर्डर छैन।')} />
+            <EmptyState icon={<FiShoppingBag />} msg={t('No product orders yet.', 'अझैसम्म कुनै उत्पादन अर्डर छैन।')} />
           ) : (
             <div className="space-y-3">
               {orders.map(o => (
@@ -1461,15 +1982,20 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="text-xs font-mono font-bold text-white">#{String(o._id).slice(-8).toUpperCase()}</p>
+                      {o.billNumber && <p className="text-[10px] font-mono text-amber-300 mt-0.5">Bill {o.billNumber}</p>}
+                      <p className="text-[10px] text-slate-500">{o.createdAt ? new Date(o.createdAt).toLocaleString() : ''}</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">{o.deliveryAddress?.name} · {o.deliveryAddress?.phone}</p>
                       <p className="text-[11px] text-slate-500">{o.deliveryAddress?.address}</p>
                     </div>
-                    <span className={`rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusColor(o.status)}`}>{o.status}</span>
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusColor(o.status)}`}>{ORDER_STATUS_LABELS[o.status] || o.status}</span>
                   </div>
 
                   <div className="text-xs text-slate-300 bg-slate-950/40 rounded-xl px-3 py-2">
                     {o.items?.map(i => `${i.name} ×${i.quantity}`).join(' | ')}
                   </div>
+                  {o.status === 'rejected' && o.rejectionReason && (
+                    <p className="text-[11px] text-rose-400">Rejected: {o.rejectionReason}</p>
+                  )}
 
                   <div className="flex items-center justify-between pt-1 border-t border-slate-800">
                     <div className="text-xs">
@@ -1477,22 +2003,77 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                       <span className={`ml-2 text-[10px] ${o.paymentStatus === 'paid' ? 'text-emerald-400' : 'text-slate-500'}`}>
                         {o.paymentStatus === 'paid' ? '✓ Paid' : 'Payment Pending'}
                       </span>
+                      <span className="ml-2 text-[10px] text-slate-500">{PAYMENT_METHOD_LABELS[o.paymentMethod] || o.paymentMethod}</span>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {o.billNumber && (
+                        <button onClick={() => setBillOrderId(o._id)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-[10px] font-bold text-slate-200 hover:bg-slate-800 transition">View Bill</button>
+                      )}
+                      {o.paymentMethod === 'QR' && o.paymentStatus === 'pending' && o.status !== 'cancelled' && (
+                        <button onClick={() => handleConfirmPayment(o._id)} className="rounded-lg border border-emerald-500/50 px-3 py-1.5 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/10 transition">Confirm Payment</button>
+                      )}
                       {o.status === 'placed' && (
                         <>
-                          <button onClick={() => handleOrderStatus(o._id, 'preparing', 'Seller accepted order.')} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition">Accept</button>
-                          <button onClick={() => handleOrderStatus(o._id, 'cancelled', 'Seller rejected order.')} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 transition">Reject</button>
+                          <button onClick={() => handleOrderAction(o._id, 'accept')} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition">Accept</button>
+                          <button onClick={() => handleRejectOrder(o)} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 transition">Reject</button>
                         </>
                       )}
-                      {o.status === 'preparing' && (
-                        <button onClick={() => handleOrderStatus(o._id, 'dispatched', 'Order ready for pickup.')} className="rounded-lg bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-amber-300 transition">Ready to Dispatch</button>
+                      {o.status === 'accepted' && (
+                        <button onClick={() => handleOrderAction(o._id, 'preparing')} className="rounded-lg bg-sky-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-sky-400 transition">Start Preparing</button>
+                      )}
+                      {['accepted', 'preparing'].includes(o.status) && (
+                        <button onClick={() => handleOrderAction(o._id, 'dispatch')} className="rounded-lg bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950 hover:bg-amber-300 transition">Dispatch</button>
+                      )}
+                      {o.status === 'dispatched' && (
+                        <button onClick={() => handleVerifyDeliveryOtp(o._id)} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition">Enter Delivery OTP</button>
                       )}
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {billOrderId && <BillViewer orderId={billOrderId} onClose={() => setBillOrderId(null)} />}
+
+          {/* Service bookings also surface under Orders so sellers always see them */}
+          {offeringType !== 'products' && (
+            <div className="space-y-3 pt-4 border-t border-slate-800">
+              <SectionHeader title={t(`Service Bookings (${bookings.length})`, `सेवा बुकिङहरू (${bookings.length})`)} />
+              {bookings.length === 0 ? (
+                <EmptyState icon={<FiCalendar />} msg={t('No service bookings yet.', 'अझैसम्म कुनै बुकिङ छैन।')} />
+              ) : (
+                <div className="space-y-3">
+                  {bookings.map(bk => (
+                    <div key={`ord-bk-${bk._id}`} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 space-y-1">
+                        <p className="text-sm font-bold text-white">{bk.serviceName || t('Service booking', 'सेवा बुकिङ')}</p>
+                        <p className="text-[11px] text-slate-300">
+                          <span className="font-semibold text-amber-300">{bk.customerName || t('Customer', 'ग्राहक')}</span>
+                          {bk.customerPhone ? <span className="text-slate-500"> · {bk.customerPhone}</span> : null}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {bk.date} · {bk.timeSlot}
+                          {bk.durationMinutes ? ` · ${bk.durationMinutes} min` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusColor(bk.status)}`}>{bk.status}</span>
+                        {bk.status === 'pending' && (
+                          <>
+                            <button onClick={() => handleBookingStatus(bk._id, 'confirmed')} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition">Confirm</button>
+                            <button onClick={() => handleBookingStatus(bk._id, 'rejected')} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 transition">Decline</button>
+                          </>
+                        )}
+                        {bk.status === 'confirmed' && (
+                          <button onClick={() => handleBookingStatus(bk._id, 'completed')} className="rounded-lg bg-slate-700 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-slate-600 transition">Complete</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1509,18 +2090,37 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               {bookings.map(bk => (
                 <div key={bk._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                   <div className="flex-1 space-y-1">
-                    <p className="text-xs font-mono font-bold text-white">#{String(bk._id).slice(-8).toUpperCase()}</p>
-                    <p className="text-[11px] text-slate-400">{t('Date:', 'मिति:')} <span className="text-slate-200">{bk.date}</span> · {t('Slot:', 'समय:')} <span className="text-slate-200">{bk.timeSlot}</span></p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-bold text-white">{bk.serviceName || t('Service booking', 'सेवा बुकिङ')}</p>
+                      <span className="text-[10px] font-mono text-slate-500">#{String(bk._id).slice(-8).toUpperCase()}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      <span className="font-semibold text-amber-300">{bk.customerName || t('Customer', 'ग्राहक')}</span>
+                      {bk.customerPhone ? <span className="text-slate-500"> · {bk.customerPhone}</span> : null}
+                      {bk.customerEmail ? <span className="text-slate-500"> · {bk.customerEmail}</span> : null}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {t('Date:', 'मिति:')} <span className="text-slate-200">{bk.date}</span>
+                      {' · '}
+                      {t('Slot:', 'समय:')} <span className="text-slate-200">{bk.timeSlot}</span>
+                      {bk.durationMinutes ? <span className="text-slate-500"> · {bk.durationMinutes} min</span> : null}
+                    </p>
+                    {Number(bk.servicePrice) > 0 && (
+                      <p className="text-[11px] text-slate-400">{t('Price:', 'मूल्य:')} <span className="text-slate-200">Rs. {Number(bk.servicePrice).toLocaleString()}</span></p>
+                    )}
                     {bk.staffMember && <p className="text-[11px] text-slate-500">{t('Staff:', 'कर्मचारी:')} {bk.staffMember}</p>}
-                    {bk.homeService && <span className="text-[10px] text-purple-400 font-semibold">🏠 Home Service</span>}
+                    {bk.homeService && <span className="text-[10px] text-violet-400 font-semibold">Home Service</span>}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className={`rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusColor(bk.status)}`}>{bk.status}</span>
                     {bk.status === 'pending' && (
                       <>
                         <button onClick={() => handleBookingStatus(bk._id, 'confirmed')} className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-400 transition">Confirm</button>
-                        <button onClick={() => handleBookingStatus(bk._id, 'cancelled')} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 transition">Decline</button>
+                        <button onClick={() => handleBookingStatus(bk._id, 'rejected')} className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:bg-rose-500/10 transition">Decline</button>
                       </>
+                    )}
+                    {bk.status === 'confirmed' && (
+                      <button onClick={() => handleBookingStatus(bk._id, 'completed')} className="rounded-lg bg-slate-700 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-slate-600 transition">Complete</button>
                     )}
                   </div>
                 </div>
@@ -1541,7 +2141,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               </button>
             )}
             {myBusiness?.offeringType !== 'products' && (
-              <button onClick={() => { setShowAddServ(!showAddServ); setShowAddProd(false); setEditingService(null); setServForm({ name: '', price: '', duration: '60', description: '', homeService: false }); }} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-bold text-slate-200 hover:border-amber-400 hover:text-amber-400 transition">
+              <button onClick={() => { setShowAddServ(!showAddServ); setShowAddProd(false); setEditingService(null); setServImg(null); setServForm({ name: '', price: '', duration: '60', description: '', homeService: false, availableFrom: '09:00', availableTo: '18:00' }); }} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-bold text-slate-200 hover:border-amber-400 hover:text-amber-400 transition">
                 <FiPlus /> {t('Add Service', 'सेवा थप्नुहोस्')}
               </button>
             )}
@@ -1555,22 +2155,86 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 <button type="button" onClick={() => { setShowAddProd(false); setEditingProduct(null); }} className="text-slate-400 hover:text-white"><FiX /></button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <InputField label="Product Name *" placeholder="e.g. Organic Honey" value={prodForm.name} onChange={e => setProdForm({...prodForm, name: e.target.value})} required />
-                <InputField label="Brand" placeholder="Brand name" value={prodForm.brand} onChange={e => setProdForm({...prodForm, brand: e.target.value})} />
+                <InputField
+                  label="Product Name *"
+                  placeholder="e.g. Organic Honey"
+                  value={prodForm.name}
+                  onChange={(e) => setProdForm({ ...prodForm, name: sanitizeProductWordName(e.target.value) })}
+                  required
+                />
+                <InputField
+                  label="Brand *"
+                  placeholder="Brand name"
+                  value={prodForm.brand}
+                  onChange={(e) => setProdForm({ ...prodForm, brand: sanitizeProductWordName(e.target.value) })}
+                  required
+                />
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
-                <InputField label="Price (Rs.) *" type="number" placeholder="0" value={prodForm.price} onChange={e => setProdForm({...prodForm, price: e.target.value})} required />
-                <InputField label="Discount (%)" type="number" placeholder="0" value={prodForm.discount} onChange={e => setProdForm({...prodForm, discount: e.target.value})} />
-                <InputField label="Stock Qty" type="number" placeholder="10" value={prodForm.stock} onChange={e => setProdForm({...prodForm, stock: e.target.value})} />
+                <InputField
+                  label="Price (Rs.) *"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0"
+                  value={prodForm.price}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') return setProdForm({ ...prodForm, price: '' });
+                    const num = Number(value);
+                    if (Number.isNaN(num) || num < 0) return;
+                    setProdForm({ ...prodForm, price: value });
+                  }}
+                  required
+                />
+                <InputField
+                  label="Discount (%)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  placeholder="0"
+                  value={prodForm.discount}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') return setProdForm({ ...prodForm, discount: '' });
+                    const num = Number(value);
+                    if (Number.isNaN(num) || num < 0 || num > 100) return;
+                    setProdForm({ ...prodForm, discount: value });
+                  }}
+                />
+                <InputField
+                  label="Stock Qty *"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="10"
+                  value={prodForm.stock}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') return setProdForm({ ...prodForm, stock: '' });
+                    const num = Number(value);
+                    if (Number.isNaN(num) || num < 0 || !Number.isInteger(num)) return;
+                    setProdForm({ ...prodForm, stock: value });
+                  }}
+                  required
+                />
               </div>
               <TextAreaField label="Description *" placeholder="Product details, specifications…" value={prodForm.description} onChange={e => setProdForm({...prodForm, description: e.target.value})} rows={3} required />
-              {!editingProduct && (
-                <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1"><FiUpload className="inline mr-1" />Product Image</label>
-                  <input type="file" accept="image/*" onChange={e => setProdImg(e.target.files[0])} className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold" />
-                  {prodImg && <p className="mt-1 text-[11px] text-emerald-400">✓ {prodImg.name}</p>}
-                </div>
-              )}
+              <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  <FiUpload className="inline mr-1" />Product Image *
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setProdImg(e.target.files?.[0] || null)}
+                  className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold"
+                />
+                {prodImg && <p className="mt-1 text-[11px] text-emerald-400">✓ {prodImg.name}</p>}
+                {!prodImg && editingProduct?.images?.[0] && (
+                  <p className="mt-1 text-[11px] text-slate-400">Current image will be kept unless you upload a new one.</p>
+                )}
+              </div>
               <button type="submit" disabled={isSubmitting} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition disabled:opacity-60">
                 <FiSave /> {isSubmitting ? t('Processing...', 'प्रोसेस हुँदै...') : (editingProduct ? t('Save Changes', 'परिवर्तन सुरक्षित गर्नुहोस्') : t('Add to Catalog', 'क्याटलगमा थप्नुहोस्'))}
               </button>
@@ -1582,14 +2246,64 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
             <form onSubmit={handleAddService} className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5 space-y-3">
               <div className="flex justify-between items-center">
                 <h4 className="text-sm font-bold text-white">{editingService ? t('Edit Service', 'सेवा सम्पादन') : t('New Service', 'नयाँ सेवा')}</h4>
-                <button type="button" onClick={() => { setShowAddServ(false); setEditingService(null); }} className="text-slate-400 hover:text-white"><FiX /></button>
+                <button type="button" onClick={() => { setShowAddServ(false); setEditingService(null); setServImg(null); }} className="text-slate-400 hover:text-white"><FiX /></button>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <InputField label="Service Name *" placeholder="e.g. Home Cleaning" value={servForm.name} onChange={e => setServForm({...servForm, name: e.target.value})} required />
                 <InputField label="Price (Rs.) *" type="number" placeholder="0" value={servForm.price} onChange={e => setServForm({...servForm, price: e.target.value})} required />
                 <InputField label="Duration (min)" type="number" placeholder="60" value={servForm.duration} onChange={e => setServForm({...servForm, duration: e.target.value})} />
               </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Available from</label>
+                  <input
+                    type="time"
+                    value={servForm.availableFrom || ''}
+                    onChange={(e) => setServForm({ ...servForm, availableFrom: e.target.value })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Available until</label>
+                  <input
+                    type="time"
+                    value={servForm.availableTo || ''}
+                    onChange={(e) => setServForm({ ...servForm, availableTo: e.target.value })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Bookable times for this service (Nepal time). Leave blank to use full business hours.
+              </p>
               <TextAreaField label="Description *" placeholder="What does this service include?" value={servForm.description} onChange={e => setServForm({...servForm, description: e.target.value})} rows={3} required />
+              <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  <FiUpload className="inline mr-1" />Service Photo
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/jpg"
+                  onChange={(e) => setServImg(e.target.files?.[0] || null)}
+                  className="text-xs text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-2.5 file:py-1 file:text-amber-300 file:text-xs file:font-semibold"
+                />
+                {(servImg || editingService?.imageUrl) && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <img
+                      src={servImg ? URL.createObjectURL(servImg) : editingService.imageUrl}
+                      alt="Service preview"
+                      className="h-20 w-20 rounded-xl object-cover border border-slate-700"
+                    />
+                    <div className="text-[11px] text-slate-400">
+                      {servImg ? (
+                        <p className="text-emerald-400">✓ {servImg.name} — ready to upload</p>
+                      ) : (
+                        <p>Current photo will be kept unless you upload a new one.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={servForm.homeService} onChange={e => setServForm({...servForm, homeService: e.target.checked})} className="h-4 w-4 rounded accent-amber-400" />
                 <span className="text-xs text-slate-300">Available as Home / On-site Service</span>
@@ -1641,19 +2355,42 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 <EmptyState icon={<FiCalendar />} msg={t('No services added yet.', 'अझैसम्म कुनै सेवा थपिएको छैन।')} />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {services.map(s => (
-                    <div key={s._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex justify-between items-start hover:border-slate-600 transition">
-                      <div>
-                        <h5 className="text-sm font-bold text-slate-200">{s.name}</h5>
-                        <p className="text-[11px] text-slate-500 mt-0.5">{s.description}</p>
-                        <div className="mt-2 flex items-center gap-3">
-                          <span className="text-xs font-bold text-amber-300">{fmt(s.price)}</span>
-                          <span className="text-[10px] text-slate-500">{s.duration} min</span>
-                          {s.homeService && <span className="text-[10px] text-purple-400">🏠 Home</span>}
+                  {services.map(s => {
+                    const photo = s.imageUrl || s.images?.[0] || '';
+                    return (
+                    <div key={s._id} className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 flex justify-between items-start gap-3 hover:border-slate-600 transition">
+                      <div className="flex gap-3 min-w-0 flex-1">
+                        {photo ? (
+                          <img src={photo} alt={s.name} className="h-16 w-16 shrink-0 rounded-xl object-cover border border-slate-700" />
+                        ) : (
+                          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-700 text-[10px] text-slate-500">No photo</div>
+                        )}
+                        <div className="min-w-0">
+                          <h5 className="text-sm font-bold text-slate-200 truncate">{s.name}</h5>
+                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{s.description}</p>
+                          <div className="mt-2 flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-bold text-amber-300">{fmt(s.price)}</span>
+                            <span className="text-[10px] text-slate-500">{s.duration} min</span>
+                            {s.homeService && <span className="text-[10px] text-purple-400">🏠 Home</span>}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => { setEditingService(s); setServForm({ name: s.name, price: s.price, duration: s.duration || '60', description: s.description, homeService: s.homeService }); setShowAddServ(true); setShowAddProd(false); }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-amber-400 transition">
+                      <div className="flex gap-1.5 shrink-0">
+                        <button onClick={() => {
+                          setEditingService(s);
+                          setServImg(null);
+                          setServForm({
+                            name: s.name,
+                            price: s.price,
+                            duration: s.duration || '60',
+                            description: s.description,
+                            homeService: s.homeService,
+                            availableFrom: s.availableFrom || '09:00',
+                            availableTo: s.availableTo || '18:00',
+                          });
+                          setShowAddServ(true);
+                          setShowAddProd(false);
+                        }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-amber-400 transition">
                           <FiEdit3 className="h-3.5 w-3.5" />
                         </button>
                         <button onClick={() => handleDeleteService(s._id)} className="p-1.5 rounded-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition">
@@ -1661,7 +2398,8 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1778,7 +2516,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
         <div className="seller-light-section space-y-5">
           <AccountProfileCard user={user} lang={lang} />
           <SectionHeader title={t('Business Profile', 'व्यवसाय प्रोफाइल')}>
-            <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm({ name: myBusiness.name, description: myBusiness.description, location: myBusiness.location, hours: myBusiness.hours, contactEmail: myBusiness.contactEmail, phone: myBusiness.phone || '', website: myBusiness.website || '', qrUrl: myBusiness.qrUrl || '', isOpen: myBusiness.isOpen !== false, deliveryAvailable: myBusiness.deliveryAvailable !== false, deliveryRadiusKm: myBusiness.deliveryRadiusKm ?? 5, offeringType: myBusiness.offeringType || 'both' }); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">
+            <button onClick={() => { setShowEditProfile(!showEditProfile); setProfileForm(buildProfileFormFromBusiness(myBusiness)); }} className="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition">
               <FiEdit3 /> {showEditProfile ? t('Cancel Edit', 'सम्पादन रद्द') : t('Edit Profile', 'प्रोफाइल सम्पादन')}
             </button>
           </SectionHeader>
@@ -1825,9 +2563,46 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
                 <InputField label="Location *" value={profileForm.location || ''} onChange={e => setProfileForm({...profileForm, location: e.target.value})} required />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <InputField label="Business Hours" value={profileForm.hours || ''} onChange={e => setProfileForm({...profileForm, hours: e.target.value})} placeholder="09:00 - 18:00" />
-                <InputField label="Website" type="url" value={profileForm.website || ''} onChange={e => setProfileForm({...profileForm, website: e.target.value})} placeholder="https://..." />
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Opening time</label>
+                  <input
+                    type="time"
+                    value={profileForm.openingTime || ''}
+                    onChange={(e) => setProfileForm({
+                      ...profileForm,
+                      openingTime: e.target.value,
+                      hours: composeHours(e.target.value, profileForm.closingTime) || profileForm.hours,
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Closing time</label>
+                  <input
+                    type="time"
+                    value={profileForm.closingTime || ''}
+                    onChange={(e) => setProfileForm({
+                      ...profileForm,
+                      closingTime: e.target.value,
+                      hours: composeHours(profileForm.openingTime, e.target.value) || profileForm.hours,
+                    })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
               </div>
+              <p className="text-[11px] text-slate-500 -mt-2">
+                Customers can book between these hours (Nepal time). Preset: {profileForm.hours || 'not set'}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <InputField label="Website" type="url" value={profileForm.website || ''} onChange={e => setProfileForm({...profileForm, website: e.target.value})} placeholder="https://..." />
+                <div />
+              </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-3">
+                {renderOpeningDaysPicker(profileForm.openingDays, 'profile')}
+              </div>
+              {renderBookingSettingsFields()}
               <div className="grid gap-4 sm:grid-cols-2">
                 <InputField label="Contact Email" type="email" value={profileForm.contactEmail || ''} onChange={e => setProfileForm({...profileForm, contactEmail: e.target.value})} />
                 <InputField label="Phone" type="tel" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
@@ -1916,6 +2691,7 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               <InfoRow icon={<FiTag />}      label={t('Category',    'वर्ग')}          value={myBusiness.category} />
               <InfoRow icon={<FiMap />}      label={t('Location',    'स्थान')}         value={myBusiness.location} />
               <InfoRow icon={<FiClock />}    label={t('Hours',       'समय')}           value={myBusiness.hours || '—'} />
+              <InfoRow icon={<FiCalendar />} label={t('Open Days',   'खुला दिनहरू')}   value={formatOpeningDaysLabel(myBusiness)} />
               <InfoRow icon={<FiInfo />}     label={t('Status',      'स्थिति')}         value={availabilityMeta.openLabel} />
               <InfoRow icon={<FiTruck />}    label={t('Delivery',    'डेलिभरी')}       value={availabilityMeta.deliveryLabel} />
               <InfoRow icon={<FiMail />}     label={t('Email',       'इमेल')}          value={myBusiness.contactEmail || '—'} />
@@ -1930,6 +2706,9 @@ export default function SellerDashboard({ user, lang, activeTab, onTabChange, on
               )}
             </div>
           )}
+
+          <SectionHeader title={t('Payment Settings', 'भुक्तानी सेटिङ')} />
+          <EsewaPaymentSettings businessId={myBusiness._id} lang={lang} />
         </div>
       )}
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev": "npm run dev:client",
     "dev:server": "node server/server.js",
     "dev:client": "cd client && vite",
     "build": "cd client && npm install && npm run build",
@@ -29,6 +29,7 @@
     "mongoose": "^9.7.3",
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
+    "pdfkit": "^0.17.2",
     "postcss": "^8.5.16",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

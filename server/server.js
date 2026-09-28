@@ -21,7 +21,12 @@ const { generateToken, getJwtSecret } = require('./utils/generateToken');
 const { authenticateToken } = require('./middleware/authMiddleware');
 const { requireRole } = require('./middleware/roleMiddleware');
 const { isNepalPlace } = require('./utils/nepalPlaces');
-const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Chat, Notification, Coupon, AuditLog, Category, SystemSetting } = require('./db');
+const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Report, Chat, Notification, Coupon, AuditLog, Category, SystemSetting, PaymentCredential, EsewaPayment } = require('./db');
+const { createEsewaRoutes } = require('./payments/esewaRoutes');
+const { createOrderLifecycleRoutes, sanitizeOrderFor, generateDeliveryOtp } = require('./orders/lifecycle');
+const { createReportRoutes } = require('./moderation/reports');
+const { createConversationRoutes } = require('./chat/routes');
+const { registerChatSockets } = require('./chat/socket');
 const { getRegistrationUserDefaults } = require('./authHelpers');
 const {
   validateRegistration,
@@ -33,9 +38,29 @@ const {
   validateOrderPayload,
   validateFileUpload,
 } = require('./validationMiddleware');
+const { evaluateBookingAvailability, getNepalParts, ACTIVE_BOOKING_STATUSES } = require('./booking/availability');
+const { createBillingRoutes } = require('./billing/routes');
+const { createHomeRoutes } = require('./home/routes');
+const { recordActivity } = require('./home/feedService');
+const billing = require('./billing/service');
+const { roundMoney, VAT_RATE } = require('./billing/billData');
+const { isBillEmailConfigured } = require('./utils/sendBillEmail');
 const nodemailer = require('nodemailer');
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+// The app reads the root .env; also accept the Gmail bill mail settings from server/.env
+// without pulling in its other values (e.g. a local MONGODB_URI).
+try {
+  const serverEnvPath = path.resolve(__dirname, '.env');
+  if (fs.existsSync(serverEnvPath)) {
+    const serverEnv = dotenv.parse(fs.readFileSync(serverEnvPath));
+    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_USER', 'EMAIL_PASS']) {
+      if (!process.env[key] && serverEnv[key]) process.env[key] = serverEnv[key];
+    }
+  }
+} catch (err) {
+  console.warn('Could not read server/.env:', err.message);
+}
 
 const app = express();
 // Request timing middleware for performance monitoring
@@ -74,29 +99,45 @@ function getAvailablePort(startPort) {
 }
 const JWT_SECRET = getJwtSecret();
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_ENPOINT_WEBHOOK_SECRET_KEY || '';
 let stripe = null;
+let stripeMode = 'off';
 if (STRIPE_SECRET && STRIPE_SECRET !== 'mock') {
   try {
     const Stripe = require('stripe');
     stripe = Stripe(STRIPE_SECRET);
+    stripeMode = 'live';
   } catch (err) {
     console.error('Failed to load stripe module', err);
   }
-} else {
-  // Mock stripe for testing without a real key
+} else if (process.env.NODE_ENV !== 'production') {
+  // Development-only simulated Stripe: never enabled in production, where it would
+  // let unpaid card orders be marked as paid.
+  stripeMode = 'mock';
   stripe = {
     checkout: {
       sessions: {
         create: async (data) => {
-          return { url: `${process.env.CLIENT_URL || 'http://localhost:5174'}/payment-success?session_id=mock_sess_123&orderId=${data.metadata.orderId}` };
+          return { url: data.success_url.replace('{CHECKOUT_SESSION_ID}', `mock_sess_${data.metadata.orderId}`) };
         },
         retrieve: async (id) => {
-          return { payment_status: 'paid' };
+          const orderId = String(id).replace(/^mock_sess_/, '');
+          return { id, payment_status: 'paid', metadata: { orderId }, payment_intent: `mock_pi_${orderId}` };
         }
       }
     }
   };
 }
+
+const STRIPE_NPR_PER_USD = 130;
+const stripeAmountCents = (order) => Math.max(1, Math.round((Number(order.total) / STRIPE_NPR_PER_USD) * 100));
+
+const resolveClientUrl = (req) => {
+  const configured = process.env.CLIENT_URL || process.env.FRONTEND_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  const origin = String(req.headers.origin || '');
+  return /^https?:\/\/[^\s/]+$/.test(origin) ? origin : 'http://localhost:5174';
+};
 
 // Cloudinary setup (optional)
 let cloudinary = null;
@@ -116,26 +157,77 @@ try {
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
   const cloudinaryUrl = process.env.CLOUDINARY_URL;
 
-  if (cloudinaryUrl || (!looksLikePlaceholder(cloudName) && !looksLikePlaceholder(apiKey) && !looksLikePlaceholder(apiSecret))) {
+  if (cloudinaryUrl && !looksLikePlaceholder(cloudinaryUrl)) {
+    // Parse CLOUDINARY_URL only — do not overwrite with empty discrete vars.
+    cloudinary.config({ cloudinary_url: cloudinaryUrl, secure: true });
+  } else if (
+    !looksLikePlaceholder(cloudName)
+    && !looksLikePlaceholder(apiKey)
+    && !looksLikePlaceholder(apiSecret)
+  ) {
     cloudinary.config({
       cloud_name: cloudName,
       api_key: apiKey,
       api_secret: apiSecret,
       secure: true,
     });
-    cloudinaryConfigured = true;
+  }
+
+  const cfg = cloudinary.config();
+  cloudinaryConfigured = Boolean(cfg?.cloud_name && cfg?.api_key && cfg?.api_secret);
+  if (cloudinaryConfigured) {
+    console.log(`[Cloudinary] Ready (cloud: ${cfg.cloud_name})`);
+  } else {
+    console.warn('[Cloudinary] Not configured — service photos will use local /uploads storage.');
   }
 } catch (e) {
-  console.warn('Cloudinary package not available. Falling back to base64 storage.');
+  console.warn('Cloudinary package not available. Falling back to local /uploads storage.');
 }
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Stripe webhook: needs the raw body for signature verification, so it is registered before express.json().
+app.post('/api/payment/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  if (stripeMode !== 'live' || !STRIPE_WEBHOOK_SECRET) {
+    return res.status(501).json({ message: 'Stripe webhook is not configured.' });
+  }
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.warn('Stripe webhook signature verification failed:', err.message);
+    return res.status(400).json({ message: 'Invalid webhook signature.' });
+  }
+
+  try {
+    if (['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(event.type)) {
+      const session = event.data.object;
+      const orderId = String(session.metadata?.orderId || '');
+      if (session.payment_status === 'paid' && billing.isValidOrderId(orderId)) {
+        const order = await billing.loadOrder(orderId);
+        if (!order) {
+          console.warn(`Stripe webhook: order ${orderId} not found.`);
+        } else if (session.amount_total !== stripeAmountCents(order) || String(session.currency).toLowerCase() !== 'usd') {
+          console.error(`Stripe webhook: amount mismatch for order ${orderId} (${session.amount_total} ${session.currency}).`);
+        } else {
+          await billing.finalizeCardPayment({ orderId, transactionId: session.payment_intent, sessionId: session.id });
+        }
+      }
+    }
+    return res.json({ received: true });
+  } catch (err) {
+    console.error('Stripe webhook processing failed:', err.message);
+    // Non-2xx makes Stripe retry; finalizeCardPayment is idempotent so retries are safe.
+    return res.status(500).json({ message: 'Webhook processing failed.' });
+  }
+});
+
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 const ensureDbReady = async (req, res, next) => {
   try {
-    if (!db.User || !db.Business) {
+    if (!db.User || !db.Business || !db.Conversation || !db.Message) {
       await connectDb();
     }
   } catch (err) {
@@ -197,9 +289,9 @@ io.use((socket, next) => {
     return next();
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    socket.userId = decoded.id;
-    socket.userRole = decoded.role;
+    const decoded = jwt.verify(token, getJwtSecret());
+    socket.userId = decoded.id || decoded.userId || null;
+    socket.userRole = decoded.role || null;
     next();
   } catch {
     socket.userId = null;
@@ -233,8 +325,10 @@ io.on('connection', (socket) => {
   });
 });
 
-// Expose io instance so routes can emit events
+// Expose io + presence map so routes / chat handlers can use them
 app.set('io', io);
+app.set('onlineUsers', onlineUsers);
+registerChatSockets(io, onlineUsers);
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -293,9 +387,12 @@ const serializeBusiness = (business) => {
         ? 'pending'
         : approvalStatus;
   const reviewCount = Number(plain.reviewCount || 0);
+  const esewaEnabled = Boolean(plain.paymentSettings?.isConnected && plain.paymentSettings?.merchantCode);
 
   return {
     ...plain,
+    paymentSettings: { provider: 'eSewa', isConnected: esewaEnabled },
+    esewaEnabled,
     approvalStatus,
     isVerified: approvalStatus === 'approved',
     verified: normalizedVerified,
@@ -322,24 +419,34 @@ app.use((req, res, next) => {
     }
   }
 
-  const cacheKey = `${method}:${req.path}:${req.user?.id || req.ip || 'anonymous'}:${idempotencyKey}`;
+  // Runs before authentication, so scope replays to the caller's credentials rather than req.user.
+  const authHeader = String(req.headers.authorization || '');
+  const caller = authHeader
+    ? require('crypto').createHash('sha256').update(authHeader).digest('hex').slice(0, 32)
+    : (req.ip || 'anonymous');
+  const cacheKey = `${method}:${req.path}:${caller}:${idempotencyKey}`;
   const cached = idempotencyStore.get(cacheKey);
   if (cached) {
-    return res.status(cached.statusCode).json(cached.body);
+    return cached.isJson
+      ? res.status(cached.statusCode).json(cached.body)
+      : res.status(cached.statusCode).send(cached.body);
   }
 
+  // res.json() calls res.send() internally; keep the original object so replays aren't double-encoded.
+  let storedViaJson = false;
   const originalJson = res.json.bind(res);
   res.json = (body) => {
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+      storedViaJson = true;
+      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, isJson: true, expiresAt: Date.now() + 10 * 60 * 1000 });
     }
     return originalJson(body);
   };
 
   const originalSend = res.send.bind(res);
   res.send = (body) => {
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, expiresAt: Date.now() + 10 * 60 * 1000 });
+    if (!storedViaJson && res.statusCode >= 200 && res.statusCode < 300) {
+      idempotencyStore.set(cacheKey, { statusCode: res.statusCode || 200, body, isJson: false, expiresAt: Date.now() + 10 * 60 * 1000 });
     }
     return originalSend(body);
   };
@@ -356,17 +463,150 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+const saveBufferLocally = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+  const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
+  const filename = `svc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), file.buffer);
+  return `/uploads/${filename}`;
+};
+
+// Upload helper using cloudinary uploader stream
+const uploadBufferToCloudinary = (buffer, filename = 'upload', folder = 'udyogconnect') => {
+  return new Promise((resolve, reject) => {
+    if (!cloudinary || !cloudinaryConfigured) return reject(new Error('Cloudinary not configured'));
+    const options = { folder, resource_type: 'image' };
+    if (filename) {
+      const safeName = filename.replace(/[^a-zA-Z0-9-_\.]/g, '_').slice(0, 120);
+      options.public_id = `${safeName}-${Date.now()}`;
+    }
+    const uploader = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error);
+      resolve(result.secure_url || result.url);
+    });
+    uploader.end(buffer);
+  });
+};
+
+// Prefer Cloudinary; fall back to local /uploads so images always display.
+const processImageUpload = async (file) => {
+  if (!file?.buffer) return '';
+  if (cloudinaryConfigured && cloudinary) {
+    try {
+      return await uploadBufferToCloudinary(file.buffer, file.originalname);
+    } catch (err) {
+      console.error('Cloudinary upload failed, falling back to local uploads/', err.message || err);
+    }
+  }
+  try {
+    return saveBufferLocally(file);
+  } catch (err) {
+    console.error('Local image save failed, falling back to base64', err.message || err);
+    const base64 = file.buffer.toString('base64');
+    return `data:${file.mimetype || 'image/jpeg'};base64,${base64}`;
+  }
+};
+
 // Provide a signing endpoint for client-side direct uploads
 app.post('/api/cloudinary/sign', authenticateToken, async (req, res) => {
   try {
-    if (!cloudinaryConfigured || !cloudinary) return res.status(501).json({ message: 'Cloudinary not configured.' });
+    if (!cloudinaryConfigured || !cloudinary) {
+      return res.status(501).json({ message: 'Cloudinary not configured.' });
+    }
+    const cfg = cloudinary.config();
+    if (!cfg?.api_key || !cfg?.api_secret || !cfg?.cloud_name) {
+      return res.status(501).json({ message: 'Cloudinary not configured.' });
+    }
     const timestamp = Math.floor(Date.now() / 1000);
-    const params = { timestamp };
-    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
-    res.json({ signature, timestamp, api_key: process.env.CLOUDINARY_API_KEY, cloud_name: process.env.CLOUDINARY_CLOUD_NAME, upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || null });
+    const folder = String(req.body?.folder || 'udyogconnect');
+    const params = { timestamp, folder };
+    const signature = cloudinary.utils.api_sign_request(params, cfg.api_secret);
+    res.json({
+      signature,
+      timestamp,
+      folder,
+      api_key: cfg.api_key,
+      cloud_name: cfg.cloud_name,
+    });
   } catch (err) {
     console.error('Signing failed', err);
     res.status(500).json({ message: 'Signing failed.' });
+  }
+});
+
+// Dedicated image upload — returns a public URL (Cloudinary or /uploads/...)
+app.post('/api/upload/image', authenticateToken, (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) {
+      err.status = 400;
+      err.message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Image must be under 8MB.'
+        : (err.message || 'Invalid image upload.');
+      return next(err);
+    }
+    return next();
+  });
+}, async (req, res) => {
+  try {
+    const file = req.file || (Array.isArray(req.files) ? req.files[0] : null);
+    if (!file) {
+      console.warn('[upload/image] No file received. content-type=', req.headers['content-type']);
+      return res.status(400).json({ message: 'Image file is required. Please choose a JPG or PNG photo.' });
+    }
+    const url = await processImageUpload(file);
+    if (!url) {
+      return res.status(500).json({ message: 'Image upload failed.' });
+    }
+    console.log('[upload/image] Saved', String(url).slice(0, 120));
+    res.status(201).json({ success: true, url, imageUrl: url });
+  } catch (err) {
+    console.error('Image upload failed:', err);
+    res.status(500).json({ message: err.message || 'Image upload failed.' });
+  }
+});
+
+// JSON/base64 upload fallback (avoids multipart/multer issues)
+app.post('/api/upload/image-base64', authenticateToken, async (req, res) => {
+  try {
+    const { dataUrl, fileName = 'photo.jpg', mimeType = 'image/jpeg' } = req.body || {};
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      return res.status(400).json({ message: 'Image data is required.' });
+    }
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
+    if (!match) {
+      return res.status(400).json({ message: 'Invalid image data.' });
+    }
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length) {
+      return res.status(400).json({ message: 'Empty image data.' });
+    }
+    if (buffer.length > 8 * 1024 * 1024) {
+      return res.status(400).json({ message: 'Image must be under 8MB.' });
+    }
+    const fakeFile = {
+      buffer,
+      originalname: String(fileName),
+      mimetype: match[1] || mimeType,
+    };
+    const url = await processImageUpload(fakeFile);
+    if (!url) {
+      return res.status(500).json({ message: 'Image upload failed.' });
+    }
+    res.status(201).json({ success: true, url, imageUrl: url });
+  } catch (err) {
+    console.error('Base64 image upload failed:', err);
+    res.status(500).json({ message: err.message || 'Image upload failed.' });
   }
 });
 
@@ -392,40 +632,14 @@ if (fs.existsSync(clientDist)) {
   app.use(express.static(__dirname));
 }
 
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Helper: Convert File to Base64 String if Cloudinary is offline
-const processImageUpload = (file) => {
-  if (!file) return '';
-  // If Cloudinary is configured, upload the buffer and return the secure URL
-  if (cloudinaryConfigured && cloudinary) {
-    return uploadBufferToCloudinary(file.buffer, file.originalname).catch((err) => {
-      console.error('Cloudinary upload failed, falling back to base64', err);
-      const base64 = file.buffer.toString('base64');
-      return `data:${file.mimetype};base64,${base64}`;
-    });
-  }
-  const base64 = file.buffer.toString('base64');
-  return `data:${file.mimetype};base64,${base64}`;
-};
-
-// Upload helper using cloudinary uploader stream
-const uploadBufferToCloudinary = (buffer, filename = 'upload', folder = 'udyogconnect') => {
-  return new Promise((resolve, reject) => {
-    if (!cloudinary || !cloudinaryConfigured) return reject(new Error('Cloudinary not configured'));
-    const options = { folder, resource_type: 'auto' };
-    // sanitize public_id
-    if (filename) {
-      const safeName = filename.replace(/[^a-zA-Z0-9-_\.]/g, '_').slice(0, 120);
-      options.public_id = `${safeName}-${Date.now()}`;
-    }
-    const uploader = cloudinary.uploader.upload_stream(options, (error, result) => {
-      if (error) return reject(error);
-      resolve(result.secure_url || result.url);
-    });
-    uploader.end(buffer);
-  });
-};
+// Conversation-based customer ↔ business messaging (private per customer+business pair)
+app.use('/api/conversations', createConversationRoutes({ processImageUpload }));
+app.use('/api/orders', createBillingRoutes());
+app.use('/api', createHomeRoutes({
+  isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
+  serializeBusiness: (business) => serializeBusiness(business),
+  getOptionalUser: (req) => getOptionalRequestUser(req),
+}));
 
 // Helper: Extract Cloudinary public_id from secure_url
 const extractPublicIdFromUrl = (url) => {
@@ -819,6 +1033,26 @@ const parseMaybeJson = (value, fallback) => {
   return fallback;
 };
 
+const ALL_OPENING_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const normalizeOpeningDays = (days, { defaultAll = true } = {}) => {
+  const list = Array.isArray(days)
+    ? days
+    : (typeof days === 'string' && days.trim()
+      ? (() => {
+          const parsed = parseMaybeJson(days, null);
+          if (Array.isArray(parsed)) return parsed;
+          return String(days).split(',');
+        })()
+      : []);
+  const normalized = [...new Set(
+    list
+      .map((day) => String(day || '').trim().toLowerCase().slice(0, 3))
+      .filter((day) => ALL_OPENING_DAYS.includes(day))
+  )];
+  if (!normalized.length && defaultAll) return [...ALL_OPENING_DAYS];
+  return normalized;
+};
+
 const toSafeUser = (user) => {
   if (!user) return null;
   const plain = typeof user.toObject === 'function' ? user.toObject() : { ...user };
@@ -905,7 +1139,12 @@ app.put('/api/auth/wishlist', authenticateToken, async (req, res) => {
       businesses: toIdList(incoming.businesses),
     };
 
+    const previouslySaved = new Set(toIdList(user.wishlist?.businesses));
     const updated = await UserMDL.findByIdAndUpdate(req.user.id, { wishlist }, { new: true });
+    // Awaited so the home feed's "Recent Activity" is up to date when the client refetches.
+    await Promise.all(wishlist.businesses.filter((id) => !previouslySaved.has(id)).map((businessId) => (
+      recordActivity({ type: 'wishlist_add', userId: String(req.user.id), businessId }).catch(() => {})
+    )));
     res.json({ success: true, wishlist, user: toSafeUser(updated) });
   } catch (err) {
     console.error(err);
@@ -1123,8 +1362,13 @@ app.get('/api/businesses/:id', async (req, res) => {
     }
 
     const products = await ProductMDL.find({ businessId: req.params.id });
-    const services = await ServiceMDL.find({ businessId: req.params.id });
+    const servicesRaw = await ServiceMDL.find({ businessId: req.params.id });
     const reviews = await ReviewMDL.find({ businessId: req.params.id, targetType: 'business' });
+    const services = (Array.isArray(servicesRaw) ? servicesRaw : []).map((service) => {
+      const plain = typeof service?.toObject === 'function' ? service.toObject() : { ...service };
+      const imageUrl = plain.imageUrl || plain.image || (Array.isArray(plain.images) ? plain.images[0] : '') || '';
+      return { ...plain, imageUrl, images: plain.images?.length ? plain.images : (imageUrl ? [imageUrl] : []) };
+    });
 
     res.json({
       business: serializeBusiness(business),
@@ -1139,8 +1383,11 @@ app.get('/api/businesses/:id', async (req, res) => {
 
 app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm } = req.body || {};
-    if (!name || !category || !location || !description || !contactEmail || !phone || !hours || !offeringType) {
+    const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, openingTime, closingTime, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm, openingDays } = req.body || {};
+    const composedHours = (openingTime && closingTime)
+      ? `${String(openingTime).trim()} - ${String(closingTime).trim()}`
+      : String(hours || '').trim();
+    if (!name || !category || !location || !description || !contactEmail || !phone || !composedHours || !offeringType) {
       return res.status(400).json({ message: 'Business name, category, Nepal location, description, email, phone, hours, and catalog type are required.' });
     }
 
@@ -1156,6 +1403,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
       'Grocery', 'Restaurants & Food', 'Furniture', 'Gift Shop / Crafts', 'Home Services',
       'Mechanics & Repair', 'Electronics', 'Clothing & Fashion', 'Health & Beauty', 'Education',
     ];
+    const HOURS_RANGE_RE = /^\d{1,2}:\d{2}\s*(AM|PM)?\s*[-–]\s*\d{1,2}:\d{2}\s*(AM|PM)?$/i;
 
     if (!PERSON_NAME_RE.test(String(name).trim())) {
       return res.status(400).json({ message: 'Business name can only contain letters and spaces (no numbers or special characters).' });
@@ -1176,10 +1424,14 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
     if (wordCount < 50) {
       return res.status(400).json({ message: `Business description must be at least 50 words (currently ${wordCount}).` });
     }
-    const normalizedHours = BUSINESS_HOURS_OPTIONS.includes(String(hours || '').trim()) ? String(hours).trim() : null;
+    const normalizedHours = BUSINESS_HOURS_OPTIONS.includes(composedHours) || HOURS_RANGE_RE.test(composedHours)
+      ? composedHours
+      : null;
     if (!normalizedHours) {
-      return res.status(400).json({ message: 'Please select business hours from the available options.' });
+      return res.status(400).json({ message: 'Please set valid business opening and closing times.' });
     }
+    const openTime = String(openingTime || composedHours.split(/\s*[-–]\s*/)[0] || '').trim();
+    const closeTime = String(closingTime || composedHours.split(/\s*[-–]\s*/)[1] || '').trim();
 
     if (!['products', 'services', 'both'].includes(String(offeringType))) {
       return res.status(400).json({ message: 'A valid catalog type is required.' });
@@ -1253,13 +1505,16 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
       name: String(name).trim(),
       category: String(category).trim(),
       subcategory: subcategory || '',
-      location: locationText,
+      location: String(location).trim(),
       price: price || '0',
       description: String(description).trim(),
       contactEmail: String(contactEmail || req.user.email || '').trim().toLowerCase(),
       phone: String(phone || '').trim(),
       website: website || '',
       hours: normalizedHours,
+      openingTime: openTime,
+      closingTime: closeTime,
+      openingDays: normalizeOpeningDays(openingDays),
       imageUrl: logoUrl || '',
       coverUrl: coverUrl || '',
       qrUrl: qrUrl || '',
@@ -1331,9 +1586,11 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
 
     const editableFields = [
       'name', 'category', 'subcategory', 'location', 'price', 'description',
-      'contactEmail', 'phone', 'website', 'hours', 'latitude', 'longitude',
+      'contactEmail', 'phone', 'website', 'hours', 'openingDays', 'latitude', 'longitude',
       'registrationNumber', 'panVatNumber', 'deliveryAvailable', 'offeringType',
       'isOpen', 'manualOpenOverride', 'deliveryRadiusKm',
+      'holidays', 'blockedDates', 'minBookingNoticeMinutes', 'maxAdvanceBookingDays', 'bookingSlotIntervalMinutes',
+      'openingTime', 'closingTime',
     ];
     const updateData = Object.fromEntries(editableFields
       .filter((field) => req.body[field] !== undefined)
@@ -1349,6 +1606,39 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     }
     if (typeof updateData.deliveryRadiusKm !== 'undefined') {
       updateData.deliveryRadiusKm = Number(updateData.deliveryRadiusKm || 5);
+    }
+    if (typeof updateData.openingDays !== 'undefined') {
+      updateData.openingDays = normalizeOpeningDays(updateData.openingDays, { defaultAll: false });
+      if (!updateData.openingDays.length) {
+        return res.status(400).json({ message: 'Select at least one opening day.' });
+      }
+    }
+    if (typeof updateData.holidays !== 'undefined') {
+      updateData.holidays = parseMaybeJson(updateData.holidays, []);
+    }
+    if (typeof updateData.blockedDates !== 'undefined') {
+      updateData.blockedDates = parseMaybeJson(updateData.blockedDates, []);
+    }
+    if (typeof updateData.minBookingNoticeMinutes !== 'undefined') {
+      updateData.minBookingNoticeMinutes = Math.max(0, Number(updateData.minBookingNoticeMinutes) || 0);
+    }
+    if (typeof updateData.maxAdvanceBookingDays !== 'undefined') {
+      updateData.maxAdvanceBookingDays = Math.max(1, Number(updateData.maxAdvanceBookingDays) || 1);
+    }
+    if (typeof updateData.bookingSlotIntervalMinutes !== 'undefined') {
+      updateData.bookingSlotIntervalMinutes = Math.max(5, Number(updateData.bookingSlotIntervalMinutes) || 30);
+    }
+    if (typeof updateData.openingTime !== 'undefined' || typeof updateData.closingTime !== 'undefined') {
+      const open = String(updateData.openingTime ?? req.body.openingTime ?? '').trim();
+      const close = String(updateData.closingTime ?? req.body.closingTime ?? '').trim();
+      if (open && close) {
+        updateData.openingTime = open;
+        updateData.closingTime = close;
+        updateData.hours = `${open} - ${close}`;
+      }
+    }
+    if (typeof updateData.hours === 'string' && updateData.hours.trim()) {
+      updateData.hours = updateData.hours.trim();
     }
     delete updateData.removeLogo;
     delete updateData.logoUrl;
@@ -1626,9 +1916,12 @@ app.get('/api/products', async (req, res) => {
     const liveBusinessIds = new Set(
       businesses.filter((b) => isPubliclyLiveBusiness(b)).map((b) => String(b._id))
     );
-    const liveProducts = (Array.isArray(products) ? products : []).filter((product) =>
-      liveBusinessIds.has(String(product.businessId))
-    );
+    const liveProducts = (Array.isArray(products) ? products : []).filter((product) => {
+      if (!liveBusinessIds.has(String(product.businessId))) return false;
+      if (!product?.name || /^Product [A-Z]$/i.test(String(product.name))) return false;
+      if (product.availability === false) return false;
+      return true;
+    });
     res.json(liveProducts.slice(0, 200));
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving products.' });
@@ -1644,25 +1937,27 @@ app.get('/api/services', async (req, res) => {
     const liveBusinessIds = new Set(
       businesses.filter((b) => isPubliclyLiveBusiness(b)).map((b) => String(b._id))
     );
-    const liveServices = (Array.isArray(services) ? services : []).filter((service) =>
-      liveBusinessIds.has(String(service.businessId))
-    );
+    const liveServices = (Array.isArray(services) ? services : [])
+      .filter((service) => liveBusinessIds.has(String(service.businessId)))
+      .map((service) => {
+        const plain = typeof service?.toObject === 'function' ? service.toObject() : { ...service };
+        const imageUrl = plain.imageUrl || plain.image || (Array.isArray(plain.images) ? plain.images[0] : '') || '';
+        return { ...plain, imageUrl, images: plain.images?.length ? plain.images : (imageUrl ? [imageUrl] : []) };
+      });
     res.json(liveServices.slice(0, 200));
   } catch (err) {
     res.status(500).json({ message: 'Error retrieving services.' });
   }
 });
 
-app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
+app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), validateProductPayload, async (req, res) => {
   try {
     const { businessId, name, category, subcategory, description, price, discount, stock, sku, brand } = req.body;
     const ProductMDL = Product();
     let imgUrl = '';
 
     const normalizedName = String(name || '').trim();
-    if (!normalizedName) {
-      return res.status(400).json({ message: 'Product name is required.' });
-    }
+    const normalizedBrand = String(brand || '').trim();
 
     const BusinessMDL = Business();
     const business = await BusinessMDL.findById(businessId);
@@ -1679,22 +1974,12 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       return res.status(400).json({ message: 'This business is configured to offer services only. Products cannot be added.' });
     }
 
-    // Validate no negative numbers
     const parsedPrice = parseFloat(price);
-    const parsedDiscount = discount ? parseFloat(discount) : 0;
-    const parsedStock = stock ? parseInt(stock) : 0;
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
-      return res.status(400).json({ message: 'Product price cannot be negative.' });
-    }
-    if (parsedDiscount < 0 || parsedDiscount > 100) {
-      return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
-    }
-    if (parsedStock < 0) {
-      return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
-    }
+    const parsedDiscount = discount === undefined || discount === null || discount === '' ? 0 : parseFloat(discount);
+    const parsedStock = parseInt(stock, 10);
 
     const allProducts = await ProductMDL.find({ businessId });
-    const existingProduct = allProducts.find(p => p.name.toLowerCase() === normalizedName.toLowerCase());
+    const existingProduct = allProducts.find(p => String(p.name || '').toLowerCase() === normalizedName.toLowerCase());
 
     if (existingProduct) {
       return res.status(409).json({ message: 'A product with this name already exists for this business.' });
@@ -1707,11 +1992,14 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       imgUrl = await processImageUpload(req.file);
     }
 
-    if (!imgUrl && req.body.imageUrl) imgUrl = req.body.imageUrl;
+    if (!imgUrl && req.body.imageUrl) imgUrl = String(req.body.imageUrl).trim();
+    if (!imgUrl) {
+      return res.status(400).json({ message: 'Product image is required.' });
+    }
 
     const newProd = await ProductMDL.create({
       businessId,
-      name,
+      name: normalizedName,
       category,
       subcategory: subcategory || '',
       description,
@@ -1719,8 +2007,8 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
       discount: parsedDiscount,
       stock: parsedStock,
       sku: sku || `SKU-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      brand: brand || 'Local',
-      images: imgUrl ? [imgUrl] : [],
+      brand: normalizedBrand,
+      images: [imgUrl],
       availability: true,
     });
 
@@ -1731,12 +2019,58 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
   }
 });
 
-app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
+app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
   try {
-    const { price, discount, stock } = req.body;
-    if (price !== undefined && parseFloat(price) < 0) return res.status(400).json({ message: 'Product price cannot be negative.' });
-    if (discount !== undefined && (parseFloat(discount) < 0 || parseFloat(discount) > 100)) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
-    if (stock !== undefined && parseInt(stock) < 0) return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
+    const { name, brand, price, discount, stock, description, category, imageUrl } = req.body;
+
+    if (name !== undefined) {
+      const nameErr = (() => {
+        const trimmed = String(name || '').trim();
+        if (!trimmed) return 'Product name is required.';
+        if (trimmed.length < 2) return 'Product name must be at least 2 characters.';
+        if (!/^[\p{L}0-9]+(?:[ ][\p{L}0-9]+)*$/u.test(trimmed)) {
+          return 'Product name can only contain letters and spaces (no special characters). Up to 2 numbers are allowed.';
+        }
+        if (!/\p{L}/u.test(trimmed)) return 'Product name must include letters.';
+        if ((trimmed.match(/\d/g) || []).length > 2) return 'Product name can include at most 2 numbers.';
+        return '';
+      })();
+      if (nameErr) return res.status(400).json({ message: nameErr });
+    }
+
+    if (brand !== undefined) {
+      const brandErr = (() => {
+        const trimmed = String(brand || '').trim();
+        if (!trimmed) return 'Brand is required.';
+        if (trimmed.length < 2) return 'Brand must be at least 2 characters.';
+        if (!/^[\p{L}0-9]+(?:[ ][\p{L}0-9]+)*$/u.test(trimmed)) {
+          return 'Brand can only contain letters and spaces (no special characters). Up to 2 numbers are allowed.';
+        }
+        if (!/\p{L}/u.test(trimmed)) return 'Brand must include letters.';
+        if ((trimmed.match(/\d/g) || []).length > 2) return 'Brand can include at most 2 numbers.';
+        return '';
+      })();
+      if (brandErr) return res.status(400).json({ message: brandErr });
+    }
+
+    if (price !== undefined && price !== '') {
+      const parsedPrice = parseFloat(price);
+      if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ message: 'Product price cannot be negative.' });
+      }
+    }
+    if (discount !== undefined && discount !== '') {
+      const parsedDiscount = parseFloat(discount);
+      if (Number.isNaN(parsedDiscount) || parsedDiscount < 0 || parsedDiscount > 100) {
+        return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
+      }
+    }
+    if (stock !== undefined && stock !== '') {
+      const parsedStock = parseInt(stock, 10);
+      if (Number.isNaN(parsedStock) || !Number.isInteger(parsedStock) || parsedStock < 0) {
+        return res.status(400).json({ message: 'Stock quantity cannot be negative.' });
+      }
+    }
 
     const ProductMDL = Product();
     const product = await ProductMDL.findById(req.params.id);
@@ -1750,7 +2084,31 @@ app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin'])
     const productUpdateMessage = businessAccessDenial(business, req.user);
     if (productUpdateMessage) return res.status(403).json({ message: productUpdateMessage });
 
-    const updated = await ProductMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updates = { ...req.body };
+    delete updates.image;
+    delete updates.images;
+
+    if (name !== undefined) updates.name = String(name).trim();
+    if (brand !== undefined) updates.brand = String(brand).trim();
+    if (price !== undefined && price !== '') updates.price = parseFloat(price);
+    if (discount !== undefined && discount !== '') updates.discount = parseFloat(discount);
+    if (stock !== undefined && stock !== '') updates.stock = parseInt(stock, 10);
+    if (description !== undefined) updates.description = description;
+    if (category !== undefined) updates.category = category;
+
+    let nextImage = '';
+    if (req.file) {
+      nextImage = await processImageUpload(req.file);
+    } else if (imageUrl) {
+      nextImage = String(imageUrl).trim();
+    }
+    if (nextImage) {
+      updates.images = [nextImage];
+    } else if (!Array.isArray(product.images) || product.images.length === 0) {
+      return res.status(400).json({ message: 'Product image is required.' });
+    }
+
+    const updated = await ProductMDL.findByIdAndUpdate(req.params.id, updates, { new: true });
     res.json({ success: true, product: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update product.' });
@@ -1778,9 +2136,9 @@ app.delete('/api/products/:id', authenticateToken, requireRole(['seller', 'admin
   }
 });
 
-app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
+app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
   try {
-    const { businessId, name, description, price, duration, slots, staff, homeService } = req.body;
+    const { businessId, name, description, price, duration, slots, staff, homeService, availableFrom, availableTo, imageUrl } = req.body;
     const ServiceMDL = Service();
     const normalizedName = String(name || '').trim();
 
@@ -1805,7 +2163,7 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
 
     // Validate no negative numbers
     const parsedServicePrice = parseFloat(price);
-    const parsedDuration = (duration !== undefined && duration !== null && duration !== '') ? parseInt(duration) : 60;
+    const parsedDuration = (duration !== undefined && duration !== null && duration !== '') ? parseInt(duration, 10) : 60;
     if (isNaN(parsedServicePrice) || parsedServicePrice < 0) {
       return res.status(400).json({ message: 'Service price cannot be negative.' });
     }
@@ -1825,25 +2183,46 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), a
     const serviceAccessMessage = businessAccessDenial(business, req.user);
     if (serviceAccessMessage) return res.status(403).json({ message: serviceAccessMessage });
 
+    let imgUrl = '';
+    try {
+      if (req.file) {
+        imgUrl = await processImageUpload(req.file);
+      }
+    } catch (uploadErr) {
+      console.error('Service image upload failed:', uploadErr);
+    }
+    if (!imgUrl && imageUrl) imgUrl = String(imageUrl).trim();
+
+    const parsedSlots = Array.isArray(slots)
+      ? slots
+      : (typeof slots === 'string' && slots.trim()
+        ? slots.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+        : []);
+
     const newServ = await ServiceMDL.create({
       businessId,
       name,
       description,
       price: parsedServicePrice,
       duration: parsedDuration,
-      slots: Array.isArray(slots) ? slots : ['09:00 - 10:00', '11:00 - 12:00', '14:00 - 15:00'],
+      availableFrom: String(availableFrom || '').trim(),
+      availableTo: String(availableTo || '').trim(),
+      slots: parsedSlots,
       staff: Array.isArray(staff) ? staff : ['Regular Staff'],
       homeService: homeService === 'true' || homeService === true,
+      imageUrl: imgUrl || '',
+      images: imgUrl ? [imgUrl] : [],
       availability: true,
     });
 
     res.status(201).json({ success: true, service: newServ });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Failed to create service.' });
   }
 });
 
-app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), async (req, res) => {
+app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
   try {
     const ServiceMDL = Service();
     const service = await ServiceMDL.findById(req.params.id);
@@ -1857,9 +2236,53 @@ app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin'])
     const serviceUpdateMessage = businessAccessDenial(business, req.user);
     if (serviceUpdateMessage) return res.status(403).json({ message: serviceUpdateMessage });
 
-    const updated = await ServiceMDL.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const payload = { ...req.body };
+    if (payload.duration !== undefined) {
+      const parsedDuration = parseInt(payload.duration, 10);
+      if (isNaN(parsedDuration) || parsedDuration <= 0) {
+        return res.status(400).json({ message: 'Service duration must be a positive number.' });
+      }
+      payload.duration = parsedDuration;
+    }
+    if (payload.price !== undefined) {
+      const parsedPrice = parseFloat(payload.price);
+      if (isNaN(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ message: 'Service price cannot be negative.' });
+      }
+      payload.price = parsedPrice;
+    }
+    if (typeof payload.slots === 'string') {
+      payload.slots = payload.slots.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    if (payload.availableFrom !== undefined) payload.availableFrom = String(payload.availableFrom || '').trim();
+    if (payload.availableTo !== undefined) payload.availableTo = String(payload.availableTo || '').trim();
+    if (payload.homeService !== undefined) {
+      payload.homeService = payload.homeService === 'true' || payload.homeService === true;
+    }
+
+    let nextImage = '';
+    try {
+      if (req.file) {
+        nextImage = await processImageUpload(req.file);
+      } else if (payload.imageUrl) {
+        nextImage = String(payload.imageUrl).trim();
+      }
+    } catch (uploadErr) {
+      console.error('Service image update failed:', uploadErr);
+    }
+    delete payload.image;
+    if (nextImage) {
+      payload.imageUrl = nextImage;
+      payload.images = [nextImage];
+    } else {
+      delete payload.imageUrl;
+      delete payload.images;
+    }
+
+    const updated = await ServiceMDL.findByIdAndUpdate(req.params.id, payload, { new: true });
     res.json({ success: true, service: updated });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Failed to update service.' });
   }
 });
@@ -1887,212 +2310,335 @@ app.delete('/api/services/:id', authenticateToken, requireRole(['seller', 'admin
 
 // ==================== CART, CHECKOUT & PAYMENTS ====================
 
+const CHECKOUT_BILL_WAIT_MS = 5000;
+const MAX_CHECKOUT_ITEMS = 50;
+const MAX_ITEM_QUANTITY = 100;
+const CHECKOUT_WORDS_REGEX = /^[\p{L}\p{M}]+(?: [\p{L}\p{M}]+)*$/u;
+const CHECKOUT_GMAIL_REGEX = /^[a-z][a-z0-9]*@gmail\.com$/;
+const toPlain = (doc) => (doc && typeof doc.toObject === 'function' ? doc.toObject() : doc);
+const findByIdSafe = async (model, id) => {
+  try {
+    return toPlain(await model.findById(id));
+  } catch (_) {
+    return null;
+  }
+};
+
+const checkoutResponse = (order, extra = {}) => ({
+  success: true,
+  order,
+  bill: billing.billSummary(order),
+  requiresPayment: order.paymentMethod === 'Card' && order.paymentStatus !== 'paid',
+  ...extra,
+});
+
+const checkoutError = (status, message, errors) => ({ ok: false, status, body: errors ? { message, errors } : { message } });
+
+/**
+ * Validates the delivery details and prices the cart from the database. The browser only supplies
+ * item ids and quantities; every amount on the order is computed here.
+ */
+async function prepareCheckout(body = {}) {
+  const { businessId, items, promoCode, deliveryAddress } = body;
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return checkoutError(400, 'Missing order details.');
+  }
+  if (items.length > MAX_CHECKOUT_ITEMS) {
+    return checkoutError(400, `An order can contain at most ${MAX_CHECKOUT_ITEMS} items.`);
+  }
+
+  let normalizedBusinessId = String(businessId || '').trim();
+  const normalizedAddress = deliveryAddress || {
+    name: body.name || '',
+    email: body.email || '',
+    phone: body.phone || '',
+    location: body.location || '',
+    address: body.address || '',
+    method: body.deliveryMethod || 'delivery',
+  };
+
+  const rejectDelivery = (field, message) => checkoutError(400, message, { [field]: message });
+  const personName = String(normalizedAddress.name || '').trim().replace(/ {2,}/g, ' ');
+  const deliveryEmail = String(normalizedAddress.email || '').trim().toLowerCase();
+  const deliveryPhone = String(normalizedAddress.phone || '').trim();
+  const place = String(normalizedAddress.location || normalizedAddress.city || '').trim().replace(/ {2,}/g, ' ');
+  const street = String(normalizedAddress.address || '').trim().replace(/ {2,}/g, ' ');
+
+  if (!personName || !deliveryEmail || !deliveryPhone || !place || !street) {
+    return checkoutError(400, 'Please complete all delivery details.');
+  }
+  if (personName.length < 2 || !CHECKOUT_WORDS_REGEX.test(personName)) {
+    return rejectDelivery('name', 'Full name can only contain letters and spaces (no numbers or special characters).');
+  }
+  if (!CHECKOUT_GMAIL_REGEX.test(deliveryEmail)) {
+    return rejectDelivery('email', 'Enter a valid Gmail address using only letters and numbers.');
+  }
+  if (!/^(97|98)\d{8}$/.test(deliveryPhone)) {
+    return rejectDelivery('phone', 'Phone number must be exactly 10 digits starting with 97 or 98.');
+  }
+  if (!CHECKOUT_WORDS_REGEX.test(place)) {
+    return rejectDelivery('city', 'Location can only contain letters and spaces (no numbers or special characters).');
+  }
+  if (!isNepalPlace(place)) {
+    return rejectDelivery('city', 'Location / City must be a place in Nepal (e.g. Kathmandu, Pokhara, Thamel).');
+  }
+  if (street.length < 3 || !CHECKOUT_WORDS_REGEX.test(street)) {
+    return rejectDelivery('address', 'Street / landmark can only contain letters and spaces (no numbers or special characters).');
+  }
+
+  const ProductMDL = Product();
+  const ServiceMDL = Service();
+
+  // Prices, names and business come only from the database; the cart supplies ids and quantities.
+  const resolvedItems = [];
+  for (const item of items) {
+    const itemId = String(item?.id || item?._id || '').trim();
+    const quantity = Number(item?.quantity);
+    if (!itemId || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ITEM_QUANTITY) {
+      return checkoutError(400, 'Each cart item needs a valid quantity.');
+    }
+    const isService = Boolean(item.type === 'service' || item.serviceId || item.kind === 'service');
+    const record = await findByIdSafe(isService ? ServiceMDL : ProductMDL, itemId);
+    if (!record || record.availability === false) {
+      return checkoutError(400, `"${String(item.name || 'An item').slice(0, 80)}" is no longer available. Please remove it from your cart.`);
+    }
+    if (!isService && record.stock !== undefined && record.stock !== null && Number(record.stock) < quantity) {
+      return checkoutError(400, `Insufficient stock for "${record.name}". Only ${record.stock} units available.`);
+    }
+    const basePrice = Number(record.price) || 0;
+    const unitPrice = roundMoney(isService ? basePrice : basePrice - (basePrice * (Number(record.discount) || 0)) / 100);
+    resolvedItems.push({
+      id: String(record._id),
+      type: isService ? 'service' : 'product',
+      name: String(record.name || 'Item'),
+      unitPrice,
+      price: unitPrice,
+      quantity,
+      lineTotal: roundMoney(unitPrice * quantity),
+      image: (Array.isArray(record.images) && record.images[0]) || record.imageUrl || '',
+      businessId: String(record.businessId || ''),
+    });
+  }
+  normalizedBusinessId = resolvedItems[0].businessId || normalizedBusinessId;
+  if (!normalizedBusinessId) {
+    return checkoutError(400, 'Could not determine the business for this order.');
+  }
+  const orderBusiness = await findByIdSafe(Business(), normalizedBusinessId);
+  resolvedItems.forEach((item) => {
+    if (!item.businessId) item.businessId = normalizedBusinessId;
+    item.seller = item.businessId === normalizedBusinessId ? (orderBusiness?.name || '') : '';
+  });
+  const subtotal = roundMoney(resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0));
+
+  let discount = 0;
+  if (promoCode) {
+    const coupon = await Coupon().findOne({ code: String(promoCode).toUpperCase(), active: true });
+    if (coupon) {
+      const expiry = coupon.expiryDate ? new Date(`${coupon.expiryDate}T23:59:59`) : null;
+      const isExpired = expiry && expiry < new Date();
+      if (!isExpired) {
+        discount = (subtotal * coupon.discountPercent) / 100;
+        if (discount > coupon.maxDiscount) discount = coupon.maxDiscount;
+      }
+    }
+  }
+
+  discount = roundMoney(Math.min(discount, subtotal));
+  const deliveryMethod = normalizedAddress.method === 'pickup' ? 'pickup' : 'delivery';
+  const deliveryFee = deliveryMethod === 'delivery' ? 70 : 0; // NPR 70 flat delivery
+  const tax = roundMoney((subtotal + deliveryFee - discount) * VAT_RATE); // 13% VAT
+  const total = roundMoney(subtotal + deliveryFee + tax - discount);
+
+  return {
+    ok: true,
+    businessId: normalizedBusinessId,
+    business: orderBusiness,
+    items: resolvedItems,
+    subtotal,
+    discount,
+    deliveryFee,
+    tax,
+    total,
+    deliveryAddress: {
+      name: personName,
+      email: deliveryEmail,
+      phone: deliveryPhone,
+      location: place,
+      address: street,
+      method: deliveryMethod,
+    },
+  };
+}
+
+/** Saves an order for a priced checkout: deducts product stock, adds loyalty points and creates the record. */
+async function persistCheckoutOrder(customerId, prepared, fields) {
+  const ProductMDL = Product();
+  const UserMDL = User();
+  for (const item of prepared.items) {
+    if (item.type === 'service') continue;
+    try {
+      const product = await ProductMDL.findById(item.id);
+      if (product && product.stock >= item.quantity) {
+        await ProductMDL.findByIdAndUpdate(item.id, { $inc: { stock: -item.quantity } });
+      }
+    } catch (_) {}
+  }
+
+  const buyer = await UserMDL.findById(customerId);
+  await UserMDL.findByIdAndUpdate(customerId, { loyaltyPoints: ((buyer && buyer.loyaltyPoints) || 0) + 10 });
+
+  const { trackingHistory, ...orderFields } = fields;
+  const created = await Order().create({
+    customerId,
+    businessId: prepared.businessId,
+    items: prepared.items,
+    subtotal: prepared.subtotal,
+    deliveryFee: prepared.deliveryFee,
+    tax: prepared.tax,
+    discount: prepared.discount,
+    total: prepared.total,
+    status: 'placed',
+    deliveryAddress: prepared.deliveryAddress,
+    deliveryRiderId: '',
+    // The delivery OTP is generated when the business dispatches the order.
+    deliveryOtp: '',
+    deliveryProof: '',
+    trackingHistory: trackingHistory || [{ status: 'placed', time: new Date().toISOString(), note: 'Order placed by customer.' }],
+    ...orderFields,
+  });
+  return toPlain(created);
+}
+
+/** Real-time notice to the business owner and admins that a new order arrived. */
+async function notifyNewOrder(ioInstance, order) {
+  if (!ioInstance || !order) return;
+  try {
+    const biz = await findByIdSafe(Business(), order.businessId);
+    if (biz && biz.ownerId) ioInstance.to(`user:${biz.ownerId}`).emit('new_order', sanitizeOrderFor(order, 'seller'));
+  } catch (_) {}
+  ioInstance.to('role:admin').emit('new_order', sanitizeOrderFor(order, 'admin'));
+}
+
 app.post('/api/checkout', authenticateToken, async (req, res) => {
   try {
-    const { businessId, items, promoCode, paymentMethod, deliveryAddress } = req.body;
+    const { items, paymentMethod } = req.body || {};
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'Missing order details.' });
     }
 
-    // Resolve businessId — try from request, then from cart items, then from the DB product record
-    let normalizedBusinessId = String(businessId || items[0]?.businessId || items[0]?.business?.id || items[0]?.sellerId || items[0]?.vendorId || '').trim();
-
-    // If still empty, look up the first product in DB and get its businessId
-    if (!normalizedBusinessId && items.length > 0) {
-      try {
-        const ProductMDL2 = Product();
-        const firstItemId = String(items[0]?.id || '');
-        if (firstItemId) {
-          const dbProduct = await ProductMDL2.findById(firstItemId);
-          if (dbProduct && dbProduct.businessId) {
-            normalizedBusinessId = String(dbProduct.businessId);
-          }
-        }
-      } catch (_) {}
+    const method = String(paymentMethod || 'COD');
+    if (method === 'eSewa') {
+      return res.status(400).json({ message: 'eSewa payments start from /api/checkout/esewa.' });
     }
-    const normalizedAddress = deliveryAddress || {
-      name: req.body.name || '',
-      email: req.body.email || '',
-      phone: req.body.phone || '',
-      location: req.body.location || '',
-      address: req.body.address || '',
-      method: req.body.deliveryMethod || 'delivery',
+    const allowedMethods = ['COD', 'QR', ...(stripe ? ['Card'] : [])];
+    if (!allowedMethods.includes(method)) {
+      return res.status(400).json({ message: 'Unsupported payment method.' });
+    }
+
+    const customerId = String(req.user.id || req.user.userId || '');
+    const checkoutKey = String(req.get('Idempotency-Key') || '').trim().slice(0, 128);
+    const OrderMDL = Order();
+
+    // COD / QR orders are confirmed now, so the bill is issued immediately (payment shown as pending).
+    // Card orders are billed only after Stripe confirms the payment. issueBill is idempotent.
+    const withBill = async (order) => {
+      if (order.billNumber || order.paymentMethod === 'Card') return order;
+      const billResult = await billing.issueBill(order._id, { waitMs: CHECKOUT_BILL_WAIT_MS });
+      return billResult.order || order;
     };
 
-    if (!normalizedAddress.name || !normalizedAddress.phone || (!normalizedAddress.address && (normalizedAddress.method || 'delivery') === 'delivery')) {
-      return res.status(400).json({ message: 'Please complete your delivery information.' });
+    // Same key = same checkout attempt (double click, network retry): return the original order.
+    const findExistingCheckout = async () => (checkoutKey ? toPlain(await OrderMDL.findOne({ customerId, checkoutKey })) : null);
+    const existingOrder = await findExistingCheckout();
+    if (existingOrder) {
+      return res.status(200).json(checkoutResponse(await withBill(existingOrder), { duplicate: true }));
     }
 
-    const personName = String(normalizedAddress.name || '').trim();
-    if (!/^[\p{L}]+(?:[ ][\p{L}]+)*$/u.test(personName) || personName.length < 2) {
-      return res.status(400).json({
-        message: 'Full name can only contain letters and spaces (no numbers or special characters).',
-        errors: { name: 'Full name can only contain letters and spaces (no numbers or special characters).' },
-      });
-    }
+    const prepared = await prepareCheckout(req.body || {});
+    if (!prepared.ok) return res.status(prepared.status).json(prepared.body);
 
-    const deliveryEmail = String(normalizedAddress.email || '').trim();
-    if (!deliveryEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail)) {
-      return res.status(400).json({
-        message: 'A valid email address is required for delivery details.',
-        errors: { email: 'A valid email address is required.' },
-      });
-    }
-
-    if (!/^(97|98)\d{8}$/.test(String(normalizedAddress.phone).trim())) {
-      return res.status(400).json({ message: 'Phone number must be exactly 10 digits starting with 97 or 98.' });
-    }
-
-    const place = String(normalizedAddress.location || normalizedAddress.city || '').trim();
-    if (!place || !isNepalPlace(place)) {
-      return res.status(400).json({
-        message: 'Location / City must be a place in Nepal (e.g. Kathmandu, Pokhara, Thamel).',
-        errors: { city: 'Location / City must be a place in Nepal.' },
-      });
-    }
-
-    if ((normalizedAddress.method || 'delivery') === 'delivery') {
-      const street = String(normalizedAddress.address || '').trim();
-      if (street.length < 5) {
-        return res.status(400).json({
-          message: 'Street address / landmark is required.',
-          errors: { address: 'Street address / landmark is required.' },
+    const createOrder = async () => {
+      const duplicate = await findExistingCheckout();
+      if (duplicate) return { order: duplicate, duplicate: true };
+      try {
+        const order = await persistCheckoutOrder(customerId, prepared, {
+          paymentMethod: method,
+          // Mark new orders as pending until payment confirmation.
+          paymentStatus: 'pending',
+          ...(checkoutKey ? { checkoutKey } : {}),
         });
+        return { order, duplicate: false };
+      } catch (err) {
+        const existing = err && err.code === 11000 ? await findExistingCheckout() : null;
+        if (existing) return { order: existing, duplicate: true };
+        throw err;
       }
+    };
+
+    const { order: placedOrder, duplicate } = checkoutKey
+      ? await withBookingSlotLock(`checkout:${customerId}:${checkoutKey}`, createOrder)
+      : await createOrder();
+    if (duplicate) {
+      return res.status(200).json(checkoutResponse(await withBill(placedOrder), { duplicate: true }));
     }
 
-    const ProductMDL = Product();
-    const ServiceMDL = Service();
-    const CouponMDL = Coupon();
-    const OrderMDL = Order();
-    const UserMDL = User();
-
-    // Verify stock / availability and calculate subtotal
-    let subtotal = 0;
-    for (let item of items) {
-      const itemId = String(item.id || '');
-      const isService = Boolean(item.type === 'service' || item.serviceId || item.kind === 'service');
-
-      if (isService) {
-        // Try DB lookup, fall back to cart price
-        let servicePrice = Number(item.price || 0);
-        try {
-          const service = await ServiceMDL.findById(itemId);
-          if (service) servicePrice = Number(service.price || servicePrice);
-        } catch (_) {}
-        subtotal += servicePrice * Number(item.quantity || 1);
-        continue;
-      }
-
-      // Try DB lookup for product stock check
-      let unitPrice = Number(item.price || 0);
-      try {
-        const product = await ProductMDL.findById(itemId);
-        if (product) {
-          if (product.stock < item.quantity) {
-            return res.status(400).json({ message: `Insufficient stock for "${product.name}". Only ${product.stock} units available.` });
-          }
-          unitPrice = product.price - (product.price * (product.discount || 0)) / 100;
-        }
-      } catch (_) {}
-      subtotal += unitPrice * Number(item.quantity || 1);
-    }
-
-    // Apply Coupon
-    let discount = 0;
-    if (promoCode) {
-      const coupon = await CouponMDL.findOne({ code: promoCode.toUpperCase(), active: true });
-      if (coupon) {
-        const expiry = coupon.expiryDate ? new Date(`${coupon.expiryDate}T23:59:59`) : null;
-        const isExpired = expiry && expiry < new Date();
-        if (!isExpired) {
-          discount = (subtotal * coupon.discountPercent) / 100;
-          if (discount > coupon.maxDiscount) discount = coupon.maxDiscount;
-        }
-      }
-    }
-
-    const deliveryFee = 70; // NPR 70 flat delivery
-    const tax = parseFloat((subtotal * 0.13).toFixed(2)); // 13% VAT
-    const total = parseFloat((subtotal + deliveryFee + tax - discount).toFixed(2));
-
-    // Deduct Stock for products only
-    for (let item of items) {
-      const isService = Boolean(item.type === 'service' || item.serviceId || item.kind === 'service');
-      if (isService) continue;
-      try {
-        const product = await ProductMDL.findById(String(item.id || ''));
-        if (product && product.stock >= item.quantity) {
-          await ProductMDL.findByIdAndUpdate(item.id, { $inc: { stock: -item.quantity } });
-        }
-      } catch (_) {}
-    }
-
-    // Add Loyalty points (+10 for order)
-    const buyer = await UserMDL.findById(req.user.id);
-    await UserMDL.findByIdAndUpdate(req.user.id, { loyaltyPoints: (buyer.loyaltyPoints || 0) + 10 });
-
-    // Create Order
-    const newOrder = await OrderMDL.create({
-      customerId: req.user.id,
-      businessId: normalizedBusinessId,
-      items: items.map((item) => ({
-        ...item,
-        businessId: item.businessId || item.business?.id || item.sellerId || item.vendorId || normalizedBusinessId,
-      })),
-      subtotal,
-      deliveryFee,
-      tax,
-      discount,
-      total,
-      status: 'placed',
-      paymentMethod: paymentMethod || 'COD',
-      // Mark new orders as pending until payment confirmation.
-      paymentStatus: 'pending',
-      deliveryAddress: {
-        ...normalizedAddress,
-        location: normalizedAddress.location || '',
-      },
-      deliveryRiderId: '',
-      deliveryOtp: Math.floor(1000 + Math.random() * 9000).toString(), // 4-digit OTP
-      deliveryProof: '',
-      trackingHistory: [{ status: 'placed', time: new Date().toISOString(), note: 'Order placed by customer.' }],
-    });
-
-    res.status(201).json({ success: true, order: newOrder });
-
-    // ⚡ Real-time: notify the specific seller (business owner) and all admins
-    const socketIo = req.app.get('io');
-    if (socketIo) {
-      // Notify the owner of the business that received the order
-      if (normalizedBusinessId) {
-        try {
-          const BusinessMDL = Business();
-          const biz = await BusinessMDL.findById(normalizedBusinessId);
-          if (biz && biz.ownerId) {
-            socketIo.to(`user:${biz.ownerId}`).emit('new_order', newOrder);
-          }
-        } catch (_) {}
-      }
-      // Broadcast to all admin role connections too
-      socketIo.to(`role:admin`).emit('new_order', newOrder);
-    }
+    const newOrder = await withBill(placedOrder);
+    res.status(201).json(checkoutResponse(newOrder));
+    notifyNewOrder(req.app.get('io'), newOrder);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Checkout transaction failed.' });
   }
 });
 
-app.post('/api/payment/confirm', authenticateToken, async (req, res) => {
-  try {
-    const { orderId, status } = req.body;
-    const OrderMDL = Order();
-    const order = await OrderMDL.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
+app.use(createEsewaRoutes({
+  authenticateToken,
+  requireRole,
+  billing,
+  models: { Business, PaymentCredential, EsewaPayment, Order },
+  prepareCheckout,
+  persistCheckoutOrder,
+  notifyNewOrder,
+  resolveClientUrl,
+}));
 
-    await OrderMDL.findByIdAndUpdate(orderId, { paymentStatus: status });
-    res.json({ success: true });
+app.use(createOrderLifecycleRoutes({ authenticateToken, requireRole, billing, Order, Business, Product }));
+
+// Public payment capabilities for the checkout UI (no secrets).
+app.get('/api/payment/config', (req, res) => {
+  res.json({ stripeEnabled: Boolean(stripe), stripeMode, billEmailConfigured: isBillEmailConfigured() });
+});
+
+// Manual payment confirmation (e.g. a business confirming a QR transfer it received).
+// Customers cannot mark their own orders as paid.
+app.post('/api/payment/confirm', authenticateToken, requireRole(['admin', 'seller']), async (req, res) => {
+  try {
+    const { orderId, status } = req.body || {};
+    if (!['pending', 'paid', 'refunded'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid payment status.' });
+    }
+    const order = await billing.loadOrder(orderId);
+    const access = order ? await billing.resolveOrderAccess(req.user, order) : null;
+    if (!order || !['admin', 'seller'].includes(access)) return res.status(404).json({ message: 'Order not found.' });
+    if (status === 'refunded' && access !== 'admin') {
+      return res.status(403).json({ message: 'Only an admin can mark an order as refunded.' });
+    }
+    if (order.paymentMethod === 'Card' && access !== 'admin') {
+      return res.status(403).json({ message: 'Card payments are confirmed automatically by the payment provider.' });
+    }
+
+    const OrderMDL = Order();
+    const update = { paymentStatus: status };
+    if (status === 'paid' && order.paymentStatus !== 'paid') {
+      update.paidAt = new Date();
+      update.trackingHistory = [...(order.trackingHistory || []), { status: 'paid', time: new Date().toISOString(), note: `Payment confirmed by ${access}.` }];
+    }
+    const updated = toPlain(await OrderMDL.findByIdAndUpdate(order._id, update, { returnDocument: 'after' }));
+
+    if (status === 'paid') await billing.issueBill(order._id);
+    res.json({ success: true, order: updated });
   } catch (err) {
+    console.error('Payment confirmation failed', err && err.message);
     res.status(500).json({ message: 'Payment confirmation failed.' });
   }
 });
@@ -2101,16 +2647,16 @@ app.post('/api/payment/confirm', authenticateToken, async (req, res) => {
 app.post('/api/payment/create-session', authenticateToken, async (req, res) => {
   try {
     if (!stripe) return res.status(501).json({ message: 'Stripe not configured on server.' });
-    const { orderId } = req.body;
+    const { orderId } = req.body || {};
     if (!orderId) return res.status(400).json({ message: 'orderId required.' });
 
-    const OrderMDL = Order();
-    const order = await OrderMDL.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    const order = await billing.loadOrder(orderId);
+    if (!order || String(order.customerId) !== String(req.user.id)) return res.status(404).json({ message: 'Order not found.' });
+    if (order.paymentMethod !== 'Card') return res.status(400).json({ message: 'This order is not a card payment order.' });
+    if (order.paymentStatus === 'paid') return res.status(409).json({ message: 'This order is already paid.' });
+    if (order.status === 'cancelled') return res.status(409).json({ message: 'This order was cancelled.' });
 
-    // Convert NPR to USD for Stripe test payments (approx conversion)
-    const usdAmount = Math.max(1, Math.round((order.total / 130) * 100)); // in cents
-
+    const clientUrl = resolveClientUrl(req);
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -2118,15 +2664,18 @@ app.post('/api/payment/create-session', authenticateToken, async (req, res) => {
           price_data: {
             currency: 'usd',
             product_data: { name: `UdyogConnect Order ${order._id}` },
-            unit_amount: usdAmount,
+            // Convert NPR to USD for Stripe test payments (approx conversion), in cents
+            unit_amount: stripeAmountCents(order),
           },
           quantity: 1,
         },
       ],
       mode: 'payment',
-      metadata: { orderId: order._id },
-      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-success?session_id={CHECKOUT_SESSION_ID}&orderId=${order._id}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/checkout?canceled=1`,
+      client_reference_id: String(order._id),
+      customer_email: order.deliveryAddress?.email || undefined,
+      metadata: { orderId: String(order._id) },
+      success_url: `${clientUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}&orderId=${order._id}`,
+      cancel_url: `${clientUrl}/checkout?canceled=1`,
     });
 
     res.json({ url: session.url });
@@ -2140,17 +2689,39 @@ app.post('/api/payment/create-session', authenticateToken, async (req, res) => {
 app.post('/api/payment/verify-session', authenticateToken, async (req, res) => {
   try {
     if (!stripe) return res.status(501).json({ message: 'Stripe not configured on server.' });
-    const { sessionId, orderId } = req.body;
+    const { sessionId, orderId } = req.body || {};
     if (!sessionId || !orderId) return res.status(400).json({ message: 'sessionId and orderId required.' });
 
-    const sess = await stripe.checkout.sessions.retrieve(sessionId);
-    if (!sess) return res.status(404).json({ message: 'Session not found.' });
+    const order = await billing.loadOrder(orderId);
+    if (!order || String(order.customerId) !== String(req.user.id)) return res.status(404).json({ message: 'Order not found.' });
 
-    const paid = sess.payment_status === 'paid' || sess.payment_status === 'complete';
+    // Revisiting the success page must not re-run payment processing or resend anything.
+    if (order.paymentStatus === 'paid') {
+      const { order: billed } = await billing.issueBill(order._id);
+      const current = billed || order;
+      return res.json({ success: true, paid: true, order: current, bill: billing.billSummary(current) });
+    }
+
+    const sess = await stripe.checkout.sessions.retrieve(String(sessionId));
+    if (!sess) return res.status(404).json({ message: 'Session not found.' });
+    if (String(sess.metadata?.orderId || '') !== String(order._id)) {
+      return res.status(400).json({ message: 'This payment session does not belong to this order.' });
+    }
+    if (stripeMode === 'live' && (sess.amount_total !== stripeAmountCents(order) || String(sess.currency).toLowerCase() !== 'usd')) {
+      console.error(`Stripe verify: amount mismatch for order ${order._id} (${sess.amount_total} ${sess.currency}).`);
+      return res.status(400).json({ message: 'Payment amount does not match the order total.' });
+    }
+
+    const paid = sess.payment_status === 'paid';
     if (paid) {
-      const OrderMDL = Order();
-      await OrderMDL.findByIdAndUpdate(orderId, { paymentStatus: 'paid' });
-      return res.json({ success: true, paid: true });
+      const result = await billing.finalizeCardPayment({
+        orderId: order._id,
+        transactionId: sess.payment_intent,
+        sessionId: sess.id || sessionId,
+        waitMs: CHECKOUT_BILL_WAIT_MS,
+      });
+      const current = result.order || order;
+      return res.json({ success: true, paid: true, order: current, bill: billing.billSummary(current) });
     }
     res.json({ success: false, paid: false, status: sess.payment_status });
   } catch (err) {
@@ -2180,7 +2751,8 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 
     // Sort newest first
     orders = orders.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 200);
-    res.json(orders);
+    const access = req.user.role === 'admin' ? 'admin' : req.user.role === 'seller' ? 'seller' : 'customer';
+    res.json(orders.map((order) => sanitizeOrderFor(order, access)));
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve orders.' });
   }
@@ -2189,10 +2761,10 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 // GET single order by ID
 app.get('/api/orders/:id', authenticateToken, async (req, res) => {
   try {
-    const OrderMDL = Order();
-    const order = await OrderMDL.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
-    res.json(order);
+    const order = await billing.loadOrder(req.params.id);
+    const access = order ? await billing.resolveOrderAccess(req.user, order) : null;
+    if (!order || !access) return res.status(404).json({ message: 'Order not found.' });
+    res.json(sanitizeOrderFor(order, access));
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve order.' });
   }
@@ -2230,17 +2802,28 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status, note } = req.body;
     const OrderMDL = Order();
-    const order = await OrderMDL.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    const order = await billing.loadOrder(req.params.id);
+    const access = order ? await billing.resolveOrderAccess(req.user, order) : null;
+    if (!order || !access) return res.status(404).json({ message: 'Order not found.' });
+    if (!['admin', 'seller'].includes(access)) {
+      return res.status(403).json({ message: 'Only the business or an admin can update this order.' });
+    }
+    if (!['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid order status.' });
+    }
 
     const trackingHistory = [...(order.trackingHistory || []), { status, time: new Date().toISOString(), note: note || `Order updated to ${status}.` }];
+    const statusUpdate = { status, trackingHistory };
+    if (status === 'dispatched' && order.status !== 'dispatched') {
+      Object.assign(statusUpdate, { deliveryOtp: generateDeliveryOtp(), deliveryOtpAttempts: 0, dispatchedAt: new Date() });
+    }
 
     const updated = await OrderMDL.findByIdAndUpdate(
       req.params.id,
-      { status, trackingHistory },
+      statusUpdate,
       { new: true }
     );
-    res.json({ success: true, order: updated });
+    res.json({ success: true, order: sanitizeOrderFor(updated, access) });
 
     // ⚡ Real-time: notify the customer that their order status changed
     const socketIo = req.app.get('io');
@@ -2274,28 +2857,202 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/bookings', authenticateToken, async (req, res) => {
+const bookingSlotLocks = new Map();
+const withBookingSlotLock = async (lockKey, fn) => {
+  const key = String(lockKey);
+  while (bookingSlotLocks.get(key)) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  bookingSlotLocks.set(key, true);
   try {
-    const { businessId, serviceId, date, timeSlot, staffMember, homeService } = req.body;
-    if (!businessId || !serviceId || !date || !timeSlot) {
-      return res.status(400).json({ message: 'Missing booking details.' });
+    return await fn();
+  } finally {
+    bookingSlotLocks.delete(key);
+  }
+};
+
+app.get('/api/bookings/availability', async (req, res) => {
+  try {
+    const { businessId, serviceId, date, staffMember } = req.query || {};
+    if (!businessId || !serviceId || !date) {
+      return res.status(400).json({ message: 'businessId, serviceId, and date are required.' });
     }
 
+    const BusinessMDL = Business();
+    const ServiceMDL = Service();
     const BookingMDL = Booking();
-    const newBooking = await BookingMDL.create({
-      customerId: req.user.id,
-      businessId,
-      serviceId,
-      date,
-      timeSlot,
-      staffMember: staffMember || 'Any available staff',
-      status: 'pending',
-      homeService: homeService === 'true' || homeService === true,
-      reminderSent: false,
+    const business = await BusinessMDL.findById(businessId);
+    if (!business) return res.status(404).json({ message: 'Business not found.' });
+    const service = await ServiceMDL.findById(serviceId);
+    if (!service || String(service.businessId) !== String(businessId)) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    const existingBookings = (await BookingMDL.find({ businessId, date }))
+      .filter((b) => ACTIVE_BOOKING_STATUSES.has(String(b.status || 'pending').toLowerCase()));
+
+    const result = evaluateBookingAvailability({
+      business,
+      service,
+      date: String(date),
+      staffMember: staffMember || '',
+      existingBookings,
     });
 
-    res.status(201).json({ success: true, booking: newBooking });
+    return res.status(result.ok ? 200 : result.status).json({
+      success: result.ok,
+      code: result.code,
+      message: result.message,
+      slots: result.slots,
+      minDate: result.minDate || getNepalParts().dateKey,
+      maxDate: result.maxDate || null,
+      duration: result.duration || Number(service.duration || 60),
+      settings: result.settings,
+      nepalNow: result.nepalNow,
+    });
   } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load booking availability.' });
+  }
+});
+
+app.post('/api/bookings', authenticateToken, async (req, res) => {
+  try {
+    const { businessId, serviceId, date, timeSlot, staffMember, homeService } = req.body || {};
+    if (!businessId || !serviceId || !date || !timeSlot) {
+      return res.status(400).json({ message: 'Missing booking details.', code: 'MISSING_FIELDS' });
+    }
+
+    const BusinessMDL = Business();
+    const ServiceMDL = Service();
+    const BookingMDL = Booking();
+    const UserMDL = User();
+    const business = await BusinessMDL.findById(businessId);
+    if (!business) return res.status(404).json({ message: 'Business not found.' });
+    const service = await ServiceMDL.findById(serviceId);
+    if (!service || String(service.businessId) !== String(businessId)) {
+      return res.status(404).json({ message: 'Service not found.' });
+    }
+
+    const customer = await UserMDL.findById(req.user.id);
+    const customerName = customer?.name || req.user.name || 'Customer';
+    const customerEmail = customer?.email || req.user.email || '';
+    const customerPhone = customer?.phone || '';
+
+    const lockKey = `${businessId}:${date}:${String(timeSlot).trim()}:${staffMember || 'any'}`;
+    const created = await withBookingSlotLock(lockKey, async () => {
+      const existingBookings = await BookingMDL.find({ businessId, date });
+      const evaluation = evaluateBookingAvailability({
+        business,
+        service,
+        date: String(date),
+        timeSlot: String(timeSlot),
+        staffMember: staffMember || '',
+        existingBookings,
+      });
+
+      if (!evaluation.ok) {
+        const error = new Error(evaluation.message);
+        error.status = evaluation.status;
+        error.code = evaluation.code;
+        error.slots = evaluation.slots;
+        throw error;
+      }
+
+      // Duplicate booking by same customer for same service/time
+      const duplicate = existingBookings.find((b) => (
+        ACTIVE_BOOKING_STATUSES.has(String(b.status || 'pending').toLowerCase())
+        && String(b.customerId) === String(req.user.id)
+        && String(b.serviceId) === String(serviceId)
+        && String(b.timeSlot).toLowerCase() === String(evaluation.normalizedTimeSlot).toLowerCase()
+      ));
+      if (duplicate) {
+        const error = new Error('You already have a booking for this service at this time.');
+        error.status = 409;
+        error.code = 'DUPLICATE_BOOKING';
+        throw error;
+      }
+
+      return BookingMDL.create({
+        customerId: req.user.id,
+        customerName,
+        customerEmail,
+        customerPhone,
+        businessId,
+        businessName: business.name || '',
+        serviceId,
+        serviceName: service.name || 'Service',
+        servicePrice: Number(service.price || 0),
+        date: String(date),
+        timeSlot: evaluation.normalizedTimeSlot,
+        durationMinutes: evaluation.duration,
+        startAt: evaluation.startAt,
+        endAt: evaluation.endAt,
+        staffMember: staffMember || 'Any available staff',
+        status: 'pending',
+        homeService: homeService === 'true' || homeService === true,
+        reminderSent: false,
+        timezone: 'Asia/Kathmandu',
+      });
+    });
+
+    // Notify business owner immediately
+    try {
+      const NotificationMDL = Notification();
+      const ownerId = String(business.ownerId || '');
+      if (ownerId && NotificationMDL) {
+        await NotificationMDL.create({
+          userId: ownerId,
+          title: 'New service booking',
+          message: `${customerName} booked "${service.name}" on ${created.date} at ${created.timeSlot}.`,
+          type: 'booking',
+          read: false,
+          link: '/business?tab=bookings',
+        });
+      }
+      const socketIo = req.app.get('io');
+      if (socketIo && ownerId) {
+        socketIo.to(`user:${ownerId}`).emit('new_notification', {
+          type: 'booking',
+          bookingId: created._id,
+        });
+        socketIo.to(`user:${ownerId}`).emit('new_booking', created);
+      }
+    } catch (notifErr) {
+      console.error('Booking owner notification failed:', notifErr.message || notifErr);
+    }
+
+    // Confirm to customer
+    try {
+      const NotificationMDL = Notification();
+      if (NotificationMDL) {
+        await NotificationMDL.create({
+          userId: String(req.user.id),
+          title: 'Booking requested',
+          message: `Your booking for "${service.name}" at ${business.name || 'the business'} on ${created.date} at ${created.timeSlot} is pending confirmation.`,
+          type: 'booking',
+          read: false,
+          link: '/customer',
+        });
+      }
+      const socketIo = req.app.get('io');
+      if (socketIo) {
+        socketIo.to(`user:${req.user.id}`).emit('new_notification', { type: 'booking' });
+      }
+    } catch (custNotifErr) {
+      console.error('Booking customer notification failed:', custNotifErr.message || custNotifErr);
+    }
+
+    res.status(201).json({ success: true, booking: created });
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({
+        message: err.message,
+        code: err.code,
+        slots: err.slots || undefined,
+      });
+    }
+    console.error(err);
     res.status(500).json({ message: 'Booking failed.' });
   }
 });
@@ -2303,57 +3060,215 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
 app.get('/api/bookings', authenticateToken, async (req, res) => {
   try {
     const BookingMDL = Booking();
+    const UserMDL = User();
+    const ServiceMDL = Service();
+    const BusinessMDL = Business();
+    const ownerKey = String(req.user.id || req.user.userId || '');
     let bookings = [];
 
     if (req.user.role === 'admin') {
       bookings = await BookingMDL.find({});
     } else if (req.user.role === 'seller') {
-      const BusinessMDL = Business();
-      const myBizs = await BusinessMDL.find({ ownerId: req.user.id });
-    // Fix: string comparison for booking businessId
-    const myBizIds = myBizs.map((b) => String(b._id));
-    const allBookings = await BookingMDL.find({});
-    bookings = allBookings.filter((bk) => myBizIds.includes(String(bk.businessId)));
+      // Same ownership pattern as /api/orders so sellers always see their bookings
+      const myBizs = await BusinessMDL.find({ ownerId: ownerKey });
+      const myBizIds = myBizs.map((b) => String(b._id));
+      if (myBizIds.length === 0) {
+        bookings = [];
+      } else {
+        const groups = await Promise.all(myBizIds.map((businessId) => BookingMDL.find({ businessId })));
+        bookings = groups.flat();
+      }
     } else {
-      bookings = await BookingMDL.find({ customerId: req.user.id });
+      bookings = await BookingMDL.find({ customerId: ownerKey });
     }
 
-    res.json(bookings);
+    // Enrich older bookings missing denormalized fields
+    const enriched = await Promise.all((Array.isArray(bookings) ? bookings : []).map(async (bk) => {
+      const plain = typeof bk?.toObject === 'function' ? bk.toObject() : { ...bk };
+      if (!plain.customerName && plain.customerId) {
+        const customer = await UserMDL.findById(plain.customerId);
+        plain.customerName = customer?.name || 'Customer';
+        plain.customerEmail = plain.customerEmail || customer?.email || '';
+        plain.customerPhone = plain.customerPhone || customer?.phone || '';
+      }
+      if (!plain.serviceName && plain.serviceId) {
+        const service = await ServiceMDL.findById(plain.serviceId);
+        plain.serviceName = service?.name || 'Service';
+        plain.servicePrice = plain.servicePrice || Number(service?.price || 0);
+        plain.durationMinutes = plain.durationMinutes || Number(service?.duration || 60);
+      }
+      if (!plain.businessName && plain.businessId) {
+        const biz = await BusinessMDL.findById(plain.businessId);
+        plain.businessName = biz?.name || 'Business';
+      }
+      return plain;
+    }));
+
+    // Newest first
+    enriched.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    res.json(enriched);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Failed to load bookings.' });
   }
 });
 
 app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
   try {
-    const { status, date, timeSlot } = req.body;
+    const { status, date, timeSlot, staffMember } = req.body || {};
     const BookingMDL = Booking();
+    const bookingId = String(req.params.id || '').trim();
+    const booking = await BookingMDL.findById(bookingId);
+    if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+
+    const actorId = String(req.user.id || req.user.userId || '');
+    const BusinessMDL = Business();
+    const business = await BusinessMDL.findById(booking.businessId);
+    const isOwner = Boolean(business && String(business.ownerId) === actorId);
+    const isCustomer = String(booking.customerId) === actorId;
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isCustomer && !isAdmin) {
+      return res.status(403).json({ message: 'Not allowed to update this booking.' });
+    }
+
     const updates = {};
-    if (status) updates.status = status;
-    if (date) updates.date = date;
-    if (timeSlot) updates.timeSlot = timeSlot;
-
-    const updated = await BookingMDL.findByIdAndUpdate(req.params.id, updates);
-    res.json({ success: true, booking: updated });
-
-    // Send email when booking is accepted/confirmed
-    try {
-      if (updates.status && (updates.status === 'confirmed' || updates.status === 'pending')) {
-        const booking = await BookingMDL.findById(req.params.id);
-        const BusinessMDL = Business();
-        const biz = await BusinessMDL.findById(booking.businessId);
-        if (biz && biz.contactEmail) {
-          const subject = `Booking ${String(booking._id).slice(-8).toUpperCase()} — ${booking.status}`;
-          const html = `<p>Hi ${biz.name || 'Business'},</p>
-            <p>The booking <strong>${booking._id}</strong> for service <strong>${booking.serviceId}</strong> has been updated to <strong>${booking.status}</strong>.</p>
-            <p>Customer: ${booking.customerId}</p>
-            <p>Date: ${booking.date} · Time: ${booking.timeSlot}</p>`;
-          await sendMail({ to: biz.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+    if (status !== undefined && status !== null && String(status).trim() !== '') {
+      const nextStatus = String(status).trim().toLowerCase();
+      const allowed = ['pending', 'confirmed', 'completed', 'cancelled', 'rejected'];
+      if (!allowed.includes(nextStatus)) {
+        return res.status(400).json({ message: 'Invalid booking status.' });
+      }
+      // Business owners/admins can confirm/decline even if they also created the booking.
+      // Customers (non-owners) may only cancel.
+      if (!isOwner && !isAdmin) {
+        if (nextStatus !== 'cancelled') {
+          return res.status(403).json({ message: 'Customers can only cancel bookings.' });
         }
       }
-    } catch (err) { console.warn('Booking email failed', err && err.message); }
+      updates.status = nextStatus;
+    }
+
+    if (date || timeSlot) {
+      const ServiceMDL = Service();
+      const service = await ServiceMDL.findById(booking.serviceId);
+      if (!service) return res.status(404).json({ message: 'Service not found.' });
+      const nextDate = String(date || booking.date);
+      const nextSlot = String(timeSlot || booking.timeSlot);
+      const lockKey = `${booking.businessId}:${nextDate}:${nextSlot}:${staffMember || booking.staffMember || 'any'}`;
+      await withBookingSlotLock(lockKey, async () => {
+        const existingBookings = await BookingMDL.find({ businessId: booking.businessId, date: nextDate });
+        const evaluation = evaluateBookingAvailability({
+          business,
+          service,
+          date: nextDate,
+          timeSlot: nextSlot,
+          staffMember: staffMember || booking.staffMember || '',
+          existingBookings,
+          excludeBookingId: booking._id,
+        });
+        if (!evaluation.ok) {
+          const error = new Error(evaluation.message);
+          error.status = evaluation.status;
+          error.code = evaluation.code;
+          throw error;
+        }
+        updates.date = nextDate;
+        updates.timeSlot = evaluation.normalizedTimeSlot;
+        updates.durationMinutes = evaluation.duration;
+        updates.startAt = evaluation.startAt;
+        updates.endAt = evaluation.endAt;
+        if (staffMember) updates.staffMember = staffMember;
+      });
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No booking changes provided.' });
+    }
+
+    const previousStatus = booking.status;
+    const updated = await BookingMDL.findByIdAndUpdate(bookingId, updates, { new: true });
+    if (!updated) {
+      return res.status(404).json({ message: 'Booking not found.' });
+    }
+    res.json({ success: true, booking: updated });
+
+    try {
+      if (updates.status && String(updates.status) !== String(previousStatus)) {
+        const NotificationMDL = Notification();
+        const serviceLabel = updated.serviceName || 'your service';
+        const bizLabel = updated.businessName || business?.name || 'the business';
+        const statusLabel = String(updates.status);
+        const customerId = String(updated.customerId || '');
+        const ownerId = String(business?.ownerId || '');
+
+        if (NotificationMDL && customerId) {
+          const customerTitles = {
+            confirmed: 'Booking confirmed',
+            rejected: 'Booking declined',
+            cancelled: 'Booking cancelled',
+            completed: 'Booking completed',
+            pending: 'Booking updated',
+          };
+          await NotificationMDL.create({
+            userId: customerId,
+            title: customerTitles[statusLabel] || 'Booking updated',
+            message: `Your booking for "${serviceLabel}" at ${bizLabel} on ${updated.date} at ${updated.timeSlot} is now ${statusLabel}.`,
+            type: 'booking',
+            read: false,
+            link: '/customer',
+          });
+        }
+
+        // If customer cancelled, alert the business owner
+        if (NotificationMDL && ownerId && statusLabel === 'cancelled' && isCustomer && !isOwner) {
+          await NotificationMDL.create({
+            userId: ownerId,
+            title: 'Booking cancelled',
+            message: `${updated.customerName || 'A customer'} cancelled "${serviceLabel}" on ${updated.date} at ${updated.timeSlot}.`,
+            type: 'booking',
+            read: false,
+            link: '/business?tab=bookings',
+          });
+        }
+
+        const socketIo = req.app.get('io');
+        if (socketIo) {
+          if (customerId) {
+            socketIo.to(`user:${customerId}`).emit('new_notification', { type: 'booking', bookingId: updated._id });
+            socketIo.to(`user:${customerId}`).emit('booking_updated', updated);
+          }
+          if (ownerId) {
+            socketIo.to(`user:${ownerId}`).emit('new_notification', { type: 'booking', bookingId: updated._id });
+            socketIo.to(`user:${ownerId}`).emit('booking_updated', updated);
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.error('Booking status notification failed:', notifErr.message || notifErr);
+    }
+
+    try {
+      if (updates.status && (updates.status === 'confirmed' || updates.status === 'pending')) {
+        const latest = updated;
+        if (business && business.contactEmail) {
+          const subject = `Booking ${String(latest._id).slice(-8).toUpperCase()} — ${latest.status}`;
+          const html = `<p>Hi ${business.name || 'Business'},</p>
+            <p>The booking <strong>${latest._id}</strong> for service <strong>${latest.serviceName || latest.serviceId}</strong> has been updated to <strong>${latest.status}</strong>.</p>
+            <p>Customer: ${latest.customerName || latest.customerId}</p>
+            <p>Date: ${latest.date} · Time: ${latest.timeSlot}</p>`;
+          await sendMail({ to: business.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+        }
+      }
+    } catch (mailErr) {
+      console.error('Booking mail failed:', mailErr.message);
+    }
   } catch (err) {
-    res.status(500).json({ message: 'Booking update failed.' });
+    console.error('Booking update failed:', err);
+    if (res.headersSent) return;
+    if (err?.status) {
+      return res.status(err.status).json({ message: err.message, code: err.code });
+    }
+    res.status(500).json({ message: err?.message || 'Status update failed.' });
   }
 });
 
@@ -2375,8 +3290,9 @@ app.put('/api/delivery/:id/assign', authenticateToken, requireRole(['admin', 'se
   try {
     const { riderId } = req.body;
     const OrderMDL = Order();
-    const order = await OrderMDL.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    const order = await billing.loadOrder(req.params.id);
+    const access = order ? await billing.resolveOrderAccess(req.user, order) : null;
+    if (!order || !['admin', 'seller'].includes(access)) return res.status(404).json({ message: 'Order not found.' });
 
     const assignedRider = riderId || req.user.id;
     const trackingHistory = [...(order.trackingHistory || []), {
@@ -2385,12 +3301,12 @@ app.put('/api/delivery/:id/assign', authenticateToken, requireRole(['admin', 'se
       note: 'Order dispatched for delivery.',
     }];
 
-    const updated = await OrderMDL.findByIdAndUpdate(
-      req.params.id,
-      { deliveryRiderId: assignedRider, status: 'dispatched', trackingHistory },
-      { new: true }
-    );
-    res.json({ success: true, order: updated });
+    const dispatchUpdate = { deliveryRiderId: assignedRider, status: 'dispatched', trackingHistory };
+    if (order.status !== 'dispatched') {
+      Object.assign(dispatchUpdate, { deliveryOtp: generateDeliveryOtp(), deliveryOtpAttempts: 0, dispatchedAt: new Date() });
+    }
+    const updated = await OrderMDL.findByIdAndUpdate(req.params.id, dispatchUpdate, { new: true });
+    res.json({ success: true, order: sanitizeOrderFor(updated, req.user.role === 'admin' ? 'admin' : 'seller') });
 
     // ⚡ Notify customer that order is on the way
     const socketIo = req.app.get('io');
@@ -2411,11 +3327,19 @@ app.put('/api/delivery/:id/complete', authenticateToken, requireRole(['admin', '
   try {
     const { otp, proof } = req.body;
     const OrderMDL = Order();
-    const order = await OrderMDL.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    const order = await billing.loadOrder(req.params.id);
+    const access = order ? await billing.resolveOrderAccess(req.user, order) : null;
+    if (!order || !['admin', 'seller'].includes(access)) return res.status(404).json({ message: 'Order not found.' });
+    if (order.status !== 'dispatched') {
+      return res.status(409).json({ message: 'Only orders that are out for delivery can be completed.' });
+    }
+    if ((Number(order.deliveryOtpAttempts) || 0) >= 5) {
+      return res.status(429).json({ message: 'Too many wrong OTP attempts. Ask the customer to confirm with "Order Received".' });
+    }
 
-    if (String(order.deliveryOtp) !== String(otp)) {
-      return res.status(400).json({ message: `Invalid OTP. Expected ${order.deliveryOtp}.` });
+    if (!order.deliveryOtp || String(order.deliveryOtp) !== String(otp || '').trim()) {
+      await OrderMDL.findByIdAndUpdate(req.params.id, { deliveryOtpAttempts: (Number(order.deliveryOtpAttempts) || 0) + 1 });
+      return res.status(400).json({ message: 'Invalid OTP.' });
     }
 
     const trackingHistory = [...(order.trackingHistory || []), {
@@ -2430,11 +3354,12 @@ app.put('/api/delivery/:id/complete', authenticateToken, requireRole(['admin', '
         status: 'completed',
         paymentStatus: 'paid',
         deliveryProof: proof || 'OTP Confirmed',
+        deliveredAt: new Date(),
         trackingHistory,
       },
       { new: true }
     );
-    res.json({ success: true, order: updated });
+    res.json({ success: true, order: sanitizeOrderFor(updated, access) });
 
     // ⚡ Notify customer that order is completed
     const socketIo = req.app.get('io');
@@ -2453,19 +3378,7 @@ app.put('/api/delivery/:id/complete', authenticateToken, requireRole(['admin', '
 
 // ==================== REVIEW SYSTEM ====================
 
-app.put('/api/admin/reviews/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
-  try {
-    const { reported } = req.body;
-    const ReviewMDL = Review();
-    const review = await ReviewMDL.findById(req.params.id);
-    if (!review) return res.status(404).json({ message: 'Review not found.' });
-
-    const updated = await ReviewMDL.findByIdAndUpdate(req.params.id, { reported: Boolean(reported) }, { new: true });
-    res.json({ success: true, review: updated });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to update review moderation state.' });
-  }
-});
+app.use(createReportRoutes({ authenticateToken, requireRole, Report, Review, Business, User, AuditLog }));
 
 app.get('/api/admin/support-tickets', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
@@ -2605,7 +3518,7 @@ app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single
 
     let imgUrl = '';
     if (req.file) {
-      imgUrl = processImageUpload(req.file);
+      imgUrl = await processImageUpload(req.file);
     }
 
     const buyer = await UserMDL.findById(req.user.id);
@@ -2633,16 +3546,6 @@ app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single
     res.status(201).json({ success: true, review: newReview });
   } catch (err) {
     res.status(500).json({ message: 'Failed to post review.' });
-  }
-});
-
-app.put('/api/reviews/:id/report', authenticateToken, async (req, res) => {
-  try {
-    const ReviewMDL = Review();
-    await ReviewMDL.findByIdAndUpdate(req.params.id, { reported: true });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to flag review.' });
   }
 });
 
@@ -3319,6 +4222,66 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update system settings.' });
+  }
+});
+
+// ==================== SITE APPEARANCE: HOME HERO IMAGE ====================
+
+const HERO_IMAGE_KEY = 'heroImage';
+const HERO_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const isSafeHeroImageUrl = (value) => (
+  typeof value === 'string'
+  && value.length <= 2048
+  && !/[\s"'\\<>]/.test(value)
+  && (/^https?:\/\/[^/]+/i.test(value) || /^\/uploads\/[A-Za-z0-9._-]+$/.test(value))
+);
+
+const readHeroImage = async () => {
+  const setting = await SystemSetting().findOne({ key: HERO_IMAGE_KEY });
+  const value = setting?.value;
+  return isSafeHeroImageUrl(value) ? value : '';
+};
+
+app.get('/api/site/hero', async (req, res) => {
+  try {
+    res.json({ heroImage: await readHeroImage() });
+  } catch (err) {
+    res.json({ heroImage: '' });
+  }
+});
+
+app.put('/api/admin/hero-image', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    let heroImage = typeof req.body?.heroImage === 'string' ? req.body.heroImage.trim() : '';
+    const SystemSettingMDL = SystemSetting();
+
+    if (!heroImage) {
+      await SystemSettingMDL.deleteOne({ key: HERO_IMAGE_KEY });
+      return res.json({ success: true, heroImage: '' });
+    }
+
+    const dataMatch = heroImage.match(/^data:(image\/(?:jpeg|jpg|png|webp|gif));base64,(.+)$/i);
+    if (dataMatch) {
+      const buffer = Buffer.from(dataMatch[2], 'base64');
+      if (!buffer.length) return res.status(400).json({ message: 'Empty image data.' });
+      if (buffer.length > HERO_IMAGE_MAX_BYTES) return res.status(400).json({ message: 'Image must be under 8MB.' });
+      const ext = dataMatch[1].split('/')[1].replace('jpeg', 'jpg');
+      heroImage = await processImageUpload({ buffer, originalname: `hero.${ext}`, mimetype: dataMatch[1] });
+    }
+
+    if (!isSafeHeroImageUrl(heroImage)) {
+      return res.status(400).json({ message: 'Use an uploaded image or a valid https:// image link.' });
+    }
+
+    await SystemSettingMDL.findOneAndUpdate(
+      { key: HERO_IMAGE_KEY },
+      { $set: { key: HERO_IMAGE_KEY, value: heroImage } },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, heroImage });
+  } catch (err) {
+    console.error('Hero image update failed:', err);
+    res.status(500).json({ message: 'Failed to update the home page picture.' });
   }
 });
 

@@ -1,41 +1,98 @@
 import React from 'react';
-import { Briefcase, Mail, MapPin, Navigation, Phone, Globe, MessageCircle } from 'lucide-react';
-import { mapsDirectionsUrl, mapsEmbedUrl } from './cafeDemo';
+import {
+  Cake,
+  CheckCircle2,
+  CreditCard,
+  Navigation,
+  PartyPopper,
+  UtensilsCrossed,
+  Wallet,
+} from 'lucide-react';
+import { formatRs, mapsDirectionsUrl, mapsEmbedUrl } from './cafeDemo';
 
-export default function InfoSidebar({ business, openMeta, onContact }) {
-  const website = business.website || '';
-  const websiteHref = website.startsWith('http') ? website : `https://${website.replace(/^www\./, 'www.')}`;
-  const websiteLabel = website.replace(/^https?:\/\//, '');
+const SERVICE_ICONS = {
+  table: UtensilsCrossed,
+  cake: Cake,
+  party: PartyPopper,
+};
+
+const PAYMENT_ICONS = {
+  'Cash on Delivery': Wallet,
+  eSewa: Wallet,
+  'Card Payment': CreditCard,
+};
+
+export default function InfoSidebar({ business, services = [], onBook, onViewOffer }) {
+  const lat = business.latitude;
+  const lng = business.longitude;
+  const hasMap = Number.isFinite(lat) && Number.isFinite(lng);
 
   return (
     <aside className="bp-side">
       <section className="bp-side-card">
-        <h3>Business Information</h3>
-        <p>{business.description}</p>
-        <div className="bp-info-row"><Briefcase size={14} /><b>Category</b><span>{business.category}</span></div>
-        <div className="bp-info-row"><MapPin size={14} /><b>Location</b><span>{business.location}</span></div>
-        <div className="bp-info-row">
-          <Phone size={14} />
-          <b>Phone</b>
-          <a href={`tel:${String(business.phone || '').replace(/\s/g, '')}`}>{business.phone}</a>
-        </div>
-        <div className="bp-info-row">
-          <Mail size={14} />
-          <b>Email</b>
-          <a href={`mailto:${business.contactEmail}`}>{business.contactEmail}</a>
-        </div>
-        <div className="bp-info-row">
-          <Globe size={14} />
-          <b>Website</b>
-          <a href={websiteHref} target="_blank" rel="noreferrer">{websiteLabel || 'Visit website'}</a>
+        <h3>Why Choose Us?</h3>
+        <ul className="bp-why-list">
+          {(business.whyChooseUs || []).map((item) => (
+            <li key={item}>
+              <CheckCircle2 size={16} color="#16a34a" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="bp-side-card">
+        <h3>Services</h3>
+        <div className="bp-side-services">
+          {services.map((service) => {
+            const Icon = SERVICE_ICONS[service.icon] || UtensilsCrossed;
+            return (
+              <button
+                key={service._id}
+                type="button"
+                className="bp-side-service"
+                onClick={() => onBook?.(service)}
+              >
+                <span className="bp-side-service-icon">
+                  <Icon size={16} />
+                </span>
+                <span className="bp-side-service-copy">
+                  <strong>{service.name}</strong>
+                  <small>{service.priceLabel || formatRs(service.price, { plus: service.price > 0 })}</small>
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       <section className="bp-side-card">
-        <div className="bp-section-head">
-          <h3>Opening Hours</h3>
-          <span className={`bp-pill ${openMeta.open ? '' : 'closed'}`}>{openMeta.label}</span>
-        </div>
+        <h3>Location</h3>
+        {hasMap ? (
+          <div className="bp-map">
+            <iframe
+              title={`${business.name} map`}
+              src={mapsEmbedUrl(lat, lng)}
+              loading="lazy"
+            />
+          </div>
+        ) : (
+          <p className="bp-muted">{business.location || 'Location coming soon'}</p>
+        )}
+        {hasMap ? (
+          <a
+            className="bp-btn bp-btn-navy bp-btn-block"
+            href={mapsDirectionsUrl(lat, lng)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Navigation size={15} /> Get Directions
+          </a>
+        ) : null}
+      </section>
+
+      <section className="bp-side-card">
+        <h3>Business Hours</h3>
         <div className="bp-hours">
           {(business.openingHours || []).map((row) => (
             <div key={row.label} className={`bp-hour ${row.closed ? 'closed' : ''}`}>
@@ -47,34 +104,34 @@ export default function InfoSidebar({ business, openMeta, onContact }) {
       </section>
 
       <section className="bp-side-card">
-        <div className="bp-section-head">
-          <h3>Location</h3>
-          <a
-            className="bp-link"
-            href={mapsDirectionsUrl(business.latitude, business.longitude, business.location)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Navigation size={13} /> Get Directions
-            </span>
-          </a>
-        </div>
-        <div className="bp-map">
-          <iframe
-            title={`${business.name} map`}
-            src={mapsEmbedUrl(business.latitude, business.longitude)}
-            loading="lazy"
-          />
+        <h3>Payment Methods</h3>
+        <div className="bp-payments">
+          {(business.paymentMethods || []).map((method) => {
+            const Icon = PAYMENT_ICONS[method] || Wallet;
+            return (
+              <div key={method} className="bp-payment">
+                <Icon size={16} />
+                <span>{method}</span>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      <section className="bp-side-card">
-        <h3>Contact Business</h3>
-        <button type="button" className="bp-btn bp-btn-gold" style={{ width: '100%', marginTop: 10 }} onClick={onContact}>
-          <MessageCircle size={16} /> Contact Now
-        </button>
-      </section>
+      {business.specialOffer ? (
+        <section className="bp-offer-card">
+          <div className="bp-offer-copy">
+            <h3>{business.specialOffer.title}</h3>
+            {business.specialOffer.subtitle ? <p>{business.specialOffer.subtitle}</p> : null}
+            <button type="button" className="bp-btn bp-btn-gold" onClick={onViewOffer}>
+              {business.specialOffer.cta || 'View Offer'}
+            </button>
+          </div>
+          {business.specialOffer.imageUrl ? (
+            <img src={business.specialOffer.imageUrl} alt="" loading="lazy" decoding="async" />
+          ) : null}
+        </section>
+      ) : null}
     </aside>
   );
 }

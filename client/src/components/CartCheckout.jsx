@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCheckCircle, FiTag, FiX } from 'react-icons/fi';
+import React, { useState, useEffect, useRef } from 'react';
+import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCheckCircle, FiTag, FiArrowLeft, FiMail } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
-import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
-import { validateCheckoutForm } from '../utils/validation';
+import { createSubmissionGuard, createIdempotencyKey } from '../utils/submitProtection';
+import { validateCheckoutForm, sanitizeCheckoutWords, sanitizeCheckoutEmail, isCheckoutGmail } from '../utils/validation';
 import { NEPAL_PLACES } from '../utils/nepalPlaces';
+import { notifyOrdersUpdated } from '../utils/bill';
+import { redirectToEsewa } from '../utils/esewa';
+import OrderSuccess from './bill/OrderSuccess';
 
 export default function CartCheckout({
   cart,
@@ -23,7 +26,7 @@ export default function CartCheckout({
 
   // Form State
   const [deliveryMethod, setDeliveryMethod] = useState('delivery'); // 'delivery' | 'pickup'
-  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'QR'
+  const [paymentMethod, setPaymentMethod] = useState('COD'); // 'COD' | 'QR' | 'Card' | 'eSewa'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -36,7 +39,25 @@ export default function CartCheckout({
   const [placingOrder, setPlacingOrder] = useState(false);
   const [checkoutBusinessName, setCheckoutBusinessName] = useState('');
   const [checkoutBusinessQrUrl, setCheckoutBusinessQrUrl] = useState('');
+  const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [esewaEnabled, setEsewaEnabled] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
+  // One key per checkout attempt: retries of the same cart reuse it so the server never creates a second order.
+  const checkoutKeyRef = useRef(null);
+  const cartSignature = cart.map((item) => `${item.id}:${item.quantity}`).join('|');
+
+  useEffect(() => {
+    checkoutKeyRef.current = null;
+  }, [cartSignature, paymentMethod, deliveryMethod]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/payment/config')
+      .then((response) => { if (!cancelled) setStripeEnabled(Boolean(response.data?.stripeEnabled)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -44,13 +65,12 @@ export default function CartCheckout({
 
   useEffect(() => {
     if (user) {
-      const cleanedName = String(user.name || '').replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ').trim();
-      setName(cleanedName);
-      setEmail(user.email || '');
+      setName(sanitizeCheckoutWords(user.name).trim());
+      setEmail(isCheckoutGmail(user.email) ? String(user.email).trim().toLowerCase() : '');
       setPhone(String(user.phone || '').replace(/\D/g, '').slice(0, 10));
       if (user.addresses && user.addresses.length > 0) {
-        setLocation(user.addresses[0].location || '');
-        setAddress(user.addresses[0].address || '');
+        setLocation(sanitizeCheckoutWords(user.addresses[0].location).trim());
+        setAddress(sanitizeCheckoutWords(user.addresses[0].address).trim());
       }
     }
   }, [user]);
@@ -60,6 +80,7 @@ export default function CartCheckout({
     if (!businessId) {
       setCheckoutBusinessName('');
       setCheckoutBusinessQrUrl('');
+      setEsewaEnabled(false);
       return;
     }
 
@@ -70,16 +91,22 @@ export default function CartCheckout({
         if (cancelled) return;
         setCheckoutBusinessName(response.data.business?.name || '');
         setCheckoutBusinessQrUrl(response.data.business?.qrUrl || '');
+        setEsewaEnabled(Boolean(response.data.business?.esewaEnabled));
       } catch (err) {
         if (!cancelled) {
           setCheckoutBusinessName('');
           setCheckoutBusinessQrUrl('');
+          setEsewaEnabled(false);
         }
       }
     };
     loadBusiness();
     return () => { cancelled = true; };
   }, [cart]);
+
+  useEffect(() => {
+    if (paymentMethod === 'eSewa' && !esewaEnabled) setPaymentMethod('COD');
+  }, [esewaEnabled, paymentMethod]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -135,7 +162,6 @@ export default function CartCheckout({
       phone,
       address,
       city: location,
-      deliveryMethod,
     });
     if (!validation.isValid) {
       setFieldErrors(validation.errors);
@@ -151,70 +177,150 @@ export default function CartCheckout({
     }
 
     setPlacingOrder(true);
+    let redirecting = false;
     try {
       const businessId = resolveCheckoutBusinessId(cart);
-      const response = await api.post(
-        '/api/checkout',
-        {
-          businessId,
-          items: cart.map((item) => ({
-            ...item,
-            businessId: item.businessId || item.business?.id || businessId || item.sellerId || item.vendorId || '',
-          })),
-          promoCode: couponData ? couponData.code : undefined,
-          paymentMethod,
-          deliveryAddress: { name, email, phone, location, address, method: deliveryMethod },
+      if (!checkoutKeyRef.current) checkoutKeyRef.current = createIdempotencyKey('checkout');
+      // Only ids and quantities matter: the server prices every item from the database.
+      const checkoutPayload = {
+        businessId,
+        items: cart.map((item) => ({
+          id: item.id,
+          name: item.name,
+          type: item.type,
+          quantity: item.quantity,
+          businessId: item.businessId || item.business?.id || businessId || item.sellerId || item.vendorId || '',
+        })),
+        promoCode: couponData ? couponData.code : undefined,
+        paymentMethod,
+        deliveryAddress: {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone,
+          location: location.trim(),
+          address: address.trim(),
+          method: deliveryMethod,
         },
-        { headers: { ...createIdempotencyHeader('checkout-order') } }
-      );
+      };
+      const checkoutHeaders = { headers: { 'Idempotency-Key': checkoutKeyRef.current } };
 
-      const placedOrder = response.data.order;
-
-      // QR simulated validation (instant)
-      if (paymentMethod === 'QR') {
-        await api.post('/api/payment/confirm', { orderId: placedOrder._id, status: 'paid' });
+      // eSewa: the backend signs the request with this business's own merchant account.
+      // The order is only created after the backend verifies the payment with eSewa.
+      if (paymentMethod === 'eSewa') {
+        const esewaResponse = await api.post('/api/checkout/esewa', checkoutPayload, checkoutHeaders);
+        if (esewaResponse.data.simulator) {
+          const choice = await Swal.fire({
+            icon: 'info',
+            title: translate('eSewa test mode', 'eSewa परीक्षण मोड'),
+            text: translate(
+              "If eSewa's sandbox login shows \"Service is currently unavailable\", use the local test payment instead.",
+              'eSewa sandbox लगइन नचलेमा स्थानीय परीक्षण भुक्तानी प्रयोग गर्नुहोस्।'
+            ),
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: translate('Open eSewa test site', 'eSewa परीक्षण साइट'),
+            denyButtonText: translate('Use local test payment', 'स्थानीय परीक्षण भुक्तानी'),
+            confirmButtonColor: '#60bb46',
+            denyButtonColor: '#1a1a2e',
+          });
+          if (choice.isDenied) {
+            redirecting = true;
+            window.location.assign(`/payment/esewa/simulator?tx=${encodeURIComponent(esewaResponse.data.transactionUuid)}`);
+            return;
+          }
+          if (!choice.isConfirmed) return;
+        }
+        redirecting = true;
+        redirectToEsewa(esewaResponse.data);
+        return;
       }
 
-      Swal.fire({
-        icon: 'success',
-        title: translate('Order Confirmed!', 'अर्डर सफल भयो!'),
-        text: `Your order has been placed. Order ID: ${placedOrder._id}`,
-        confirmButtonColor: '#fbbf24',
-      });
+      const response = await api.post('/api/checkout', checkoutPayload, checkoutHeaders);
 
-      onClearCart();
+      const { order: placedOrder, bill, requiresPayment } = response.data;
+
+      if (requiresPayment) {
+        const session = await api.post('/api/payment/create-session', { orderId: placedOrder._id });
+        redirecting = true;
+        window.location.assign(session.data.url);
+        return;
+      }
+
+      checkoutKeyRef.current = null;
       setShowQrModal(false);
-      onOrderSuccess();
+      setConfirmation({ order: placedOrder, bill });
+      onClearCart();
+      notifyOrdersUpdated();
     } catch (err) {
-      Swal.fire({ icon: 'error', text: err.response?.data?.message || 'Order checkout failed.' });
+      const serverFieldErrors = err.response?.data?.errors;
+      if (serverFieldErrors && typeof serverFieldErrors === 'object') setFieldErrors(serverFieldErrors);
+      Swal.fire({ icon: 'error', text: err.response?.data?.message || err.message || 'Order checkout failed.' });
     } finally {
-      setPlacingOrder(false);
-      submitGuard.finish();
+      if (!redirecting) {
+        setPlacingOrder(false);
+        submitGuard.finish();
+      }
     }
   };
 
+  const processingLabel = paymentMethod === 'eSewa'
+    ? translate('Redirecting to eSewa...', 'eSewa मा लैजाँदै...')
+    : paymentMethod === 'Card'
+      ? translate('Processing Payment...', 'भुक्तानी प्रक्रिया हुँदैछ...')
+      : translate('Processing Order...', 'अर्डर प्रक्रिया हुँदैछ...');
+  const paymentOptions = [
+    { value: 'COD', label: 'Cash / COD' },
+    ...(esewaEnabled ? [{ value: 'eSewa', label: 'eSewa' }] : []),
+    { value: 'QR', label: 'QR Scan' },
+    ...(stripeEnabled ? [{ value: 'Card', label: 'Card' }] : []),
+  ];
+
+  if (confirmation) {
+    return (
+      <div className="mx-auto min-h-full max-w-[1400px] px-4 py-8 sm:px-6">
+        <OrderSuccess
+          order={confirmation.order}
+          bill={confirmation.bill}
+          user={user}
+          onContinue={() => {
+            setConfirmation(null);
+            onOrderSuccess?.();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6">
-      <div className="rounded-[30px] border border-[#e7dcc7] bg-[#f8f2ea] p-4 shadow-[0_25px_60px_rgba(15,23,42,0.08)] sm:p-6">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-[#eadfca] pb-4">
-          <div>
-            <h2 className="text-2xl font-black text-[#1a1a2e] sm:text-3xl">{translate('Shopping Cart', 'किनमेल झोला')}</h2>
-            <p className="mt-1 text-xs text-slate-500">{translate('Review items and finalize checkout options', 'विवरण समीक्षा गरी अर्डर पूरा गर्नुहोस्')}</p>
-          </div>
+    <div className="min-h-full bg-[#f8f2ea]">
+      <header className={`${onClose ? 'sticky top-0 z-10' : ''} border-b border-[#eadfca] bg-[#f8f2ea]/95 backdrop-blur`}>
+        <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-4 sm:px-6">
           {onClose && (
-            <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Close cart">
-              <FiX className="h-5 w-5" />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1.5 rounded-full border border-[#e8dfd0] bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-[#f2b71d] hover:text-[#1a1a2e]"
+              aria-label="Close checkout"
+            >
+              <FiArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">{translate('Continue shopping', 'किनमेल जारी राख्नुहोस्')}</span>
             </button>
           )}
+          <div>
+            <h2 className="text-xl font-black text-[#1a1a2e] sm:text-3xl">{translate('Shopping Cart', 'किनमेल झोला')}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{translate('Review items and finalize checkout options', 'विवरण समीक्षा गरी अर्डर पूरा गर्नुहोस्')}</p>
+          </div>
         </div>
+      </header>
 
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
         {cart.length === 0 ? (
-          <div className="mt-6 rounded-[28px] border border-[#e7dcc7] bg-[#fffdf9] py-20 text-center">
+          <div className="rounded-[28px] border border-[#e7dcc7] bg-[#fffdf9] py-20 text-center">
             <FiShoppingBag className="mx-auto h-12 w-12 text-slate-500" />
             <p className="mt-4 text-sm text-slate-500">{translate('Your cart is currently empty.', 'तपाईंको कार्ट हाल खाली छ।')}</p>
           </div>
         ) : (
-          <div className="mt-8 grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">{translate('Cart items', 'अर्डर सूची')}</h3>
               {cart.map((item) => (
@@ -295,8 +401,7 @@ export default function CartCheckout({
                       placeholder={translate('Full Name *', 'पूरा नाम *')}
                       value={name}
                       onChange={(e) => {
-                        const cleaned = e.target.value.replace(/[^\p{L} ]+/gu, '').replace(/ {2,}/g, ' ');
-                        setName(cleaned);
+                        setName(sanitizeCheckoutWords(e.target.value));
                         setFieldErrors((prev) => ({ ...prev, name: '' }));
                       }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
@@ -310,10 +415,17 @@ export default function CartCheckout({
                       autoComplete="email"
                       placeholder="Email *"
                       value={email}
-                      onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: '' })); }}
+                      onChange={(e) => { setEmail(sanitizeCheckoutEmail(e.target.value)); setFieldErrors(prev => ({ ...prev, email: '' })); }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
                     />
-                    {fieldErrors.email && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.email}</span>}
+                    {fieldErrors.email ? (
+                      <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.email}</span>
+                    ) : (
+                      <span className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                        <FiMail className="h-3 w-3" />
+                        {translate('Your bill will be sent to this email.', 'तपाईंको बिल यही इमेलमा पठाइनेछ।')}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -344,7 +456,7 @@ export default function CartCheckout({
                       autoComplete="address-level2"
                       placeholder={translate('Location / City * (Nepal)', 'स्थान / शहर * (नेपाल)')}
                       value={location}
-                      onChange={(e) => { setLocation(e.target.value); setFieldErrors(prev => ({ ...prev, city: '' })); }}
+                      onChange={(e) => { setLocation(sanitizeCheckoutWords(e.target.value)); setFieldErrors(prev => ({ ...prev, city: '' })); }}
                       className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
                     />
                     <datalist id="nepal-places-list">
@@ -356,24 +468,23 @@ export default function CartCheckout({
                   </div>
                 </div>
 
-                {deliveryMethod === 'delivery' && (
-                  <div className="mt-4">
-                    <input
-                      type="text"
-                      required
-                      autoComplete="street-address"
-                      placeholder={translate('Street Address / Landmark *', 'सडक ठेगाना / स्थलचिन्ह *')}
-                      value={address}
-                      onChange={(e) => { setAddress(e.target.value); setFieldErrors(prev => ({ ...prev, address: '' })); }}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
-                    />
-                    {fieldErrors.address && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.address}</span>}
-                  </div>
-                )}
+                <div className="mt-4">
+                  <input
+                    type="text"
+                    required
+                    autoComplete="street-address"
+                    placeholder={translate('Street / Landmark *', 'सडक / स्थलचिन्ह *')}
+                    value={address}
+                    onChange={(e) => { setAddress(sanitizeCheckoutWords(e.target.value)); setFieldErrors(prev => ({ ...prev, address: '' })); }}
+                    className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                  />
+                  {fieldErrors.address && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.address}</span>}
+                </div>
+                <p className="mt-3 text-[11px] text-slate-400">{translate('All fields are required to place your order.', 'अर्डर गर्न सबै विवरण अनिवार्य छन्।')}</p>
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">{translate('Order Summary', 'अर्डर विवरण')}</h3>
 
               <div className="rounded-[28px] border border-[#e8dfd0] bg-white p-6 shadow-sm">
@@ -403,22 +514,30 @@ export default function CartCheckout({
 
                 <div className="mt-5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{translate('Payment Option', 'भुक्तानी विकल्प')}</span>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {[
-                      { value: 'COD', label: 'Cash / COD' },
-                      { value: 'QR', label: 'QR Scan' },
-                    ].map((pay) => (
+                  <div className={`mt-2 grid gap-2 ${paymentOptions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    {paymentOptions.map((pay) => (
                       <button
                         key={pay.value}
+                        type="button"
                         onClick={() => setPaymentMethod(pay.value)}
                         className={`rounded-xl border py-2 text-xs font-semibold transition ${
-                          paymentMethod === pay.value ? 'border-[#f2b71d] bg-[#fff1c7] text-[#1a1a2e]' : 'border-[#e8dfd0] bg-[#fffaf0] text-slate-500'
+                          paymentMethod === pay.value
+                            ? pay.value === 'eSewa' ? 'border-[#60bb46] bg-[#eaf7e4] text-[#2f7d1c]' : 'border-[#f2b71d] bg-[#fff1c7] text-[#1a1a2e]'
+                            : 'border-[#e8dfd0] bg-[#fffaf0] text-slate-500'
                         }`}
                       >
                         {pay.label}
                       </button>
                     ))}
                   </div>
+                  {paymentMethod === 'eSewa' && (
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                      {translate(
+                        `You'll pay ${checkoutBusinessName || 'the business'} directly on eSewa. Your order is confirmed after eSewa verifies the payment.`,
+                        `तपाईंले eSewa मार्फत ${checkoutBusinessName || 'व्यवसाय'}लाई सिधै भुक्तानी गर्नुहुनेछ।`
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-5 rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] p-4 text-xs text-slate-500 space-y-2">
@@ -448,9 +567,15 @@ export default function CartCheckout({
 
                 <button
                   onClick={handlePlaceOrder}
-                  className="mt-5 w-full rounded-full bg-gradient-to-r from-[#f2b71d] to-[#d4a017] py-3 text-xs font-bold text-[#1a1a2e] shadow-lg shadow-[#f2b71d]/20 hover:shadow-[#f2b71d]/30"
+                  disabled={placingOrder}
+                  aria-busy={placingOrder}
+                  className="mt-5 w-full rounded-full bg-gradient-to-r from-[#f2b71d] to-[#d4a017] py-3 text-xs font-bold text-[#1a1a2e] shadow-lg shadow-[#f2b71d]/20 hover:shadow-[#f2b71d]/30 disabled:cursor-wait disabled:opacity-70"
                 >
-                  Place order ({displayPrice(total)})
+                  {placingOrder
+                    ? processingLabel
+                    : paymentMethod === 'eSewa'
+                      ? `Pay with eSewa (${displayPrice(total)})`
+                      : `Place order (${displayPrice(total)})`}
                 </button>
               </div>
             </div>
@@ -493,8 +618,11 @@ export default function CartCheckout({
                 className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400"
               >
                 <FiCheckCircle />
-                <span>{placingOrder ? translate('Confirming...', 'पुष्टि हुँदैछ...') : translate('Simulate Scan & Approve', 'स्क्यान र पुष्टि गर्नुहोस्')}</span>
+                <span>{placingOrder ? processingLabel : translate("I've Paid — Place Order", 'भुक्तानी गरें — अर्डर गर्नुहोस्')}</span>
               </button>
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+                {translate('The business confirms QR payments. Your bill shows the payment as pending until then.', 'व्यवसायले QR भुक्तानी पुष्टि गर्छ। त्यतिन्जेल बिलमा भुक्तानी बाँकी देखिन्छ।')}
+              </p>
               <button
                 onClick={() => setShowQrModal(false)}
                 className="mt-3 text-xs text-slate-500 hover:text-slate-700"

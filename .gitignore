@@ -7,3 +7,8 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# Local dev data and user uploads (never deploy test data or encrypted merchant keys)
+server/.data/
+server/.data-backup-*/
+server/uploads/

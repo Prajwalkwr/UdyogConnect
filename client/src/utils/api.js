@@ -44,16 +44,26 @@ export function invalidateApiCache(prefix = '') {
 }
 
 api.interceptors.request.use((config) => {
-  const headers = { ...(config.headers || {}) };
-  if (typeof window !== 'undefined' && !headers.Authorization) {
+  const headers = config.headers || {};
+  if (typeof window !== 'undefined') {
     const token = getSessionToken();
     if (token) {
-      headers.Authorization = `Bearer ${token}`;
+      if (typeof headers.set === 'function') {
+        if (!headers.get?.('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+      } else if (!headers.Authorization) {
+        headers.Authorization = `Bearer ${token}`;
+      }
     }
   }
+  // Let the browser set multipart boundary for FormData
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-    delete headers['Content-Type'];
-    delete headers['content-type'];
+    if (typeof headers.delete === 'function') {
+      headers.delete('Content-Type');
+      headers.delete('content-type');
+    } else {
+      delete headers['Content-Type'];
+      delete headers['content-type'];
+    }
   }
   config.headers = headers;
   return config;

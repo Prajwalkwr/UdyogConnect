@@ -6,7 +6,7 @@ import {
   FiHeart, FiStar, FiMapPin, FiCreditCard, FiUsers,
   FiPackage, FiTrendingUp, FiFileText, FiBriefcase,
   FiHome, FiMenu, FiX, FiChevronDown, FiZap, FiAward,
-  FiTag, FiTruck, FiMic
+  FiTag, FiTruck, FiMic, FiCalendar, FiFlag
 } from 'react-icons/fi';
 import { getDashboardLabel } from '../utils/authFlow';
 
@@ -49,6 +49,8 @@ const sellerNav = [
   { key: 'overview', label: 'Business Dashboard', icon: FiGrid },
   { key: 'catalog', label: 'Products & Services', icon: FiPackage, countKey: 'catalogCount' },
   { key: 'orders', label: 'Orders', icon: FiShoppingBag, countKey: 'orderCount' },
+  { key: 'bookings', label: 'Bookings', icon: FiCalendar, countKey: 'bookingCount' },
+  { key: 'messages', label: 'Messages', icon: FiMessageSquare, countKey: 'messageCount', badgeTone: 'danger' },
   { key: 'ratings', label: 'Reviews & Ratings', icon: FiStar },
   { key: 'promos', label: 'Marketing', icon: FiTag },
   { key: 'settings', label: 'Business Settings', icon: FiSettings },
@@ -57,12 +59,12 @@ const sellerNav = [
 const customerNav = [
   { key: 'dashboard', label: 'Dashboard', icon: FiGrid },
   { key: 'orders', label: 'My Orders', icon: FiShoppingBag },
+  { key: 'bookings', label: 'My Bookings', icon: FiCalendar, countKey: 'bookingCount' },
+  { key: 'messages', label: 'Messages', icon: FiMessageSquare, countKey: 'messageCount', badgeTone: 'danger' },
   { key: 'cart', label: 'My Cart', icon: FiShoppingCart, countKey: 'cartCount', badgeTone: 'danger' },
-  { key: 'wishlist', label: 'Wishlist', icon: FiHeart, countKey: 'wishlistCount', badgeTone: 'danger' },
-  { key: 'saved', label: 'Saved Businesses', icon: FiStar },
+  { key: 'saved', label: 'Saved Businesses', icon: FiStar, countKey: 'savedBusinessCount', badgeTone: 'danger' },
   { key: 'reviews', label: 'Reviews & Ratings', icon: FiAward },
   { key: 'wallet', label: 'My Wallet', icon: FiCreditCard },
-  { key: 'addresses', label: 'Addresses', icon: FiMapPin },
   { key: 'settings', label: 'Settings', icon: FiSettings },
 ];
 
@@ -73,6 +75,7 @@ const adminNav = [
   { key: 'products', label: 'Products', icon: FiPackage },
   { key: 'services', label: 'Services', icon: FiTruck },
   { key: 'orders', label: 'Orders', icon: FiShoppingBag },
+  { key: 'reviews', label: 'Reports', icon: FiFlag, countKey: 'reportCount', badgeTone: 'danger' },
   { key: 'settings', label: 'Settings', icon: FiSettings },
 ];
 
@@ -110,25 +113,30 @@ export default function Navbar({
 
   const translate = (enText, neText) => (lang === 'en' ? enText : neText);
 
-  const isDashboardRoute = ['/business', '/customer', '/admin'].some((p) =>
-    location.pathname.startsWith(p)
-  );
+  const isDashboardRoute =
+    location.pathname === '/business'
+    || location.pathname.startsWith('/customer')
+    || location.pathname.startsWith('/admin');
 
   // Get nav items for current role
   const getNavItems = () => {
     if (user?.role === 'admin') return adminNav;
-    if (user?.role === 'seller') return sellerNav.filter((item) => (
-      (item.key !== 'products' || businessOfferingType !== 'services')
-      && (item.key !== 'services' || businessOfferingType !== 'products')
-    ));
+    if (user?.role === 'seller') {
+      return sellerNav.filter((item) => (
+        (item.key !== 'products' || businessOfferingType !== 'services')
+        && (item.key !== 'services' || businessOfferingType !== 'products')
+        && (item.key !== 'bookings' || businessOfferingType !== 'products')
+        && (item.key !== 'orders' || businessOfferingType !== 'services')
+      ));
+    }
     return customerNav;
   };
 
   const navItems = getNavItems();
 
   const openHomeOrDashboard = () => {
-    if (!user || user.role === 'customer') onOpenDashboard('home');
-    else onOpenDashboard('dashboard');
+    // Brand logo always goes to the marketplace homepage.
+    onOpenDashboard('home');
   };
 
   const openAccountArea = () => {

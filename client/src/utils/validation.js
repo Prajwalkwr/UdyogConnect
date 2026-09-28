@@ -10,6 +10,8 @@ export const BUSINESS_EMAIL_REGEX = /^[A-Za-z]+@[0-9]+\.com$/i;
 /** Nepal mobile: exactly 10 digits starting with 97 or 98. */
 export const PHONE_REGEX = /^(97|98)\d{8}$/;
 export const PERSON_NAME_REGEX = /^[\p{L}]+(?:[ ][\p{L}]+)*$/u;
+/** Product/brand: letters + spaces; digits allowed but at most 2 total; no special characters. */
+export const PRODUCT_WORD_NAME_REGEX = /^[\p{L}0-9]+(?:[ ][\p{L}0-9]+)*$/u;
 
 export const validateEmail = (email) => {
   if (!email || !String(email).trim()) {
@@ -84,6 +86,61 @@ export const validatePersonName = (name, fieldLabel = 'Name') => {
   const trimmed = String(name).trim();
   if (!PERSON_NAME_REGEX.test(trimmed)) {
     return `${fieldLabel} can only contain letters and spaces (no numbers or special characters).`;
+  }
+  return '';
+};
+
+/**
+ * Product name / brand: words only, no special characters.
+ * Digits are optional but at most 2 digit characters total.
+ */
+export const validateProductWordName = (value, fieldLabel = 'Name') => {
+  const requiredErr = validateName(value, fieldLabel);
+  if (requiredErr) return requiredErr;
+  const trimmed = String(value).trim();
+  if (!PRODUCT_WORD_NAME_REGEX.test(trimmed)) {
+    return `${fieldLabel} can only contain letters and spaces (no special characters). Up to 2 numbers are allowed.`;
+  }
+  if (!/\p{L}/u.test(trimmed)) {
+    return `${fieldLabel} must include letters.`;
+  }
+  const digitCount = (trimmed.match(/\d/g) || []).length;
+  if (digitCount > 2) {
+    return `${fieldLabel} can include at most 2 numbers.`;
+  }
+  return '';
+};
+
+/** Strip special characters and cap digits at 2 while typing. */
+export const sanitizeProductWordName = (value) => {
+  let digits = 0;
+  return String(value || '')
+    .replace(/[^\p{L}\p{N} ]/gu, '')
+    .replace(/ {2,}/g, ' ')
+    .split('')
+    .map((ch) => {
+      if (/\d/.test(ch)) {
+        digits += 1;
+        return digits <= 2 ? ch : '';
+      }
+      return ch;
+    })
+    .join('');
+};
+
+export const validateDiscount = (discount) => {
+  if (discount === '' || discount === null || discount === undefined) {
+    return '';
+  }
+  const num = Number(discount);
+  if (Number.isNaN(num)) {
+    return 'Discount must be a valid number.';
+  }
+  if (num < 0) {
+    return 'Discount cannot be negative.';
+  }
+  if (num > 100) {
+    return 'Discount cannot exceed 100%.';
   }
   return '';
 };
@@ -268,8 +325,16 @@ export const validateBusinessForm = (formData) => {
 
   if (!formData.hours || !String(formData.hours).trim()) {
     errors.hours = 'Please select business hours.';
-  } else if (!BUSINESS_HOURS_OPTIONS.includes(String(formData.hours).trim())) {
-    errors.hours = 'Please choose business hours from the list.';
+  } else if (!String(formData.hours || '').trim() && !(formData.openingTime && formData.closingTime)) {
+    errors.hours = 'Please set business opening and closing times.';
+  } else if (formData.openingTime && formData.closingTime) {
+    // custom open/close — hours string will be composed on save
+  } else if (
+    !BUSINESS_HOURS_OPTIONS.includes(String(formData.hours).trim())
+    && !/^\d{1,2}:\d{2}\s*(AM|PM)?\s*[-–]\s*\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(String(formData.hours).trim())
+    && !/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(String(formData.hours).trim())
+  ) {
+    errors.hours = 'Please choose business hours from the list or set custom open/close times.';
   }
 
   const emailErr = validateBusinessEmail(formData.contactEmail || formData.email);
@@ -294,16 +359,23 @@ export const validateBusinessForm = (formData) => {
   };
 };
 
-export const validateProductForm = (formData) => {
+export const validateProductForm = (formData, { requireImage = false, hasExistingImage = false } = {}) => {
   const errors = {};
-  const nameErr = validateName(formData.name, 'Product Name');
+
+  const nameErr = validateProductWordName(formData.name, 'Product Name');
   if (nameErr) errors.name = nameErr;
+
+  const brandErr = validateProductWordName(formData.brand, 'Brand');
+  if (brandErr) errors.brand = brandErr;
 
   const priceErr = validatePrice(formData.price);
   if (priceErr) errors.price = priceErr;
 
+  const discountErr = validateDiscount(formData.discount);
+  if (discountErr) errors.discount = discountErr;
+
   const qtyErr = validateQuantity(formData.quantity ?? formData.stock);
-  if (qtyErr) errors.quantity = qtyErr;
+  if (qtyErr) errors.stock = qtyErr;
 
   if (!formData.category || !String(formData.category).trim()) {
     errors.category = 'Category is required.';
@@ -311,6 +383,10 @@ export const validateProductForm = (formData) => {
 
   if (!formData.description || String(formData.description).trim().length < 10) {
     errors.description = 'Product description is required (minimum 10 characters).';
+  }
+
+  if (requireImage && !hasExistingImage && !formData.image && !formData.imageUrl && !formData.imageFile) {
+    errors.image = 'Product image is required.';
   }
 
   return {
@@ -358,29 +434,50 @@ export const validateReviewForm = (formData) => {
   };
 };
 
+/** Letters (any script, incl. Devanagari vowel signs) separated by single spaces. */
+export const CHECKOUT_WORDS_REGEX = /^[\p{L}\p{M}]+(?: [\p{L}\p{M}]+)*$/u;
+/** Gmail only: starts with a letter, then letters/numbers, no special characters. */
+export const CHECKOUT_GMAIL_REGEX = /^[a-z][a-z0-9]*@gmail\.com$/;
+
+/** Keeps only letters and single spaces while the customer types. */
+export const sanitizeCheckoutWords = (value) =>
+  String(value || '').replace(/[^\p{L}\p{M} ]+/gu, '').replace(/ {2,}/g, ' ').replace(/^ /, '');
+
+/** Drops spaces and special characters while typing a Gmail address. */
+export const sanitizeCheckoutEmail = (value) =>
+  String(value || '').toLowerCase().replace(/[^a-z0-9@.]/g, '');
+
+export const isCheckoutGmail = (value) => CHECKOUT_GMAIL_REGEX.test(String(value || '').trim().toLowerCase());
+
+const validateCheckoutWords = (value, fieldLabel, minLength) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return `${fieldLabel} is required.`;
+  if (!CHECKOUT_WORDS_REGEX.test(trimmed)) {
+    return `${fieldLabel} can only contain letters and spaces (no numbers or special characters).`;
+  }
+  if (trimmed.length < minLength) return `${fieldLabel} must be at least ${minLength} characters.`;
+  return '';
+};
+
 export const validateCheckoutForm = (formData) => {
   const errors = {};
-  const deliveryMethod = formData.deliveryMethod || formData.method || 'delivery';
 
-  const nameErr = validatePersonName(formData.fullName || formData.name, 'Full Name');
+  const nameErr = validateCheckoutWords(formData.fullName || formData.name, 'Full Name', 2);
   if (nameErr) errors.name = nameErr;
 
-  const emailErr = validateEmail(formData.email);
-  if (emailErr) errors.email = emailErr;
+  const email = String(formData.email || '').trim();
+  if (!email) errors.email = 'Email address is required.';
+  else if (!isCheckoutGmail(email)) errors.email = 'Enter a valid Gmail address using only letters and numbers.';
 
   const phoneErr = validatePhone(formData.phone, true);
   if (phoneErr) errors.phone = phoneErr;
 
-  const cityErr = validateNepalLocation(formData.city || formData.location, 'Location / City');
+  const location = formData.city || formData.location;
+  const cityErr = validateCheckoutWords(location, 'Location / City', 2) || validateNepalLocation(location, 'Location / City');
   if (cityErr) errors.city = cityErr;
 
-  if (deliveryMethod === 'delivery') {
-    if (!formData.address || !String(formData.address).trim()) {
-      errors.address = 'Street address / landmark is required.';
-    } else if (String(formData.address).trim().length < 5) {
-      errors.address = 'Street address must be at least 5 characters.';
-    }
-  }
+  const addressErr = validateCheckoutWords(formData.address, 'Street / Landmark', 3);
+  if (addressErr) errors.address = addressErr;
 
   return {
     isValid: Object.keys(errors).length === 0,

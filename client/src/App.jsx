@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import api from './utils/api';
+import { notifyOrdersUpdated } from './utils/bill';
+import { CONTENT_REPORTS_EVENT } from './utils/reports';
 import Swal from 'sweetalert2';
 import { useAuth } from './context/AuthContext';
 import RoleRoute from './components/RoleRoute';
@@ -17,9 +19,12 @@ const CustomerDashboard = lazy(() => import('./components/CustomerDashboard'));
 const SellerDashboard = lazy(() => import('./components/SellerDashboard'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const PaymentSuccess = lazy(() => import('./components/PaymentSuccess'));
+const EsewaPaymentReturn = lazy(() => import('./components/EsewaPaymentReturn'));
+const EsewaSimulator = lazy(() => import('./components/EsewaSimulator'));
 const BusinessProfilePage = lazy(() => import('./components/business-profile/BusinessProfilePage'));
 const CartCheckout = lazy(() => import('./components/CartCheckout'));
 const ChatAndAI = lazy(() => import('./components/ChatAndAI'));
+const CustomerMessagesPage = lazy(() => import('./components/messaging/CustomerMessagesPage'));
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -58,7 +63,7 @@ function App() {
 
   // Socket ref
   const socketRef = useRef(null);
-  const cartOwnerRef = useRef(null);
+  const cartOwnerRef = useRef(undefined);
   const cartSwitchingRef = useRef(false);
 
   // Data lists
@@ -86,8 +91,20 @@ function App() {
 
   // Dashboard active tab (driven from sidebar)
   const [dashboardTab, setDashboardTab] = useState(null);
+  const [sellerOrderCount, setSellerOrderCount] = useState(0);
+  const [sellerBookingCount, setSellerBookingCount] = useState(0);
+  const [customerBookingCount, setCustomerBookingCount] = useState(0);
   const [cartOpen, setCartOpen] = useState(false);
   const [catalogStatus, setCatalogStatus] = useState('loading');
+  const [messageUnread, setMessageUnread] = useState(0);
+  const [adminReportCount, setAdminReportCount] = useState(0);
+
+  useEffect(() => {
+    if (!cartOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [cartOpen]);
 
   useEffect(() => {
     const userId = user?._id || user?.id || null;
@@ -142,12 +159,49 @@ function App() {
         socket.on('new_notification', () => {
           fetchNotifications();
           setLiveOrderTick((t) => t + 1);
+          window.dispatchEvent(new CustomEvent('bookings-updated'));
+          api.get('/api/conversations/unread-count')
+            .then((res) => setMessageUnread(Number(res.data?.unreadTotal || 0)))
+            .catch(() => {});
         });
-        socket.on('new_order', () => setLiveOrderTick((t) => t + 1));
+        socket.on('new_booking', () => {
+          fetchNotifications();
+          setLiveOrderTick((t) => t + 1);
+          window.dispatchEvent(new CustomEvent('bookings-updated'));
+        });
+        socket.on('booking_updated', () => {
+          setLiveOrderTick((t) => t + 1);
+          window.dispatchEvent(new CustomEvent('bookings-updated'));
+        });
+        socket.on('chat:message', () => {
+          api.get('/api/conversations/unread-count')
+            .then((res) => setMessageUnread(Number(res.data?.unreadTotal || 0)))
+            .catch(() => {});
+        });
+        socket.on('chat:unread', () => {
+          api.get('/api/conversations/unread-count')
+            .then((res) => setMessageUnread(Number(res.data?.unreadTotal || 0)))
+            .catch(() => {});
+        });
+        socket.on('new_order', () => {
+          setLiveOrderTick((t) => t + 1);
+          notifyOrdersUpdated();
+        });
+        socket.on('order_status_update', () => {
+          setLiveOrderTick((t) => t + 1);
+          notifyOrdersUpdated();
+        });
         socket.on('support_ticket_update', () => setLiveOrderTick((t) => t + 1));
+        socket.on('content_report', () => window.dispatchEvent(new CustomEvent(CONTENT_REPORTS_EVENT)));
         socket.on('connect_error', () => {
           // Socket failure must never block the UI.
         });
+
+        api.get('/api/conversations/unread-count')
+          .then((res) => {
+            if (!cancelled) setMessageUnread(Number(res.data?.unreadTotal || 0));
+          })
+          .catch(() => {});
       } catch (err) {
         console.warn('Realtime connection unavailable:', err?.message || err);
       }
@@ -161,6 +215,71 @@ function App() {
       if (socketRef.current === socket) socketRef.current = null;
     };
   }, [user?._id]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      setAdminReportCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      api.get('/api/admin/content-reports/summary')
+        .then((res) => { if (!cancelled) setAdminReportCount(Number(res.data?.open) || 0); })
+        .catch(() => {});
+    };
+    refresh();
+    window.addEventListener(CONTENT_REPORTS_EVENT, refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CONTENT_REPORTS_EVENT, refresh);
+    };
+  }, [user?._id, user?.role]);
+
+  // Keep sidebar order/booking badges in sync
+  useEffect(() => {
+    const token = getSessionToken();
+    if (!token || !user?._id) {
+      setSellerOrderCount(0);
+      setSellerBookingCount(0);
+      setCustomerBookingCount(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshCounts = async () => {
+      try {
+        if (user.role === 'seller') {
+          const [ordRes, bkRes] = await Promise.all([
+            api.get('/api/orders'),
+            api.get('/api/bookings'),
+          ]);
+          if (cancelled) return;
+          const orders = Array.isArray(ordRes.data) ? ordRes.data : [];
+          const bookings = Array.isArray(bkRes.data) ? bkRes.data : [];
+          setSellerOrderCount(orders.length);
+          setSellerBookingCount(bookings.filter((b) => ['pending', 'confirmed'].includes(String(b.status || '').toLowerCase())).length);
+          setCustomerBookingCount(0);
+        } else if (user.role === 'customer') {
+          const bkRes = await api.get('/api/bookings');
+          if (cancelled) return;
+          const bookings = Array.isArray(bkRes.data) ? bkRes.data : [];
+          setCustomerBookingCount(bookings.filter((b) => ['pending', 'confirmed'].includes(String(b.status || '').toLowerCase())).length);
+          setSellerOrderCount(0);
+          setSellerBookingCount(0);
+        }
+      } catch {
+        /* keep previous counts */
+      }
+    };
+
+    refreshCounts();
+    const onBookingsUpdated = () => refreshCounts();
+    window.addEventListener('bookings-updated', onBookingsUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('bookings-updated', onBookingsUpdated);
+    };
+  }, [user?._id, user?.role, liveOrderTick]);
 
   // Load Marketplace Catalogs (ignore stale responses after unmount / remount)
   const fetchMarketplaceData = () => {
@@ -228,35 +347,33 @@ function App() {
     });
   };
 
-  const wishlist = user?.wishlist || {};
-  const wishlistCount = ['products', 'businesses', 'services'].reduce((total, type) => {
-    const items = Array.isArray(wishlist[type]) ? wishlist[type] : [];
-    return total + new Set(items.map((item) => String(item?._id || item?.id || item))).size;
-  }, 0);
+  const savedBusinessIds = Array.isArray(user?.wishlist?.businesses) ? user.wishlist.businesses : [];
+  const savedBusinessCount = new Set(
+    savedBusinessIds.map((item) => String(item?._id || item?.id || item || '').trim()).filter(Boolean)
+  ).size;
 
-  const handleWishlistToggle = async (type, id) => {
+  const handleSaveBusinessToggle = async (businessId) => {
     if (!user) {
       setShowAuthModal(true);
       return false;
     }
 
-    const itemId = String(id || '').trim();
+    const itemId = String(businessId || '').trim();
     if (!itemId) return false;
 
     const toIdList = (items) => (Array.isArray(items) ? items : [])
       .map((item) => String(item?._id || item?.id || item || '').trim())
       .filter(Boolean);
 
-    const currentItems = toIdList(user.wishlist?.[type]);
+    const currentItems = toIdList(user.wishlist?.businesses);
     const isSaved = currentItems.includes(itemId);
     const updatedWishlist = {
-      products: toIdList(user.wishlist?.products),
-      services: toIdList(user.wishlist?.services),
-      businesses: toIdList(user.wishlist?.businesses),
+      products: [],
+      services: [],
+      businesses: isSaved
+        ? currentItems.filter((item) => item !== itemId)
+        : [...currentItems, itemId],
     };
-    updatedWishlist[type] = isSaved
-      ? currentItems.filter((item) => item !== itemId)
-      : [...currentItems, itemId];
 
     try {
       const response = await api.put('/api/auth/wishlist', { wishlist: updatedWishlist });
@@ -264,14 +381,27 @@ function App() {
       const serverUser = response.data?.user;
       const updatedUser = normalizeUser({
         ...(serverUser || user),
-        wishlist: savedWishlist,
+        wishlist: {
+          products: [],
+          services: [],
+          businesses: toIdList(savedWishlist.businesses),
+        },
       });
       persistUser(updatedUser);
       return !isSaved;
     } catch (error) {
-      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Unable to update wishlist.' });
+      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Unable to update saved businesses.' });
       return isSaved;
     }
+  };
+
+  const handleToggleSavedBusiness = async (typeOrId, maybeId) => {
+    // Support both handleToggleSavedBusiness(businessId) and legacy (type, id)
+    if (maybeId !== undefined) {
+      if (typeOrId !== 'businesses') return false;
+      return handleSaveBusinessToggle(maybeId);
+    }
+    return handleSaveBusinessToggle(typeOrId);
   };
 
   const handleLogout = () => {
@@ -313,15 +443,13 @@ function App() {
       navigate('/');
     }
     else if (view === 'checkout') setCartOpen(true);
-    else if (view === 'wishlist') {
+    else if (view === 'saved' || view === 'wishlist') {
       if (!user) {
         setShowAuthModal(true);
         return;
       }
-      setDashboardTab('wishlist');
-      if (user.role === 'admin') navigate('/admin');
-      else if (user.role === 'seller') navigate('/business');
-      else navigate('/customer');
+      setDashboardTab('saved');
+      navigate('/customer');
     }
     else if (view === 'dashboard') {
       if (!user) {
@@ -334,7 +462,7 @@ function App() {
         navigate('/');
         return;
       }
-      setDashboardTab('dashboard');
+      setDashboardTab(user.role === 'seller' ? 'overview' : 'dashboard');
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'seller') navigate('/business');
     }
@@ -343,7 +471,7 @@ function App() {
         setShowAuthModal(true);
         return;
       }
-      setDashboardTab('dashboard');
+      setDashboardTab(user.role === 'seller' ? 'overview' : 'dashboard');
       if (user.role === 'admin') navigate('/admin');
       else if (user.role === 'seller') navigate('/business');
       else navigate('/customer');
@@ -379,6 +507,16 @@ function App() {
       setCartOpen(true);
       return;
     }
+    if (tab === 'messages') {
+      if (!user) {
+        setShowAuthModal(true);
+        return;
+      }
+      setDashboardTab('messages');
+      if (user.role === 'seller') navigate('/business?tab=messages');
+      else if (user.role === 'customer') navigate('/customer/messages');
+      return;
+    }
     setDashboardTab(tab);
     if (user) {
       if (user.role === 'admin' && location.pathname !== '/admin') navigate('/admin');
@@ -387,10 +525,24 @@ function App() {
     }
   };
 
-  // Check if we are on a dashboard route
-  const isDashboardRoute = ['/business', '/customer', '/admin'].some((p) =>
-    location.pathname.startsWith(p)
-  );
+  // Check if we are on a dashboard route (/business-profile must not match /business)
+  const isDashboardRoute =
+    location.pathname === '/business'
+    || location.pathname.startsWith('/customer')
+    || location.pathname.startsWith('/admin');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (location.pathname === '/business') {
+      const tab = params.get('tab');
+      if (tab === 'messages' || tab === 'bookings' || tab === 'orders') {
+        setDashboardTab(tab);
+      }
+    }
+    if (location.pathname.startsWith('/customer/messages')) {
+      setDashboardTab('messages');
+    }
+  }, [location.pathname, location.search]);
 
   return (
     <div style={{ minHeight: '100vh', background: '#F5F6FA', fontFamily: "'Inter', sans-serif" }}>
@@ -412,10 +564,13 @@ function App() {
         sidebarCounts={{
           productCount: user?.role === 'seller' ? sellerProductCount : products.length,
           catalogCount: user?.role === 'seller' ? sellerProductCount + sellerServiceCount : products.length,
-          orderCount: 0,
+          orderCount: user?.role === 'seller' ? sellerOrderCount : 0,
+          bookingCount: user?.role === 'seller' ? sellerBookingCount : customerBookingCount,
           serviceCount: 0,
           cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
-          wishlistCount,
+          savedBusinessCount,
+          messageCount: messageUnread,
+          reportCount: adminReportCount,
           notifCount: notifications.filter((n) => !n.read).length,
         }}
         businessOfferingType={sellerBusiness?.offeringType || user?.businessOfferingType || 'both'}
@@ -432,8 +587,8 @@ function App() {
       />
 
       {cartOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
-          <Suspense fallback={<div className="mx-auto max-w-lg py-20 text-center text-sm text-white">Loading checkout...</div>}>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f8f2ea]" role="dialog" aria-modal="true" aria-label="Checkout">
+          <Suspense fallback={<div className="mx-auto max-w-lg py-20 text-center text-sm text-slate-500">Loading checkout...</div>}>
           <CartCheckout
             cart={cart}
             user={user}
@@ -462,7 +617,7 @@ function App() {
           onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
           lang={lang}
           user={user}
-          onToggleWishlist={handleWishlistToggle}
+          onToggleWishlist={handleToggleSavedBusiness}
         />
       )}
 
@@ -487,7 +642,7 @@ function App() {
                   onOpenBusiness={handleOpenBusinessProfile}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
-                  onToggleWishlist={handleWishlistToggle}
+                  onToggleWishlist={handleToggleSavedBusiness}
                 />
               }
             />
@@ -510,7 +665,7 @@ function App() {
                     onOpenBusiness={handleOpenBusinessProfile}
                     onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                     onOpenDashboard={handleOpenDashboard}
-                    onToggleWishlist={handleWishlistToggle}
+                    onToggleWishlist={handleToggleSavedBusiness}
                   />
                 </>
               }
@@ -534,6 +689,19 @@ function App() {
             />
 
             <Route
+              path="/customer/messages"
+              element={
+                <RoleRoute user={user} allow={['customer']} authReady={authReady}>
+                  <CustomerMessagesPage
+                    user={user}
+                    socket={socketRef.current}
+                    onUnreadChange={setMessageUnread}
+                  />
+                </RoleRoute>
+              }
+            />
+
+            <Route
               path="/customer"
               element={
                 <RoleRoute user={user} allow={['customer']} authReady={authReady}>
@@ -545,6 +713,7 @@ function App() {
                   cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
                   onOpenProduct={(id) => setSelectedProductId(id)}
                   onOpenBusiness={handleOpenBusinessProfile}
+                  onToggleSavedBusiness={handleToggleSavedBusiness}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
                   onOpenDashboard={handleOpenDashboard}
                   searchQuery={marketplaceSearch}
@@ -561,12 +730,15 @@ function App() {
                 <BusinessProfilePage
                   user={user}
                   onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
-                  onToggleWishlist={handleWishlistToggle}
+                  onToggleWishlist={handleToggleSavedBusiness}
                   onRequireAuth={() => {
                     setAuthMode('login');
                     setShowAuthModal(true);
                   }}
                   onOpenChat={() => {}}
+                  onOpenMessages={(conversationId) => {
+                    navigate(conversationId ? `/customer/messages?c=${conversationId}` : '/customer/messages');
+                  }}
                 />
               }
             />
@@ -575,7 +747,18 @@ function App() {
               path="/business"
               element={
                 <RoleRoute user={user} allow={['seller']} authReady={authReady}>
-                  <SellerDashboard user={user} lang={lang} onLogout={handleLogout} liveOrderTick={liveOrderTick} activeTab={dashboardTab} onTabChange={setDashboardTab} onOpenBusiness={handleOpenBusinessProfile} notifications={notifications} />
+                  <SellerDashboard
+                    user={user}
+                    lang={lang}
+                    onLogout={handleLogout}
+                    liveOrderTick={liveOrderTick}
+                    activeTab={dashboardTab}
+                    onTabChange={setDashboardTab}
+                    onOpenBusiness={handleOpenBusinessProfile}
+                    notifications={notifications}
+                    socket={socketRef.current}
+                    onMessageUnreadChange={setMessageUnread}
+                  />
                 </RoleRoute>
               }
             />
@@ -591,6 +774,9 @@ function App() {
 
             {/* Rider role temporarily removed */}
             <Route path="/payment-success" element={<PaymentSuccess />} />
+            <Route path="/payment/esewa/success" element={<EsewaPaymentReturn outcome="success" />} />
+            <Route path="/payment/esewa/failure" element={<EsewaPaymentReturn outcome="failure" />} />
+            <Route path="/payment/esewa/simulator" element={<EsewaSimulator />} />
           </Routes>
           </Suspense>
         </div>

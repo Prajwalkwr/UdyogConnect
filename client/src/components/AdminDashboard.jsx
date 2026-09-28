@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiAlertTriangle, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser, FiCalendar, FiChevronRight, FiCreditCard, FiStar, FiTruck } from 'react-icons/fi';
+import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser, FiCalendar, FiChevronRight, FiCreditCard, FiStar, FiTruck } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api from '../utils/api';
 import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
+import { CONTENT_REPORTS_EVENT } from '../utils/reports';
+import ContentReportsDesk from './ContentReportsDesk';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import AccountProfileCard from './AccountProfileCard';
+import HeroImageSettings from './HeroImageSettings';
+import BillViewer from './bill/BillViewer';
+import { billEmailMeta, formatRs, paymentStatusMeta, resendBillEmail, sendBillEmail, PAYMENT_METHOD_LABELS } from '../utils/bill';
+import { ORDER_STATUS_LABELS } from '../utils/esewa';
 
 export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0, activeTab, onTabChange }) {
   const [analytics, setAnalytics] = useState(null);
@@ -17,6 +23,7 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
   const [services, setServices] = useState([]);
   const [supportTickets, setSupportTickets] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [openReportCount, setOpenReportCount] = useState(0);
   const [settings, setSettings] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card'] }));
   const [loading, setLoading] = useState(true);
   const [announcementText, setAnnouncementText] = useState('');
@@ -32,7 +39,23 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [settingsForm, setSettingsForm] = useState(normalizeAdminSettings({ taxRate: 13, deliveryFee: 70, commissionRate: 5, paymentMethods: ['COD', 'Card'] }));
   const [submittingAction, setSubmittingAction] = useState(false);
+  const [billOrderId, setBillOrderId] = useState(null);
+  const [billEmailBusyId, setBillEmailBusyId] = useState(null);
   const submitGuard = React.useMemo(() => createSubmissionGuard(), []);
+
+  const handleBillEmail = async (order) => {
+    if (billEmailBusyId) return;
+    setBillEmailBusyId(order._id);
+    try {
+      const result = order.billEmailSent ? await resendBillEmail(order._id) : await sendBillEmail(order._id);
+      Swal.fire({ icon: 'success', text: result.message || 'Bill emailed.', timer: 2000, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ icon: 'error', text: err.response?.data?.error || err.message || 'Could not email the bill.' });
+    } finally {
+      setBillEmailBusyId(null);
+      fetchAdminData(true);
+    }
+  };
 
   const translate = (enText, neText) => {
     return lang === 'en' ? enText : neText;
@@ -44,8 +67,20 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
     }
   }, [user?._id, user?.id, liveOrderTick]);
 
+  const fetchOpenReportCount = React.useCallback(() => {
+    api.get('/api/admin/content-reports/summary')
+      .then((res) => setOpenReportCount(Number(res.data?.open) || 0))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(CONTENT_REPORTS_EVENT, fetchOpenReportCount);
+    return () => window.removeEventListener(CONTENT_REPORTS_EVENT, fetchOpenReportCount);
+  }, [fetchOpenReportCount]);
+
   const fetchAdminData = async (silent = false) => {
     if (!silent) setLoading(true);
+    fetchOpenReportCount();
     try {
       const [
         statsRes,
@@ -213,16 +248,6 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
     }
   };
 
-  const handleDismissReportedReview = async (reviewId) => {
-    try {
-      await api.put(`/api/admin/reviews/${reviewId}`, { reported: false });
-      setReviews((prev) => prev.map((review) => (review._id === reviewId ? { ...review, reported: false } : review)));
-      Swal.fire({ icon: 'success', text: translate('Review flag dismissed.', 'समीक्षा खण्डन खारेज गरियो।') });
-    } catch (e) {
-      Swal.fire({ icon: 'error', text: 'Failed to dismiss review flag.' });
-    }
-  };
-
   const handleToggleUserStatus = async (userId, suspended) => {
     try {
       await api.put(`/api/admin/users/${userId}/status`, { suspended });
@@ -370,11 +395,10 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
     count: businesses.filter((business) => String(business.category).toLowerCase() === String(category.name).toLowerCase()).length,
   })).filter((category) => category.count > 0).sort((a, b) => b.count - a.count).slice(0, 5);
   const maxCategoryCount = Math.max(...categoryCounts.map((category) => category.count), 1);
-  const statusCounts = ['pending', 'processing', 'dispatched', 'delivered', 'cancelled'].map((status) => ({
-    label: status,
+  const statusCounts = ['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled', 'rejected'].map((status) => ({
+    label: ORDER_STATUS_LABELS[status] || status,
     count: orders.filter((order) => String(order.status || '').toLowerCase() === status).length,
   }));
-  const reportedReviews = reviews.filter((review) => review.reported);
   const ratedReviews = reviews.filter((review) => Number.isFinite(Number(review.rating)));
   const averageRating = ratedReviews.length
     ? (ratedReviews.reduce((total, review) => total + Number(review.rating), 0) / ratedReviews.length).toFixed(1)
@@ -435,7 +459,7 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
               <div className="admin-bottom-grid">
                 <section className="admin-panel"><div className="admin-panel-heading"><h2>Recent Reviews</h2><button type="button" onClick={() => goTo('reviews')}>View All <FiChevronRight /></button></div><div className="review-list">{reviews.slice(0, 3).map((review) => <button type="button" key={review._id} onClick={() => goTo('reviews')}><FiStar /><span><strong>{review.customerName || 'Customer'}</strong><small>{review.comment || 'No comment provided.'}</small></span><b>{review.rating || 0}/5</b></button>)}{reviews.length === 0 && <div className="admin-empty">No reviews yet.</div>}</div></section>
                 <section className="admin-panel"><div className="admin-panel-heading"><h2>Pending Verifications</h2><button type="button" onClick={() => goTo('businesses')}>View All <FiChevronRight /></button></div><div className="verification-list">{pendingBusinesses.map((business) => <div key={business._id}><span><strong>{business.name}</strong><small>{business.category || 'Business'} · {business.location || 'Location pending'}</small></span><button type="button" onClick={() => handleVerifyBusiness(business._id, 'verified')}>Verify</button></div>)}{pendingBusinesses.length === 0 && <div className="admin-empty">All businesses are verified.</div>}</div></section>
-                <section className="admin-panel"><div className="admin-panel-heading"><h2>Admin Quick Actions</h2></div><div className="admin-quick-actions"><button type="button" onClick={() => goTo('businesses')}><FiBriefcase />Add New Business</button><button type="button" onClick={() => goTo('users')}><FiUsers />Manage Users</button><button type="button" onClick={() => goTo('reviews')}><FiFlag />Review Reports <b>{reportedReviews.length}</b></button><button type="button" onClick={() => goTo('settings')}><FiSettings />System Settings</button><button type="button" onClick={() => goTo('products')}><FiPackage />Content Management</button></div></section>
+                <section className="admin-panel"><div className="admin-panel-heading"><h2>Admin Quick Actions</h2></div><div className="admin-quick-actions"><button type="button" onClick={() => goTo('businesses')}><FiBriefcase />Add New Business</button><button type="button" onClick={() => goTo('users')}><FiUsers />Manage Users</button><button type="button" onClick={() => goTo('reviews')}><FiFlag />Open Reports <b>{openReportCount}</b></button><button type="button" onClick={() => goTo('settings')}><FiSettings />System Settings</button><button type="button" onClick={() => goTo('products')}><FiPackage />Content Management</button></div></section>
               </div>
             </div>
           )}
@@ -679,57 +703,58 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
             <div className="space-y-4">
               <h3 className="text-lg font-extrabold text-white">{translate('Order Oversight', 'अर्डर मापन')}</h3>
               <div className="space-y-3">
-                {orders.map((order) => (
-                  <div key={order._id} className="rounded-3xl border border-slate-850 bg-slate-900/30 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-white text-sm">Order #{order._id.slice(-6)}</div>
-                        <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total Rs. {order.total}</div>
+                {orders.map((order) => {
+                  const customer = users.find((u) => String(u._id || u.id) === String(order.customerId));
+                  const business = businesses.find((b) => String(b._id || b.id) === String(order.businessId));
+                  const payment = paymentStatusMeta(order.paymentStatus);
+                  const emailMeta = billEmailMeta(order.billEmailStatus || (order.billEmailSent ? 'sent' : 'not_sent'));
+                  return (
+                    <div key={order._id} className="rounded-3xl border border-slate-850 bg-slate-900/30 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-bold text-white text-sm">Order #{String(order._id).slice(-6)}</div>
+                          <div className="mt-0.5 font-mono text-[11px] text-amber-300">{order.billNumber ? `Bill ${order.billNumber}` : 'No bill issued'}</div>
+                          <div className="text-xs text-slate-400 mt-1">{order.items?.length || 0} item(s) • Total {formatRs(order.total)}</div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider" style={{ background: payment.bg, color: payment.color }}>{payment.label}</span>
+                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">{ORDER_STATUS_LABELS[order.status] || order.status}</span>
+                        </div>
                       </div>
-                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">{order.status}</span>
+                      <div className="mt-3 grid gap-1 text-[11px] text-slate-400 sm:grid-cols-2">
+                        <div>Customer: <span className="text-slate-200">{customer?.name || order.deliveryAddress?.name || order.customerId}</span></div>
+                        <div>Business: <span className="text-slate-200">{business?.name || order.businessId}</span></div>
+                        <div>Order date: <span className="text-slate-200">{order.createdAt ? new Date(order.createdAt).toLocaleString() : '—'}</span></div>
+                        <div>Payment: <span className="text-slate-200">{PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod || '—'}{order.paymentTransactionId ? ` · Ref ${order.paymentTransactionId}` : ''}</span></div>
+                        <div>
+                          Bill email: <span className="font-bold" style={{ color: emailMeta.color }}>{order.billNumber ? emailMeta.short : '—'}</span>
+                          {order.billEmailError && order.billEmailStatus === 'failed' ? <span className="ml-1 text-rose-400" title={order.billEmailError}>({order.billEmailError.slice(0, 60)})</span> : null}
+                        </div>
+                      </div>
+                      {order.billNumber && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => setBillOrderId(order._id)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-[10px] font-bold text-slate-200 hover:bg-slate-800">View Bill</button>
+                          <button
+                            type="button"
+                            onClick={() => handleBillEmail(order)}
+                            disabled={Boolean(billEmailBusyId) || order.billEmailStatus === 'sending'}
+                            className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-[10px] font-bold text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                          >
+                            {billEmailBusyId === order._id ? 'Sending…' : order.billEmailSent ? 'Resend Bill' : 'Send Bill'}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+              {billOrderId && <BillViewer orderId={billOrderId} onClose={() => setBillOrderId(null)} allowEmailActions />}
             </div>
           )}
 
-          {/* F. Moderation & fake reviews resolver */}
+          {/* F. Reports & moderation desk */}
           {currentTab === 'reviews' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-white">{translate('Safety Moderation Desk', 'मध्यस्थता केन्द्र')}</h3>
-
-              {reviews.filter(r => r.reported).length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-500">
-                  No flagged review content reported by customers.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {reviews.filter(r => r.reported).map((r) => (
-                    <div key={r._id} className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2">
-                          <FiAlertTriangle className="text-rose-450" />
-                          <div>
-                            <h5 className="text-xs font-bold text-white">Flagged Review by {r.customerName}</h5>
-                            <span className="text-[9px] text-slate-500">Rating given: {r.rating} stars</span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleDismissReportedReview(r._id)}
-                            className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-[9px] text-slate-350"
-                          >
-                            Dismiss Flag
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-300 italic">"{r.comment}"</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ContentReportsDesk lang={lang} refreshTick={liveOrderTick} onChanged={() => fetchAdminData(true)} />
           )}
 
           {currentTab === 'announcements' && (
@@ -790,6 +815,7 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
                 </div>
                 <button type="submit" disabled={submittingAction} className="rounded-full bg-amber-400 px-6 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-60">{submittingAction ? 'Processing...' : 'Save Settings'}</button>
               </form>
+              <HeroImageSettings lang={lang} />
             </div>
           )}
             </div>

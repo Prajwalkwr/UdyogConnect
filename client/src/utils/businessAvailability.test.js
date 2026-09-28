@@ -19,13 +19,14 @@ describe('getBusinessAvailabilityMeta', () => {
     expect(meta.openLabel).toBe('Open');
   });
 
-  it('derives open state from business hours', () => {
-    const openMeta = getBusinessAvailabilityMeta({ hours: '09:00 - 18:00' }, new Date('2024-01-01T12:00:00'));
-    const closedMeta = getBusinessAvailabilityMeta({ hours: '09:00 - 18:00' }, new Date('2024-01-01T20:00:00'));
-
-    expect(openMeta.isOpen).toBe(true);
-    expect(openMeta.openLabel).toBe('Open');
-    expect(closedMeta.isOpen).toBe(false);
-    expect(closedMeta.openLabel).toBe('Closed');
+  it('marks business closed when today is not an opening day', () => {
+    // 2024-01-07 is Sunday
+    const meta = getBusinessAvailabilityMeta(
+      { hours: '09:00 - 18:00', openingDays: ['mon', 'tue', 'wed', 'thu', 'fri'] },
+      new Date('2024-01-07T12:00:00')
+    );
+    expect(meta.openToday).toBe(false);
+    expect(meta.isOpen).toBe(false);
+    expect(meta.openLabel).toBe('Closed today');
   });
 });

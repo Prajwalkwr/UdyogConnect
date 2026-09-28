@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
       strictPort: false,
       proxy: {
         '/api': backendTarget,
+        '/uploads': backendTarget,
         '/health': backendTarget,
       },
     },
