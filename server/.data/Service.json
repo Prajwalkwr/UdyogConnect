@@ -1,5 +1,31 @@
 [
   {
+    "_id": "mf6zxis4z",
+    "createdAt": "2026-09-26T08:07:47.885Z",
+    "updatedAt": "2026-09-26T08:38:51.684Z",
+    "businessId": "b1",
+    "name": "home cooking",
+    "description": "cook food, customize food and drinks.",
+    "price": 1500,
+    "duration": 180,
+    "slots": [
+      "09:00 - 10:00",
+      "11:00 - 12:00",
+      "14:00 - 15:00"
+    ],
+    "staff": [
+      "Regular Staff"
+    ],
+    "homeService": true,
+    "availability": true,
+    "availableFrom": "09:00",
+    "availableTo": "18:00",
+    "imageUrl": "/uploads/svc-1790411931660-2sjmc8.jpg",
+    "images": [
+      "/uploads/svc-1790411931660-2sjmc8.jpg"
+    ]
+  },
+  {
     "_id": "s_v5",
     "createdAt": "2026-09-02T12:45:02.056Z",
     "updatedAt": "2026-09-02T12:45:02.056Z",

@@ -774,6 +774,7 @@ const initMongooseModels = async () => {
     password: { type: String, required: true },
     phone: { type: String, trim: true, match: [PHONE_PATTERN, 'Invalid phone number'] },
     role: { type: String, enum: ['customer', 'seller', 'admin'], default: 'customer' },
+    businessOfferingType: { type: String, enum: ['products', 'services', 'both'] },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
     profilePicture: { type: String, default: '', trim: true, validate: optionalUrlValidator },
     addresses: { type: Array, default: [] },
@@ -791,6 +792,10 @@ const initMongooseModels = async () => {
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
     lockUntil: { type: Date, default: null },
     resetOtp: { type: String, default: '' },
+    passwordResetTokenHash: { type: String, default: null },
+    passwordResetExpires: { type: Date, default: null },
+    passwordResetRequestedAt: { type: Date, default: null },
+    passwordChangedAt: { type: Date, default: null },
     lastSeen: { type: Date, default: null },
   }, { timestamps: true });
 
@@ -843,6 +848,7 @@ const initMongooseModels = async () => {
     offeringType: { type: String, enum: ['products', 'services', 'both'], default: 'both' },
     isOpen: { type: Boolean, default: true },
     manualOpenOverride: { type: Boolean, default: null },
+    manualOverrideAt: { type: Date, default: null },
     deliveryAvailable: { type: Boolean, default: true },
     deliveryRadiusKm: { type: Number, default: 5, min: 0 },
     // The eSewa secret key is kept in PaymentCredential, never on the business document.
@@ -1132,6 +1138,7 @@ const initMongooseModels = async () => {
   activityEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
 
   userSchema.index({ role: 1 });
+  userSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
   userSchema.index({ phone: 1 }, { unique: true, sparse: true });
   businessSchema.index({ ownerId: 1 });
   businessSchema.index({ category: 1 });

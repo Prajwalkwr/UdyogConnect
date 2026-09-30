@@ -8,6 +8,7 @@ const TAG_STYLES = {
   nearYou: 'bg-sky-50 text-sky-700',
   alsoViewed: 'bg-violet-50 text-violet-700',
   trending: 'bg-amber-50 text-amber-700',
+  newLocal: 'bg-rose-50 text-rose-700',
 };
 
 export default function BusinessRecCard({ business, tag, tagKey, saved, onOpen, onToggleSave, size = 'sm' }) {

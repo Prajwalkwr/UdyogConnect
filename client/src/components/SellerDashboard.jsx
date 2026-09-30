@@ -8,8 +8,11 @@ import {
   FiArrowUp, FiArrowRight, FiExternalLink, FiGlobe, FiUsers,
   FiGrid, FiZap, FiMapPin, FiHelpCircle
 } from 'react-icons/fi';
+import { useDispatch } from 'react-redux';
 import Swal from 'sweetalert2';
 import api, { getApiErrorMessage } from '../utils/api';
+import { normalizeUser } from '../utils/authFlow';
+import { updateSessionUser } from '../utils/sessionAuth';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
 import { uploadFilesToCloudinary } from '../utils/mediaUpload';
 import { getBusinessAvailabilityMeta, WEEKDAY_OPTIONS, ALL_OPENING_DAYS, normalizeOpeningDays, formatOpeningDaysLabel } from '../utils/businessAvailability';
@@ -145,14 +148,16 @@ export default function SellerDashboard({
   notifications = [],
   socket = null,
   onMessageUnreadChange,
+  onBusinessChanged,
 }) {
   const t = (en, ne) => lang === 'en' ? en : ne;
+  const dispatch = useDispatch();
 
   const [myBusiness, setMyBusiness]   = useState(null);
   const [loading, setLoading]         = useState(true);
   const [internalTab, setInternalTab] = useState('overview');
   const [pollingMsg, setPollingMsg]   = useState('');
-  const offeringType = myBusiness?.offeringType || 'both';
+  const offeringType = myBusiness?.offeringType || user?.businessOfferingType || 'both';
   const requestedTab = activeTab ?? internalTab;
   const resolvedTab = requestedTab === 'ratings'
     ? 'reviews'
@@ -169,17 +174,85 @@ export default function SellerDashboard({
     setInternalTab(tab);
   };
 
-  const toggleBusinessAvailability = async () => {
+  const formatSwitchTime = (date) => {
+    if (!date) return '';
+    const sameDay = date.toDateString() === new Date().toDateString();
+    return date.toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const saveOpenSwitch = async (manualOpenOverride) => {
     if (!myBusiness || isSubmitting) return;
-    const nextOpen = !availabilityMeta.isOpen;
     setIsSubmitting(true);
     try {
-      const response = await api.put(`/api/businesses/${myBusiness._id}`, { manualOpenOverride: nextOpen });
-      const updatedBusiness = response.data?.business || { ...myBusiness, manualOpenOverride: nextOpen };
+      const response = await api.put(`/api/businesses/${myBusiness._id}`, { manualOpenOverride });
+      const updatedBusiness = response.data?.business || {
+        ...myBusiness,
+        manualOpenOverride,
+        manualOverrideAt: manualOpenOverride === null ? null : new Date().toISOString(),
+      };
       setMyBusiness(updatedBusiness);
-      Swal.fire({ icon: 'success', title: nextOpen ? 'Business opened' : 'Business closed', timer: 1000, showConfirmButton: false });
+      setClockTick(Date.now());
+      onBusinessChanged?.();
+      const meta = getBusinessAvailabilityMeta(updatedBusiness);
+      const title = meta.isOpen ? t('Business opened', 'व्यवसाय खुला भयो') : t('Business closed', 'व्यवसाय बन्द भयो');
+      const text = meta.mode === 'manual'
+        ? (meta.manualUntil
+          ? t(`Automatic hours resume at ${formatSwitchTime(meta.manualUntil)}.`, `स्वचालित समय ${formatSwitchTime(meta.manualUntil)} मा फेरि सुरु हुन्छ।`)
+          : t('Stays this way until you switch it back.', 'तपाईंले फर्काउनुभएसम्म यस्तै रहन्छ।'))
+        : t('Following your business hours automatically.', 'तपाईंको व्यवसाय समय अनुसार स्वचालित रूपमा चल्छ।');
+      Swal.fire({ icon: 'success', title, text, timer: 1800, showConfirmButton: false });
     } catch (error) {
       Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Could not update business status.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleBusinessAvailability = () => {
+    const nextOpen = !availabilityMeta.isOpen;
+    saveOpenSwitch(nextOpen === availabilityMeta.scheduledOpen ? null : nextOpen);
+  };
+
+  const resumeAutomaticHours = () => saveOpenSwitch(null);
+
+  const OFFERING_LABELS = {
+    products: t('Products only', 'उत्पादन मात्र'),
+    services: t('Services only', 'सेवा मात्र'),
+    both: t('Products & Services', 'उत्पादन र सेवा'),
+  };
+
+  const changeOfferingType = async (nextType) => {
+    if (!myBusiness || isSubmitting || nextType === offeringType) return;
+    const hiding = nextType === 'products' ? 'services' : nextType === 'services' ? 'products' : null;
+    if (hiding) {
+      const confirm = await Swal.fire({
+        icon: 'question',
+        title: t(`Switch to ${OFFERING_LABELS[nextType]}?`, `${OFFERING_LABELS[nextType]} मा बदल्ने?`),
+        text: t(
+          `Your ${hiding} will be hidden from customers and from your dashboard. They are kept, and come back if you switch to both again.`,
+          `तपाईंका ${hiding === 'services' ? 'सेवाहरू' : 'उत्पादनहरू'} ग्राहक र ड्यासबोर्डबाट लुकाइनेछन्। तिनीहरू मेटिँदैनन्।`
+        ),
+        showCancelButton: true,
+        confirmButtonText: t('Switch', 'बदल्नुहोस्'),
+        cancelButtonText: t('Cancel', 'रद्द गर्नुहोस्'),
+        confirmButtonColor: '#F2B71D',
+      });
+      if (!confirm.isConfirmed) return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await api.put(`/api/businesses/${myBusiness._id}`, { offeringType: nextType });
+      setMyBusiness(response.data?.business || { ...myBusiness, offeringType: nextType });
+      setProfileForm((prev) => ({ ...prev, offeringType: nextType }));
+      if (user) {
+        const normalized = normalizeUser({ ...user, businessOfferingType: nextType });
+        dispatch({ type: 'SET_USER', payload: normalized });
+        updateSessionUser(normalized);
+      }
+      onBusinessChanged?.();
+      Swal.fire({ icon: 'success', title: t('Catalog updated', 'क्याटलग अद्यावधिक भयो'), text: OFFERING_LABELS[nextType], timer: 1400, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: 'error', text: error.response?.data?.message || 'Could not update what your business offers.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -195,7 +268,7 @@ export default function SellerDashboard({
 
   // Onboarding form
   const [bizForm, setBizForm] = useState({
-    name: '', category: '', location: '', description: '', offeringType: 'both',
+    name: '', category: '', location: '', description: '', offeringType: user?.businessOfferingType || 'both',
     hours: '09:00 - 18:00', openingTime: '09:00', closingTime: '18:00', contactEmail: '', phone: '',
     registrationNumber: '', panVatNumber: '', qrUrl: '',
     isOpen: true, deliveryAvailable: true, deliveryRadiusKm: '5',
@@ -220,7 +293,12 @@ export default function SellerDashboard({
   // Profile edit
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({});
-  const availabilityMeta = getBusinessAvailabilityMeta(myBusiness || {});
+  const [clockTick, setClockTick] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClockTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const availabilityMeta = getBusinessAvailabilityMeta(myBusiness || {}, new Date(clockTick));
   const [profileLogo, setProfileLogo] = useState(null);
   const [profileCover, setProfileCover] = useState(null);
   const [profileDoc, setProfileDoc] = useState(null);
@@ -1000,7 +1078,14 @@ export default function SellerDashboard({
       const response = await api.put(`/api/businesses/${myBusiness._id}`, fd, { headers: { ...createIdempotencyHeader('business-profile') } });
       if (response.data?.business) {
         setMyBusiness(response.data.business);
+        const savedType = response.data.business.offeringType;
+        if (user && savedType && savedType !== user.businessOfferingType) {
+          const normalized = normalizeUser({ ...user, businessOfferingType: savedType });
+          dispatch({ type: 'SET_USER', payload: normalized });
+          updateSessionUser(normalized);
+        }
       }
+      onBusinessChanged?.();
       Swal.fire({ icon: 'success', title: 'Profile Updated!', timer: 1200, showConfirmButton: false });
       setShowEditProfile(false);
       setProfileLogo(null);
@@ -1210,7 +1295,7 @@ export default function SellerDashboard({
               <div className="grid gap-3 rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4 md:grid-cols-2">
                 <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-300">
                   <p className="font-semibold text-white">Open status</p>
-                  <p className="mt-1 text-xs text-slate-400">This is derived from your business hours automatically.</p>
+                  <p className="mt-1 text-xs text-slate-400">Follows your business hours automatically. Use the switch on the Overview to open or close now; automatic hours take over again at your next opening or closing time.</p>
                 </div>
                 <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-200">
                   <span>Delivery available</span>
@@ -1687,6 +1772,45 @@ export default function SellerDashboard({
                     <span style={{ color: '#57657A' }}>{t('Store Status:', 'पसल स्थिति:')}</span>
                     <span style={{ fontWeight: 600, color: '#0B1A30' }}>{availabilityMeta.isOpen ? t('Open', 'खुला') : t('Closed', 'बन्द')}</span>
                   </div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap',
+                    fontSize: 12, padding: '8px 10px', borderRadius: 10,
+                    background: availabilityMeta.mode === 'manual' ? '#FFFBEB' : '#F0FDF4',
+                    border: `1px solid ${availabilityMeta.mode === 'manual' ? '#FDE68A' : '#BBF7D0'}`,
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      {availabilityMeta.mode === 'manual' ? (
+                        <>
+                          <strong>{t('Manual', 'म्यानुअल')}</strong>
+                          {' · '}
+                          {availabilityMeta.manualUntil
+                            ? t(`automatic hours resume at ${formatSwitchTime(availabilityMeta.manualUntil)}`, `स्वचालित समय ${formatSwitchTime(availabilityMeta.manualUntil)} मा सुरु`)
+                            : t('until you switch back', 'तपाईंले फर्काउनुभएसम्म')}
+                        </>
+                      ) : (
+                        <>
+                          <strong>{t('Automatic', 'स्वचालित')}</strong>
+                          {' · '}
+                          {availabilityMeta.nextChange
+                            ? t(
+                              `${availabilityMeta.isOpen ? 'closes' : 'opens'} at ${formatSwitchTime(availabilityMeta.nextChange)}`,
+                              `${formatSwitchTime(availabilityMeta.nextChange)} मा ${availabilityMeta.isOpen ? 'बन्द' : 'खुला'} हुन्छ`
+                            )
+                            : t('follows your business hours', 'व्यवसाय समय अनुसार')}
+                        </>
+                      )}
+                    </span>
+                    {availabilityMeta.mode === 'manual' && (
+                      <button
+                        type="button"
+                        onClick={resumeAutomaticHours}
+                        disabled={isSubmitting}
+                        style={{ fontSize: 12, fontWeight: 700, color: '#B45309', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {t('Use automatic hours', 'स्वचालित समय प्रयोग गर्नुहोस्')}
+                      </button>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                     <FiClock style={{ width: 14, height: 14, color: '#F2B71D' }} />
                     <span style={{ color: '#57657A' }}>{t('Operating Hours:', 'सञ्चालन समय:')}</span>
@@ -1702,6 +1826,46 @@ export default function SellerDashboard({
                     <span style={{ color: '#57657A' }}>{t('Location:', 'स्थान:')}</span>
                     <span style={{ fontWeight: 600, color: '#0B1A30' }}>{myBusiness.location}</span>
                   </div>
+                </div>
+              </div>
+              {/* What You Offer */}
+              <div style={{
+                background: '#FFFFFF', borderRadius: 16, padding: '18px 20px',
+                border: '1px solid #F0EAD6', boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              }}>
+                <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0B1A30', margin: '0 0 4px' }}>{t('What You Offer', 'तपाईं के प्रस्ताव गर्नुहुन्छ')}</h4>
+                <p style={{ fontSize: 12, color: '#6B7280', margin: '0 0 12px' }}>
+                  {t('Change this any time. Customers only see what you turn on.', 'जुनसुकै बेला बदल्नुहोस्। ग्राहकले तपाईंले खोलेको मात्र देख्छन्।')}
+                </p>
+                <div role="radiogroup" aria-label={t('What you offer', 'तपाईं के प्रस्ताव गर्नुहुन्छ')} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                  {[
+                    { key: 'products', label: t('Products', 'उत्पादन'), icon: <FiPackage /> },
+                    { key: 'services', label: t('Services', 'सेवा'), icon: <FiSettings /> },
+                    { key: 'both', label: t('Both', 'दुवै'), icon: <FiGrid /> },
+                  ].map((option) => {
+                    const selected = offeringType === option.key;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => changeOfferingType(option.key)}
+                        disabled={isSubmitting}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                          padding: '10px 6px', borderRadius: 12, fontSize: 12, fontWeight: 700,
+                          border: `1.5px solid ${selected ? '#F2B71D' : '#E5E7EB'}`,
+                          background: selected ? '#FFFBEB' : '#FFFFFF',
+                          color: selected ? '#92400E' : '#4B5563',
+                          cursor: isSubmitting ? 'wait' : (selected ? 'default' : 'pointer'),
+                        }}
+                      >
+                        <span style={{ fontSize: 16 }}>{option.icon}</span>
+                        {option.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               {/* Recent Notifications */}
@@ -2135,12 +2299,12 @@ export default function SellerDashboard({
         <div className="space-y-6">
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">
-            {myBusiness?.offeringType !== 'services' && (
+            {offeringType !== 'services' && (
               <button onClick={() => { setShowAddProd(!showAddProd); setShowAddServ(false); setEditingProduct(null); setProdForm({ name: '', brand: '', price: '', discount: '0', stock: '10', description: '', category: '' }); }} className="flex items-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 transition">
                 <FiPlus /> {t('Add Product', 'उत्पादन थप्नुहोस्')}
               </button>
             )}
-            {myBusiness?.offeringType !== 'products' && (
+            {offeringType !== 'products' && (
               <button onClick={() => { setShowAddServ(!showAddServ); setShowAddProd(false); setEditingService(null); setServImg(null); setServForm({ name: '', price: '', duration: '60', description: '', homeService: false, availableFrom: '09:00', availableTo: '18:00' }); }} className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-bold text-slate-200 hover:border-amber-400 hover:text-amber-400 transition">
                 <FiPlus /> {t('Add Service', 'सेवा थप्नुहोस्')}
               </button>
@@ -2348,7 +2512,7 @@ export default function SellerDashboard({
           </div>}
 
           {/* Services List */}
-          {myBusiness?.offeringType !== 'products' && (
+          {offeringType !== 'products' && (
             <div>
               <h4 className="text-sm font-bold text-white mb-3">{t('Services', 'सेवाहरू')} ({services.length})</h4>
               {services.length === 0 ? (
@@ -2635,7 +2799,7 @@ export default function SellerDashboard({
               <div className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-950/40 p-3 md:grid-cols-2">
                 <div className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-300">
                   <p className="font-semibold text-white">Open status</p>
-                  <p className="mt-1 text-xs text-slate-400">This is derived from your business hours automatically.</p>
+                  <p className="mt-1 text-xs text-slate-400">Follows your business hours automatically. Use the switch on the Overview to open or close now; automatic hours take over again at your next opening or closing time.</p>
                 </div>
                 <label className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-200">
                   <span>Delivery available</span>

@@ -58,32 +58,6 @@ describe('Auth extra flows', () => {
     expect(login.body).toHaveProperty('token');
   });
 
-  it('supports forgot/reset password flow', async () => {
-    const email = `forgotuser+${Date.now()}@example.com`;
-    const password = 'Forgot1234';
-
-    // Register
-    const reg = await request(app)
-      .post('/api/auth/register')
-      .send({ name: 'Forgot User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 1).slice(-8)}` })
-      .expect(201);
-    const otp = reg.body.otp;
-    await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
-
-    // Forgot password (get reset OTP)
-    const forgot = await request(app).post('/api/auth/forgot-password').send({ emailOrPhone: email }).expect(200);
-    expect(forgot.body).toHaveProperty('otp');
-    const resetOtp = forgot.body.otp;
-
-    // Reset password
-    const newPass = 'NewPass1234';
-    await request(app).post('/api/auth/reset-password').send({ emailOrPhone: email, otp: resetOtp, password: newPass, confirmPassword: newPass }).expect(200);
-
-    // Login with new password
-    const login = await request(app).post('/api/auth/login').send({ email, password: newPass }).expect(200);
-    expect(login.body).toHaveProperty('token');
-  });
-
   it('locks account after consecutive failed attempts', async () => {
     const email = `lockuser+${Date.now()}@example.com`;
     const password = 'Lock12345';

@@ -10,6 +10,7 @@ const {
   recommendForYou,
   recommendAlsoViewed,
   recommendTrending,
+  recommendNewLocal,
   pickHighlights,
 } = require('../server/home/recommend');
 const { resolvePlace, categoryGroupsOf } = require('../server/home/catalog');
@@ -80,6 +81,30 @@ describe('recommendation engine', () => {
     expect(highlights.map((h) => h.business._id)).toEqual(['a', 'b', 'c']);
   });
 
+  it('promotes recently joined businesses, closest and newest first', () => {
+    const now = Date.UTC(2026, 8, 28, 12);
+    const daysAgo = (days) => new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
+    const cards = [
+      card('old', { approvedAt: daysAgo(45) }),
+      card('far-new', { approvedAt: daysAgo(0), distanceKm: 140 }),
+      card('near-week', { approvedAt: daysAgo(9) }),
+      card('near-today', { createdAt: daysAgo(40), approvedAt: daysAgo(0) }),
+      card('mine', { approvedAt: daysAgo(1), ownerId: 'u1' }),
+      card('registered', { createdAt: daysAgo(1) }),
+    ];
+    const list = recommendNewLocal(cards, { userId: 'u1', now });
+    expect(list.map((c) => c._id)).toEqual(['near-today', 'registered', 'near-week', 'far-new']);
+    expect(list[0].reason).toBe('Joined UdyogConnect today. Support a new local business');
+    expect(list[1].reason).toContain('yesterday');
+    expect(list[2].reason).toContain('1 week ago');
+  });
+
+  it('keeps a new business in its own highlight slot even when other lists want it', () => {
+    const fresh = card('new');
+    const highlights = pickHighlights({ forYou: [fresh, card('a')], nearYou: [fresh], trending: [card('t')], newLocal: [fresh] });
+    expect(highlights.map((h) => [h.slot, h.business._id])).toEqual([['forYou', 'a'], ['trending', 't'], ['newLocal', 'new']]);
+  });
+
   it('resolves Nepal localities and category groups', () => {
     expect(resolvePlace('Baneshwor, Kathmandu')).toMatchObject({ label: 'Baneshwor', city: 'Kathmandu' });
     expect(resolvePlace('somewhere unknown')).toBeNull();
@@ -137,6 +162,18 @@ describe('home feed API', () => {
     expect(new Set(res.body.highlights.map((h) => h.business._id)).size).toBe(res.body.highlights.length);
     expect(Array.isArray(res.body.deals.items)).toBe(true);
     res.body.deals.items.forEach((deal) => expect(deal.discount).toBeGreaterThan(0));
+  });
+
+  it('lists a newly approved business under New Local Business', async () => {
+    const before = await request(app).get('/api/home/feed').set('X-Visitor-Id', 'guest-visitor-002');
+    const target = before.body.recommendations.nearYou.find((b) => b.distanceKm != null && b.distanceKm <= 25);
+    expect(target).toBeTruthy();
+    await db.Business().findByIdAndUpdate(target._id, { approvedAt: new Date() });
+    feedService.invalidateHomeCache();
+    const res = await request(app).get('/api/home/feed').set('X-Visitor-Id', 'guest-visitor-002');
+    expect(res.status).toBe(200);
+    expect(res.body.recommendations.newLocal[0]._id).toBe(target._id);
+    expect(res.body.highlights.find((h) => h.slot === 'newLocal')?.business._id).toBe(target._id);
   });
 
   it('uses the typed area for location-based picks', async () => {

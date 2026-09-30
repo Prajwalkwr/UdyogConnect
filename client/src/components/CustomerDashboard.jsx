@@ -54,6 +54,7 @@ export default function CustomerDashboard({
   onTabChange,
   searchQuery = '',
   cartCount = 0,
+  cartContent = null,
 }) {
   const [profileData, setProfileData] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -81,7 +82,7 @@ export default function CustomerDashboard({
     if (tab === 'orders') return 'orders';
     if (tab === 'bookings') return 'bookings';
     if (tab === 'wallet' || tab === 'offers' || tab === 'notifications') return tab;
-    if (tab === 'cart') return 'orders';
+    if (tab === 'cart' || tab === 'checkout') return 'cart';
     return tab;
   };
   const activeView = resolveTab(currentTab);
@@ -465,7 +466,7 @@ export default function CustomerDashboard({
                   hint: 'View Cart →',
                   icon: <FiShoppingCart className="h-5 w-5 text-[#0EA5E9]" />,
                   iconBg: '#E0F2FE',
-                  action: () => onOpenDashboard?.('checkout'),
+                  action: () => changeTab('cart'),
                 },
                 {
                   label: 'Saved Businesses',
@@ -783,6 +784,8 @@ export default function CustomerDashboard({
             </footer>
           </div>
         )}
+
+        {activeView === 'cart' && cartContent}
 
         {activeView === 'wallet' && (
           <div className="mx-auto max-w-lg rounded-2xl border border-[#E5EBF2] bg-white p-8 text-center shadow-sm">

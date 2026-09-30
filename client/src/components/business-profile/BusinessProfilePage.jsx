@@ -25,6 +25,7 @@ import ProductCard from './ProductCard';
 import ServiceRow from './ServiceRow';
 import ReviewsPanel from './ReviewsPanel';
 import InfoSidebar from './InfoSidebar';
+import SuggestionsRow from './SuggestionsRow';
 import ServiceBookingForm from '../ServiceBookingForm';
 import { emptyProfile, formatRs, isOpenNow, mapsDirectionsUrl, mapsEmbedUrl, normalizeProfile } from './cafeDemo';
 import './businessProfile.css';
@@ -72,7 +73,7 @@ export default function BusinessProfilePage({
   const [profile, setProfile] = useState(() => emptyProfile(id || ''));
   const [unavailable, setUnavailable] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [tab, setTab] = useState(searchParams.get('tab') || 'overview');
+  const [requestedTab, setTab] = useState(searchParams.get('tab') || 'overview');
   const [query, setQuery] = useState(searchQuery || '');
   const [sort, setSort] = useState('featured');
   const [category, setCategory] = useState('all');
@@ -169,6 +170,10 @@ export default function BusinessProfilePage({
     load();
     return () => { active = false; };
   }, [id, user?._id, user?.id, user?.role]);
+
+  useEffect(() => {
+    setTab(new URLSearchParams(window.location.search).get('tab') || 'overview');
+  }, [id]);
 
   useEffect(() => {
     setQuery(searchQuery || '');
@@ -412,6 +417,11 @@ export default function BusinessProfilePage({
 
   const categoryLine = [business.category, business.subcategory].filter(Boolean).join(' • ');
   const reviewTotal = business.reviewCount || profile.reviews.length;
+  const offeringType = ['products', 'services', 'both'].includes(business.offeringType) ? business.offeringType : 'both';
+  const showProducts = offeringType !== 'services';
+  const showServices = offeringType !== 'products';
+  const visibleTabs = TABS.filter((item) => (item.id !== 'products' || showProducts) && (item.id !== 'services' || showServices));
+  const tab = visibleTabs.some((item) => item.id === requestedTab) ? requestedTab : 'overview';
 
   return (
     <div className="bp-page">
@@ -512,7 +522,7 @@ export default function BusinessProfilePage({
 
       <div className="bp-tabs-wrap">
         <div className="bp-tabs">
-          {TABS.map((item) => (
+          {visibleTabs.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -541,26 +551,40 @@ export default function BusinessProfilePage({
                 ) : null}
               </section>
 
-              <section className="bp-card">
-                <div className="bp-section-head">
-                  <h2>Featured Products</h2>
-                  <button type="button" className="bp-link" onClick={() => changeTab('products')}>View All</button>
-                </div>
-                {popularProducts.length > 0 ? (
-                  <div className="bp-products">
-                    {popularProducts.map((item) => (
-                      <ProductCard
-                        key={item._id}
-                        product={item}
-                        onOpen={setProduct}
-                        onAdd={addToCart}
-                      />
-                    ))}
+              {showProducts ? (
+                <section className="bp-card">
+                  <div className="bp-section-head">
+                    <h2>Featured Products</h2>
+                    <button type="button" className="bp-link" onClick={() => changeTab('products')}>View All</button>
                   </div>
-                ) : (
-                  <div className="bp-empty">No products available for this business yet.</div>
-                )}
-              </section>
+                  {popularProducts.length > 0 ? (
+                    <div className="bp-products">
+                      {popularProducts.map((item) => (
+                        <ProductCard
+                          key={item._id}
+                          product={item}
+                          onOpen={setProduct}
+                          onAdd={addToCart}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bp-empty">No products available for this business yet.</div>
+                  )}
+                </section>
+              ) : (
+                <section className="bp-card">
+                  <div className="bp-section-head">
+                    <h2>Featured Services</h2>
+                    <button type="button" className="bp-link" onClick={() => changeTab('services')}>View All</button>
+                  </div>
+                  <div className="bp-service-list">
+                    {profile.services.length ? profile.services.slice(0, 4).map((service) => (
+                      <ServiceRow key={service._id} service={service} onBook={setBooking} />
+                    )) : <div className="bp-empty">No services listed yet.</div>}
+                  </div>
+                </section>
+              )}
 
               <section className="bp-card">
                 <div className="bp-section-head">
@@ -696,12 +720,15 @@ export default function BusinessProfilePage({
               ) : null}
             </section>
           )}
+
+          <SuggestionsRow businessId={business._id} />
         </div>
 
         {tab === 'overview' ? (
           <InfoSidebar
             business={business}
-            services={profile.services}
+            services={showServices ? profile.services : []}
+            showServices={showServices}
             onBook={setBooking}
             onViewOffer={viewOffer}
           />

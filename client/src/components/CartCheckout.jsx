@@ -8,6 +8,7 @@ import { validateCheckoutForm, sanitizeCheckoutWords, sanitizeCheckoutEmail, isC
 import { NEPAL_PLACES } from '../utils/nepalPlaces';
 import { notifyOrdersUpdated } from '../utils/bill';
 import { redirectToEsewa } from '../utils/esewa';
+import { checkoutLocationOf } from '../utils/deliveryAddress';
 import OrderSuccess from './bill/OrderSuccess';
 
 export default function CartCheckout({
@@ -19,6 +20,7 @@ export default function CartCheckout({
   onClearCart,
   onClose,
   onOrderSuccess,
+  embedded = false,
 }) {
   const [promoCode, setPromoCode] = useState('');
   const [couponData, setCouponData] = useState(null);
@@ -65,12 +67,14 @@ export default function CartCheckout({
 
   useEffect(() => {
     if (user) {
-      setName(sanitizeCheckoutWords(user.name).trim());
+      const list = Array.isArray(user.addresses) ? user.addresses : [];
+      const saved = list.find((entry) => entry?.city) || list[0] || null;
+      setName(sanitizeCheckoutWords(saved?.fullName || user.name).trim());
       setEmail(isCheckoutGmail(user.email) ? String(user.email).trim().toLowerCase() : '');
-      setPhone(String(user.phone || '').replace(/\D/g, '').slice(0, 10));
-      if (user.addresses && user.addresses.length > 0) {
-        setLocation(sanitizeCheckoutWords(user.addresses[0].location).trim());
-        setAddress(sanitizeCheckoutWords(user.addresses[0].address).trim());
+      setPhone(String(saved?.phone || user.phone || '').replace(/\D/g, '').slice(0, 10));
+      if (saved) {
+        setLocation(checkoutLocationOf(saved));
+        setAddress(sanitizeCheckoutWords(saved.address).trim());
       }
     }
   }, [user]);
@@ -277,7 +281,7 @@ export default function CartCheckout({
 
   if (confirmation) {
     return (
-      <div className="mx-auto min-h-full max-w-[1400px] px-4 py-8 sm:px-6">
+      <div className={embedded ? '' : 'mx-auto min-h-full max-w-[1400px] px-4 py-8 sm:px-6'}>
         <OrderSuccess
           order={confirmation.order}
           bill={confirmation.bill}
@@ -292,7 +296,25 @@ export default function CartCheckout({
   }
 
   return (
-    <div className="min-h-full bg-[#f8f2ea]">
+    <div className={embedded ? '' : 'min-h-full bg-[#f8f2ea]'}>
+      {embedded ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-extrabold text-[#102341]">{translate('My Cart', 'मेरो कार्ट')}</h2>
+            <p className="mt-0.5 text-xs text-[#68778c]">{translate('Review items and finalize checkout options', 'विवरण समीक्षा गरी अर्डर पूरा गर्नुहोस्')}</p>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1.5 rounded-full border border-[#E5EBF2] bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-[#f2b71d] hover:text-[#1a1a2e]"
+            >
+              <FiShoppingBag className="h-4 w-4" />
+              {translate('Continue shopping', 'किनमेल जारी राख्नुहोस्')}
+            </button>
+          )}
+        </div>
+      ) : (
       <header className={`${onClose ? 'sticky top-0 z-10' : ''} border-b border-[#eadfca] bg-[#f8f2ea]/95 backdrop-blur`}>
         <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-4 sm:px-6">
           {onClose && (
@@ -312,15 +334,25 @@ export default function CartCheckout({
           </div>
         </div>
       </header>
+      )}
 
-      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
+      <div className={embedded ? '' : 'mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8'}>
         {cart.length === 0 ? (
-          <div className="rounded-[28px] border border-[#e7dcc7] bg-[#fffdf9] py-20 text-center">
+          <div className={`rounded-[28px] border py-20 text-center ${embedded ? 'border-[#E5EBF2] bg-white shadow-sm' : 'border-[#e7dcc7] bg-[#fffdf9]'}`}>
             <FiShoppingBag className="mx-auto h-12 w-12 text-slate-500" />
             <p className="mt-4 text-sm text-slate-500">{translate('Your cart is currently empty.', 'तपाईंको कार्ट हाल खाली छ।')}</p>
+            {embedded && onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-5 rounded-xl bg-[#F2B71D] px-5 py-2.5 text-sm font-bold text-[#102341] transition hover:bg-[#e0a615]"
+              >
+                {translate('Explore Businesses →', 'व्यवसायहरू हेर्नुहोस् →')}
+              </button>
+            ) : null}
           </div>
         ) : (
-          <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className={`grid lg:grid-cols-[1.2fr_0.8fr] ${embedded ? 'gap-5' : 'gap-8'}`}>
             <div className="space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">{translate('Cart items', 'अर्डर सूची')}</h3>
               {cart.map((item) => (

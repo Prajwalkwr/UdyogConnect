@@ -1,12 +1,54 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import Swal from 'sweetalert2';
+import { FiBriefcase, FiHome, FiMapPin, FiPhone, FiX } from 'react-icons/fi';
 import api from '../utils/api';
 import { normalizeUser } from '../utils/authFlow';
 import { updateSessionUser } from '../utils/sessionAuth';
 import { createIdempotencyHeader, createSubmissionGuard } from '../utils/submitProtection';
+import {
+  ADDRESS_LABELS,
+  DELIVERY_CITIES,
+  PROVINCES,
+  emptyAddressDraft,
+  prefillAddressDraft,
+  sanitizePhone,
+  sanitizeWords,
+  toAddressDraft,
+  validateDeliveryAddress,
+} from '../utils/deliveryAddress';
 
-const emptyAddressForm = { title: 'Home', location: '', address: '' };
+const fieldClass = (hasError) => `w-full rounded-lg border bg-white px-3.5 py-3 pr-10 text-sm text-[#102341] outline-none transition placeholder:text-[#94A3B8] focus:ring-2 ${
+  hasError ? 'border-rose-400 focus:border-rose-400 focus:ring-rose-100' : 'border-[#D6DEE8] focus:border-[#F2B71D] focus:ring-[#F2B71D]/20'
+}`;
+
+function AddressField({ label, error, children }) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="block text-xs font-semibold text-[#334155]">{label}</span>
+      {children}
+      {error ? <span className="block text-[11px] font-medium text-rose-500">{error}</span> : null}
+    </label>
+  );
+}
+
+function ClearableInput({ value, onChange, onClear, error, ...props }) {
+  return (
+    <div className="relative">
+      <input value={value} onChange={onChange} className={fieldClass(error)} {...props} />
+      {value ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="absolute right-3 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-[#CBD5E1] text-white transition hover:bg-[#94A3B8]"
+          aria-label={`Clear ${props['aria-label'] || 'field'}`}
+        >
+          <FiX className="h-3 w-3" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 export default function AccountProfileCard({ user, lang }) {
   const dispatch = useDispatch();
@@ -16,7 +58,8 @@ export default function AccountProfileCard({ user, lang }) {
   const [previewUrl, setPreviewUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addresses, setAddresses] = useState([]);
-  const [addressForm, setAddressForm] = useState(emptyAddressForm);
+  const [addressForm, setAddressForm] = useState(emptyAddressDraft);
+  const [addressErrors, setAddressErrors] = useState({});
   const [editingAddressId, setEditingAddressId] = useState(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [isSavingAddress, setIsSavingAddress] = useState(false);
@@ -93,59 +136,56 @@ export default function AccountProfileCard({ user, lang }) {
     }
   };
 
+  const closeAddressForm = () => {
+    setShowAddressForm(false);
+    setEditingAddressId(null);
+    setAddressForm(emptyAddressDraft);
+    setAddressErrors({});
+  };
+
   const openAddAddress = () => {
     setEditingAddressId(null);
-    setAddressForm(emptyAddressForm);
+    setAddressForm(prefillAddressDraft(user, addresses));
+    setAddressErrors({});
     setShowAddressForm(true);
   };
 
   const openEditAddress = (entry) => {
     setEditingAddressId(entry._id || entry.id || null);
-    setAddressForm({
-      title: entry.title || 'Home',
-      location: entry.location || '',
-      address: entry.address || '',
-    });
+    const draft = toAddressDraft(entry);
+    const fallback = prefillAddressDraft(user, []);
+    setAddressForm({ ...draft, fullName: draft.fullName || fallback.fullName, phone: draft.phone || fallback.phone });
+    setAddressErrors({});
     setShowAddressForm(true);
+  };
+
+  const updateAddressField = (field, value) => {
+    setAddressForm((prev) => ({ ...prev, [field]: value }));
+    setAddressErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
   const handleSaveAddress = async (e) => {
     e.preventDefault();
-    const title = String(addressForm.title || '').trim() || 'Home';
-    const location = String(addressForm.location || '').trim();
-    const address = String(addressForm.address || '').trim();
-    if (!location || !address) {
-      Swal.fire({
-        icon: 'warning',
-        text: translate('City/area and street address are required.', 'सहर/क्षेत्र र सडक ठेगाना आवश्यक छन्।'),
-      });
+    const draft = {
+      ...addressForm,
+      fullName: addressForm.fullName.trim(),
+      address: addressForm.address.trim(),
+      landmark: addressForm.landmark.trim(),
+    };
+    const errors = validateDeliveryAddress(draft);
+    if (Object.keys(errors).length) {
+      setAddressErrors(errors);
       return;
     }
     if (!addressGuard.begin()) return;
     setIsSavingAddress(true);
+    const saved = { ...draft, title: draft.label, location: draft.city };
     try {
-      let nextAddresses;
-      if (editingAddressId) {
-        nextAddresses = addresses.map((item) => {
-          const id = item._id || item.id;
-          if (String(id) !== String(editingAddressId)) return item;
-          return { ...item, title, location, address };
-        });
-      } else {
-        nextAddresses = [
-          ...addresses,
-          {
-            _id: `addr_${Date.now()}`,
-            title,
-            location,
-            address,
-          },
-        ];
-      }
+      const nextAddresses = editingAddressId
+        ? addresses.map((item) => (String(item._id || item.id) === String(editingAddressId) ? { _id: item._id || item.id, ...saved } : item))
+        : [...addresses, { _id: `addr_${Date.now()}`, ...saved }];
       await saveAddresses(nextAddresses);
-      setShowAddressForm(false);
-      setEditingAddressId(null);
-      setAddressForm(emptyAddressForm);
+      closeAddressForm();
       Swal.fire({
         icon: 'success',
         title: editingAddressId
@@ -166,7 +206,7 @@ export default function AccountProfileCard({ user, lang }) {
     const id = entry._id || entry.id;
     const result = await Swal.fire({
       title: translate('Remove address?', 'ठेगाना हटाउने?'),
-      text: entry.address || entry.title || '',
+      text: [entry.address, entry.city || entry.location].filter(Boolean).join(', ') || entry.title || '',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: translate('Remove', 'हटाउनुहोस्'),
@@ -176,6 +216,7 @@ export default function AccountProfileCard({ user, lang }) {
     try {
       const nextAddresses = addresses.filter((item) => String(item._id || item.id) !== String(id));
       await saveAddresses(nextAddresses);
+      if (editingAddressId && String(editingAddressId) === String(id)) closeAddressForm();
       Swal.fire({
         icon: 'success',
         title: translate('Address removed', 'ठेगाना हटाइयो'),
@@ -301,69 +342,142 @@ export default function AccountProfileCard({ user, lang }) {
         </div>
 
         {showAddressForm ? (
-          <form onSubmit={handleSaveAddress} className="mb-6 space-y-4 rounded-2xl border border-[#E8EDF4] bg-[#F8FAFC] p-4 sm:p-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
-                  {translate('Label', 'लेबल')}
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.title}
-                  onChange={(e) => setAddressForm((prev) => ({ ...prev, title: e.target.value }))}
-                  className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm font-medium text-[#102341] outline-none focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
-                  placeholder="Home, Office..."
-                />
+          <form onSubmit={handleSaveAddress} noValidate className="mb-6 overflow-hidden rounded-2xl border border-[#E8EDF4] bg-white">
+            <div className="flex items-center justify-between gap-3 bg-[#F1F4F8] px-4 py-3 sm:px-6">
+              <h4 className="text-lg font-semibold text-[#102341]">
+                {editingAddressId ? translate('Edit My Address', 'मेरो ठेगाना सम्पादन') : translate('Add New Address', 'नयाँ ठेगाना थप्नुहोस्')}
+              </h4>
+              {editingAddressId ? (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveAddress(addresses.find((item) => String(item._id || item.id) === String(editingAddressId)) || {})}
+                  className="text-sm font-semibold text-[#0EA5E9] hover:text-[#0284C7]"
+                >
+                  {translate('Delete', 'मेटाउनुहोस्')}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="grid gap-x-8 gap-y-5 p-4 sm:p-6 md:grid-cols-2">
+              <div className="space-y-5">
+                <AddressField label={translate('Full Name', 'पूरा नाम')} error={addressErrors.fullName}>
+                  <ClearableInput
+                    type="text"
+                    aria-label="Full Name"
+                    autoComplete="name"
+                    maxLength={60}
+                    placeholder={translate('Enter your full name', 'पूरा नाम लेख्नुहोस्')}
+                    value={addressForm.fullName}
+                    error={addressErrors.fullName}
+                    onChange={(e) => updateAddressField('fullName', sanitizeWords(e.target.value))}
+                    onClear={() => updateAddressField('fullName', '')}
+                  />
+                </AddressField>
+                <AddressField label={translate('Phone Number', 'फोन नम्बर')} error={addressErrors.phone}>
+                  <ClearableInput
+                    type="tel"
+                    aria-label="Phone Number"
+                    autoComplete="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder={translate('Enter your phone number', 'फोन नम्बर लेख्नुहोस्')}
+                    value={addressForm.phone}
+                    error={addressErrors.phone}
+                    onChange={(e) => updateAddressField('phone', sanitizePhone(e.target.value))}
+                    onClear={() => updateAddressField('phone', '')}
+                  />
+                </AddressField>
+                <AddressField label={translate('Landmark (Optional)', 'स्थलचिन्ह (ऐच्छिक)')} error={addressErrors.landmark}>
+                  <ClearableInput
+                    type="text"
+                    aria-label="Landmark"
+                    maxLength={120}
+                    placeholder={translate('E.g. beside train station', 'जस्तै: बस पार्क नजिक')}
+                    value={addressForm.landmark}
+                    error={addressErrors.landmark}
+                    onChange={(e) => updateAddressField('landmark', sanitizeWords(e.target.value))}
+                    onClear={() => updateAddressField('landmark', '')}
+                  />
+                </AddressField>
               </div>
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
-                  {translate('City / Area', 'सहर / क्षेत्र')}
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.location}
-                  onChange={(e) => setAddressForm((prev) => ({ ...prev, location: e.target.value }))}
-                  className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm font-medium text-[#102341] outline-none focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
-                  placeholder="Kathmandu, Baneshwor..."
-                  required
-                />
+
+              <div className="space-y-5">
+                <AddressField label={translate('Province / Region', 'प्रदेश / क्षेत्र')} error={addressErrors.province}>
+                  <select
+                    aria-label="Province / Region"
+                    value={addressForm.province}
+                    onChange={(e) => updateAddressField('province', e.target.value)}
+                    className={fieldClass(addressErrors.province)}
+                  >
+                    <option value="">{translate('Please choose your province / region', 'प्रदेश छान्नुहोस्')}</option>
+                    {PROVINCES.map((province) => <option key={province} value={province}>{province}</option>)}
+                  </select>
+                </AddressField>
+                <AddressField label={translate('City', 'सहर')} error={addressErrors.city}>
+                  <select
+                    aria-label="City"
+                    value={addressForm.city}
+                    onChange={(e) => updateAddressField('city', e.target.value)}
+                    className={fieldClass(addressErrors.city)}
+                  >
+                    <option value="">{translate('Please choose your city', 'सहर छान्नुहोस्')}</option>
+                    {DELIVERY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+                  </select>
+                </AddressField>
+                <AddressField label={translate('Address', 'ठेगाना')} error={addressErrors.address}>
+                  <ClearableInput
+                    type="text"
+                    aria-label="Address"
+                    autoComplete="street-address"
+                    maxLength={120}
+                    placeholder={translate('For example: Shrijana Chowk', 'जस्तै: सिर्जना चोक')}
+                    value={addressForm.address}
+                    error={addressErrors.address}
+                    onChange={(e) => updateAddressField('address', sanitizeWords(e.target.value))}
+                    onClear={() => updateAddressField('address', '')}
+                  />
+                </AddressField>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#334155]">{translate('Select a label for effective delivery:', 'छिटो डेलिभरीका लागि लेबल छान्नुहोस्:')}</p>
+                  <div className="flex gap-3" role="radiogroup" aria-label="Address label">
+                    {ADDRESS_LABELS.map((label) => {
+                      const selected = addressForm.label === label;
+                      const Icon = label === 'Office' ? FiBriefcase : FiHome;
+                      const tone = label === 'Office'
+                        ? (selected ? 'border-[#0EA5E9] bg-[#F0F9FF] text-[#0369A1] ring-2 ring-[#0EA5E9]/20' : 'border-[#BAE6FD] bg-white text-[#475569]')
+                        : (selected ? 'border-[#F43F5E] bg-[#FFF1F2] text-[#BE123C] ring-2 ring-[#F43F5E]/20' : 'border-[#FECDD3] bg-white text-[#475569]');
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => updateAddressField('label', label)}
+                          className={`flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-4 py-3 text-xs font-bold uppercase tracking-wide transition ${tone}`}
+                        >
+                          <Icon className="h-4 w-4" /> {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-[0.12em] text-[#334155]">
-                {translate('Street address / Landmark', 'सडक ठेगाना / स्थलचिन्ह')}
-              </label>
-              <textarea
-                value={addressForm.address}
-                onChange={(e) => setAddressForm((prev) => ({ ...prev, address: e.target.value }))}
-                rows={3}
-                className="w-full rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm font-medium text-[#102341] outline-none focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/20"
-                placeholder="House no., street, nearby landmark"
-                required
-              />
-            </div>
-            <div className="flex flex-wrap gap-3">
+
+            <div className="flex justify-end gap-3 border-t border-[#EEF2F7] px-4 py-4 sm:px-6">
+              <button
+                type="button"
+                onClick={closeAddressForm}
+                className="min-w-[120px] rounded-lg border border-[#D6DEE8] bg-[#F1F4F8] px-6 py-2.5 text-sm font-semibold text-[#475569] transition hover:bg-[#E2E8F0]"
+              >
+                {translate('Cancel', 'रद्द गर्नुहोस्')}
+              </button>
               <button
                 type="submit"
                 disabled={isSavingAddress}
-                className="rounded-xl bg-[#F2B71D] px-6 py-2.5 text-sm font-bold text-[#102341] transition hover:bg-[#E0A615] disabled:opacity-60"
+                className="min-w-[160px] rounded-lg bg-[#F2B71D] px-6 py-2.5 text-sm font-bold uppercase tracking-wide text-[#102341] transition hover:bg-[#E0A615] disabled:opacity-60"
               >
-                {isSavingAddress
-                  ? translate('Saving...', 'सेभ हुँदै...')
-                  : editingAddressId
-                    ? translate('Update address', 'ठेगाना अद्यावधिक गर्नुहोस्')
-                    : translate('Save address', 'ठेगाना सेभ गर्नुहोस्')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddressForm(false);
-                  setEditingAddressId(null);
-                  setAddressForm(emptyAddressForm);
-                }}
-                className="rounded-xl border border-[#CBD5E1] bg-white px-6 py-2.5 text-sm font-bold text-[#334155] transition hover:bg-[#F8FAFC]"
-              >
-                {translate('Cancel', 'रद्द गर्नुहोस्')}
+                {isSavingAddress ? translate('Saving...', 'सेभ हुँदै...') : translate('Save', 'सेभ')}
               </button>
             </div>
           </form>
@@ -389,23 +503,29 @@ export default function AccountProfileCard({ user, lang }) {
           <div className="grid gap-3 sm:grid-cols-2">
             {addresses.map((entry) => {
               const id = entry._id || entry.id;
+              const label = entry.label || entry.title || 'Home';
+              const isOffice = String(label).toLowerCase() === 'office';
               return (
                 <article
                   key={id}
                   className="rounded-2xl border border-[#E5EBF2] bg-[#FCFCFD] p-4"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold uppercase tracking-wide text-[#F2B71D]">
-                        {entry.title || 'Address'}
-                      </p>
-                      <p className="mt-1 text-sm font-bold text-[#102341]">
-                        {entry.location || '—'}
-                      </p>
-                      <p className="mt-1 text-xs leading-relaxed text-[#52627a]">
-                        {entry.address || '—'}
-                      </p>
+                  <div className="min-w-0 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${isOffice ? 'bg-[#F0F9FF] text-[#0369A1]' : 'bg-[#FFF1F2] text-[#BE123C]'}`}>
+                        {isOffice ? <FiBriefcase className="h-3 w-3" /> : <FiHome className="h-3 w-3" />} {label}
+                      </span>
+                      {entry.fullName ? <span className="text-sm font-bold text-[#102341]">{entry.fullName}</span> : null}
                     </div>
+                    {entry.phone ? (
+                      <p className="flex items-center gap-1.5 text-xs text-[#52627a]"><FiPhone className="h-3 w-3" /> {entry.phone}</p>
+                    ) : null}
+                    <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[#334155]">
+                      <FiMapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span>
+                        {[entry.address, entry.landmark, entry.city || entry.location, entry.province].filter(Boolean).join(', ') || '—'}
+                      </span>
+                    </p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button

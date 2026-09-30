@@ -8,6 +8,7 @@ const SLOTS = [
   { key: 'nearYou', label: 'Based on Your Location' },
   { key: 'alsoViewed', label: 'People Also Viewed' },
   { key: 'trending', label: 'Trending in Your Area' },
+  { key: 'newLocal', label: 'New Local Business' },
 ];
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -55,6 +56,7 @@ function HowItWorks({ feed, user, onClose }) {
         <li><b className="text-[var(--mp-ink)]">Based on Your Location</b> shows the closest businesses to {place}, using {locationSource}.</li>
         <li><b className="text-[var(--mp-ink)]">People Also Viewed</b> comes from shoppers who liked the same places as you.</li>
         <li><b className="text-[var(--mp-ink)]">Trending in Your Area</b> ranks businesses by this week&apos;s orders, bookings, reviews, saves and views.</li>
+        <li><b className="text-[var(--mp-ink)]">New Local Business</b> promotes businesses that joined in the last 30 days, newest and closest first.</li>
       </ul>
       <p className="mt-3 rounded-xl bg-[var(--mp-cream)] px-3 py-2 text-[11px] text-[var(--mp-brown)]">
         {user
@@ -68,8 +70,8 @@ function HowItWorks({ feed, user, onClose }) {
 
 function SkeletonCards() {
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-hidden>
-      {[0, 1, 2, 3].map((i) => <div key={i} className="h-60 animate-pulse rounded-2xl bg-[#ece3d6]" />)}
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3" aria-hidden>
+      {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-60 animate-pulse rounded-2xl bg-[#ece3d6]" />)}
     </div>
   );
 }
@@ -139,7 +141,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
       )}
 
       {feed && highlights.length > 0 && !expanded && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(4,minmax(0,1fr))_minmax(150px,0.8fr)]">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           {highlights.map((item) => (
             <BusinessRecCard
               key={item.slot}
@@ -151,7 +153,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
               onToggleSave={onToggleSave}
             />
           ))}
-          <div className="col-span-2 flex flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-[#eef2ff] to-[#f5f0ff] p-4 text-center lg:col-span-1">
+          <div className={`${highlights.length % 2 ? 'col-span-1' : 'col-span-2'} flex flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-[#eef2ff] to-[#f5f0ff] p-4 text-center md:col-span-1`}>
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
               <Bot className="h-6 w-6" />
             </span>

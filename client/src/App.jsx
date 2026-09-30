@@ -25,6 +25,8 @@ const BusinessProfilePage = lazy(() => import('./components/business-profile/Bus
 const CartCheckout = lazy(() => import('./components/CartCheckout'));
 const ChatAndAI = lazy(() => import('./components/ChatAndAI'));
 const CustomerMessagesPage = lazy(() => import('./components/messaging/CustomerMessagesPage'));
+const ForgotPasswordPage = lazy(() => import('./components/auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./components/auth/ResetPasswordPage'));
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -418,6 +420,20 @@ function App() {
     navigate('/');
   };
 
+  const openLoginPage = () => {
+    navigate('/');
+    setAuthMode('login');
+    setShowAuthModal(true);
+  };
+
+  // The reset signs out every older session, including one still open in this browser.
+  const handlePasswordReset = () => {
+    if (!user) return;
+    localStorage.setItem(getCartStorageKey(user), JSON.stringify(cart));
+    endSession();
+    setNotifications([]);
+  };
+
   const handleAuthSuccess = (data) => {
     const normalizedUser = establishSession(data);
     setNotifications([]);
@@ -432,6 +448,15 @@ function App() {
     }
   };
 
+  const openCart = () => {
+    if (user?.role === 'customer' && location.pathname.startsWith('/customer')) {
+      setDashboardTab('cart');
+      if (location.pathname !== '/customer') navigate('/customer');
+      return;
+    }
+    setCartOpen(true);
+  };
+
   const handleOpenDashboard = (view) => {
     if (typeof view === 'string' && view.startsWith('category:')) {
       setMarketplaceCategory(view.slice('category:'.length));
@@ -442,7 +467,7 @@ function App() {
       setDashboardTab(null);
       navigate('/');
     }
-    else if (view === 'checkout') setCartOpen(true);
+    else if (view === 'checkout') openCart();
     else if (view === 'saved' || view === 'wishlist') {
       if (!user) {
         setShowAuthModal(true);
@@ -499,12 +524,13 @@ function App() {
     });
     clearSessionNotice();
     setNotifications([]);
-    if (location.pathname !== '/') navigate('/');
+    const onRecoveryPage = /^\/(forgot-password|reset-password)(\/|$)/.test(location.pathname);
+    if (location.pathname !== '/' && !onRecoveryPage) navigate('/');
   }, [clearSessionNotice, lang, location.pathname, navigate, sessionNotice]);
 
   const handleSidebarNav = (tab) => {
     if (tab === 'cart') {
-      setCartOpen(true);
+      openCart();
       return;
     }
     if (tab === 'messages') {
@@ -719,6 +745,19 @@ function App() {
                   searchQuery={marketplaceSearch}
                   activeTab={dashboardTab}
                   onTabChange={setDashboardTab}
+                  cartContent={(
+                    <CartCheckout
+                      embedded
+                      cart={cart}
+                      user={user}
+                      lang={lang}
+                      onUpdateQty={(id, qty) => dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { id, quantity: qty } })}
+                      onRemoveItem={(id) => dispatch({ type: 'REMOVE_FROM_CART', payload: id })}
+                      onClearCart={() => dispatch({ type: 'CLEAR_CART' })}
+                      onClose={() => handleOpenDashboard('home')}
+                      onOrderSuccess={() => setDashboardTab('orders')}
+                    />
+                  )}
                 />
                 </RoleRoute>
               }
@@ -758,6 +797,7 @@ function App() {
                     notifications={notifications}
                     socket={socketRef.current}
                     onMessageUnreadChange={setMessageUnread}
+                    onBusinessChanged={fetchMarketplaceData}
                   />
                 </RoleRoute>
               }
@@ -773,6 +813,12 @@ function App() {
             />
 
             {/* Rider role temporarily removed */}
+            <Route path="/forgot-password" element={<ForgotPasswordPage onBackToLogin={openLoginPage} />} />
+            <Route path="/reset-password" element={<ResetPasswordPage onBackToLogin={openLoginPage} />} />
+            <Route
+              path="/reset-password/:token"
+              element={<ResetPasswordPage onBackToLogin={openLoginPage} onPasswordReset={handlePasswordReset} />}
+            />
             <Route path="/payment-success" element={<PaymentSuccess />} />
             <Route path="/payment/esewa/success" element={<EsewaPaymentReturn outcome="success" />} />
             <Route path="/payment/esewa/failure" element={<EsewaPaymentReturn outcome="failure" />} />

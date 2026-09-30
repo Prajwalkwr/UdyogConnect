@@ -95,7 +95,7 @@ api.interceptors.response.use(
     }
 
     // Retry logic for temporary server errors (502, 503, 504) or network timeouts
-    if (config && (!response || (response.status >= 500 && response.status <= 504))) {
+    if (config && !config.noRetry && (!response || (response.status >= 500 && response.status <= 504))) {
       config.__retryCount = config.__retryCount || 0;
       
       if (config.__retryCount < 1) {

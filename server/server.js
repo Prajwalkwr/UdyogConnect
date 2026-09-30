@@ -42,6 +42,9 @@ const { evaluateBookingAvailability, getNepalParts, ACTIVE_BOOKING_STATUSES } = 
 const { createBillingRoutes } = require('./billing/routes');
 const { createHomeRoutes } = require('./home/routes');
 const { recordActivity } = require('./home/feedService');
+const { buildSuggestions } = require('./suggestions');
+const { validateAddressList } = require('./deliveryAddress');
+const { createPasswordResetRoutes, SENSITIVE_USER_FIELDS } = require('./auth/passwordReset');
 const billing = require('./billing/service');
 const { roundMoney, VAT_RATE } = require('./billing/billData');
 const { isBillEmailConfigured } = require('./utils/sendBillEmail');
@@ -54,7 +57,7 @@ try {
   const serverEnvPath = path.resolve(__dirname, '.env');
   if (fs.existsSync(serverEnvPath)) {
     const serverEnv = dotenv.parse(fs.readFileSync(serverEnvPath));
-    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_USER', 'EMAIL_PASS']) {
+    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_PASSWORD', 'EMAIL_FROM']) {
       if (!process.env[key] && serverEnv[key]) process.env[key] = serverEnv[key];
     }
   }
@@ -63,13 +66,19 @@ try {
 }
 
 const app = express();
+// Behind Render (and Vercel's /api rewrite) the client address arrives in X-Forwarded-For;
+// rate limits need the real client IP rather than the proxy's.
+if (process.env.TRUST_PROXY || process.env.RENDER) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || 2);
+}
 // Request timing middleware for performance monitoring
 app.use((req, res, next) => {
   const startHrTime = process.hrtime();
   res.on('finish', () => {
     const elapsedHrTime = process.hrtime(startHrTime);
     const elapsedMs = elapsedHrTime[0] * 1000 + elapsedHrTime[1] / 1e6;
-    console.log(`[PERF] ${req.method} ${req.originalUrl} - ${elapsedMs.toFixed(3)} ms`);
+    const loggedUrl = req.originalUrl.replace(/(\/reset-password\/verify\/)[^/?#]+/, '$1[redacted]');
+    console.log(`[PERF] ${req.method} ${loggedUrl} - ${elapsedMs.toFixed(3)} ms`);
   });
   next();
 });
@@ -680,9 +689,11 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 // ==================== AUTHENTICATION APIS ====================
 
+const BUSINESS_OFFERING_TYPES = ['products', 'services', 'both'];
+
 app.post('/api/auth/register', validateRegistration, async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, phone, role } = req.body;
+    const { name, email, password, confirmPassword, phone, role, businessOfferingType } = req.body;
 
     const UserMDL = User();
     const existing = await UserMDL.findOne({ email });
@@ -718,6 +729,9 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
       password: hashedPassword,
       phone: phone || '',
       role: userRole,
+      ...(userRole === 'seller'
+        ? { businessOfferingType: BUSINESS_OFFERING_TYPES.includes(businessOfferingType) ? businessOfferingType : 'both' }
+        : {}),
       loyaltyPoints: 0,
       profilePicture: '',
       addresses: [],
@@ -762,11 +776,9 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
     // When OTP is not required, return a session so the client can finish signup in one step.
     if (newUser.isVerified) {
       const token = generateToken(newUser);
-      const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeUser } =
-        typeof newUser.toObject === 'function' ? newUser.toObject() : newUser;
       responsePayload.token = token;
       responsePayload.user = {
-        ...safeUser,
+        ...toSafeUser(newUser),
         id: newUser._id,
         businessStatus: 'none',
         businessMessage: '',
@@ -888,12 +900,11 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
 
     const token = generateToken(user);
     console.log('User logged in:', user._id, user.email);
-    const { password: _password, resetOtp: _resetOtp, verificationOtp: _verificationOtp, ...safeLoginUser } = typeof user.toObject === 'function' ? user.toObject() : user;
     res.json({
       success: true,
       token,
       user: {
-        ...safeLoginUser,
+        ...toSafeUser(user),
         id: user._id,
         businessStatus,
         businessMessage: BUSINESS_ACCESS_MESSAGES[businessStatus] || '',
@@ -927,76 +938,7 @@ app.post('/api/auth/verify', async (req, res) => {
   }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
-  try {
-    const { emailOrPhone } = req.body;
-    if (!emailOrPhone) return res.status(400).json({ message: 'Email or Phone is required.' });
-
-    const UserMDL = User();
-    let user = await UserMDL.findOne({ email: emailOrPhone });
-    if (!user) {
-      user = await UserMDL.findOne({ phone: emailOrPhone });
-    }
-
-    if (!user) return res.status(400).json({ message: 'No registered account found with this email/phone.' });
-
-    const resetOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    await UserMDL.findByIdAndUpdate(user._id, { resetOtp });
-
-    // Send notification
-    const NotificationMDL = Notification();
-    await NotificationMDL.create({
-      userId: String(user._id),
-      title: 'Password Reset OTP',
-      message: `Your password reset request code is: ${resetOtp}`,
-      type: 'general',
-    });
-
-    res.json({
-      success: true,
-      message: 'Password reset OTP dispatched successfully.',
-      email: user.email,
-      otp: resetOtp // Returned for debug convenience
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Forgot password request failed.' });
-  }
-});
-
-app.post('/api/auth/reset-password', async (req, res) => {
-  try {
-    const { emailOrPhone, otp, password, confirmPassword } = req.body;
-    if (!emailOrPhone || !otp || !password) {
-      return res.status(400).json({ message: 'All inputs are required.' });
-    }
-
-    if (password.length < 8 || !/\d/.test(password) || !/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long and contain at least one letter and one number.' });
-    }
-
-    if (confirmPassword && password !== confirmPassword) {
-      return res.status(400).json({ message: 'Passwords do not match.' });
-    }
-
-    const UserMDL = User();
-    let user = await UserMDL.findOne({ email: emailOrPhone });
-    if (!user) {
-      user = await UserMDL.findOne({ phone: emailOrPhone });
-    }
-
-    if (!user) return res.status(400).json({ message: 'Account not found.' });
-
-    if (user.resetOtp !== otp) {
-      return res.status(400).json({ message: 'Invalid or expired password reset OTP.' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await UserMDL.findByIdAndUpdate(user._id, { password: hashedPassword, resetOtp: '' });
-    res.json({ success: true, message: 'Password updated successfully. You can now login.' });
-  } catch (err) {
-    res.status(500).json({ message: 'Password reset operation failed.' });
-  }
-});
+app.use('/api/auth', createPasswordResetRoutes());
 
 
 
@@ -1055,8 +997,8 @@ const normalizeOpeningDays = (days, { defaultAll = true } = {}) => {
 
 const toSafeUser = (user) => {
   if (!user) return null;
-  const plain = typeof user.toObject === 'function' ? user.toObject() : { ...user };
-  const { password, resetOtp, verificationOtp, ...safeUser } = plain;
+  const safeUser = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+  for (const field of SENSITIVE_USER_FIELDS) delete safeUser[field];
   return safeUser;
 };
 
@@ -1080,7 +1022,9 @@ app.put('/api/auth/profile', authenticateToken, (req, res, next) => {
       updates.twoFactorEnabled = req.body.twoFactorEnabled === 'true' || req.body.twoFactorEnabled === true;
     }
     if (req.body.addresses !== undefined) {
-      updates.addresses = parseMaybeJson(req.body.addresses, []);
+      const checked = validateAddressList(parseMaybeJson(req.body.addresses, null));
+      if (checked.error) return res.status(400).json({ message: checked.error });
+      updates.addresses = checked.addresses;
     }
     if (req.body.wishlist !== undefined) {
       const nextWishlist = parseMaybeJson(req.body.wishlist, user.wishlist || { products: [], services: [], businesses: [] });
@@ -1381,6 +1325,33 @@ app.get('/api/businesses/:id', async (req, res) => {
   }
 });
 
+/** "You may also like": products and services from other live businesses of the same kind. */
+app.get('/api/businesses/:id/suggestions', async (req, res) => {
+  try {
+    const business = await Business().findById(req.params.id);
+    if (!business) return res.status(404).json({ message: 'Business profile not found.' });
+
+    const [businesses, products, services] = await Promise.all([
+      Business().find({}),
+      Product().find({}),
+      Service().find({}),
+    ]);
+    const { items } = buildSuggestions({
+      business: typeof business.toObject === 'function' ? business.toObject() : business,
+      businesses,
+      products,
+      services,
+      isLive: isPubliclyLiveBusiness,
+      distanceKm: (a, b) => calculateDistance(a.latitude, a.longitude, b.latitude, b.longitude),
+    });
+    res.json({ items });
+  } catch (err) {
+    if (err?.name === 'CastError') return res.status(404).json({ message: 'Business profile not found.' });
+    console.error('Suggestions error:', err);
+    res.status(500).json({ message: 'Could not load suggestions.' });
+  }
+});
+
 app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
   try {
     const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, openingTime, closingTime, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm, openingDays } = req.body || {};
@@ -1433,7 +1404,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
     const openTime = String(openingTime || composedHours.split(/\s*[-–]\s*/)[0] || '').trim();
     const closeTime = String(closingTime || composedHours.split(/\s*[-–]\s*/)[1] || '').trim();
 
-    if (!['products', 'services', 'both'].includes(String(offeringType))) {
+    if (!BUSINESS_OFFERING_TYPES.includes(String(offeringType))) {
       return res.status(400).json({ message: 'A valid catalog type is required.' });
     }
     const deliveryEnabled = deliveryAvailable === true || deliveryAvailable === 'true';
@@ -1457,6 +1428,12 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
     const ownerBusiness = await BusinessMDL.findOne({ ownerId });
     if (ownerBusiness) {
       return res.status(409).json({ message: 'You already have a registered business. Update your existing business profile instead.' });
+    }
+
+    let catalogType = String(offeringType);
+    if (req.user.role === 'seller') {
+      const owner = await User().findById(ownerId);
+      if (BUSINESS_OFFERING_TYPES.includes(owner?.businessOfferingType)) catalogType = owner.businessOfferingType;
     }
 
     let existingBiz = null;
@@ -1535,7 +1512,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
       isOpen: isOpen === 'true' || isOpen === true,
       deliveryRadiusKm: deliveryEnabled ? parsedRadius : (Number.isFinite(parsedRadius) && parsedRadius > 0 ? parsedRadius : 5),
       visitorsCount: 0,
-      offeringType: offeringType || 'both',
+      offeringType: catalogType,
     });
 
     console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${ownerId} with status: pending. Business will persist until admin verification or permanent deletion.`);
@@ -1561,7 +1538,9 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
       return res.status(403).json({ message: 'Unauthorized profile edit.' });
     }
 
-    const resetStatusOnResubmission = req.user.role === 'seller' && ['rejected', 'revision_requested', 'pending'].includes(String(biz.approvalStatus || ''));
+    const isOpenSwitchOnly = Object.keys(req.body || {}).every((key) => key === 'manualOpenOverride');
+    const resetStatusOnResubmission = req.user.role === 'seller' && !isOpenSwitchOnly
+      && ['rejected', 'revision_requested', 'pending'].includes(String(biz.approvalStatus || ''));
 
     const removeLogo = req.body.removeLogo === 'true' || req.body.removeLogo === true;
     let logoUrl = req.body.logoUrl || '';
@@ -1598,11 +1577,21 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     if (typeof updateData.deliveryAvailable !== 'undefined') {
       updateData.deliveryAvailable = updateData.deliveryAvailable === 'true' || updateData.deliveryAvailable === true;
     }
+    if (typeof updateData.offeringType !== 'undefined' && !BUSINESS_OFFERING_TYPES.includes(String(updateData.offeringType))) {
+      return res.status(400).json({ message: 'Choose Products, Services, or both.' });
+    }
     if (typeof updateData.isOpen !== 'undefined') {
       updateData.isOpen = updateData.isOpen === 'true' || updateData.isOpen === true;
     }
     if (typeof updateData.manualOpenOverride !== 'undefined') {
-      updateData.manualOpenOverride = updateData.manualOpenOverride === 'true' || updateData.manualOpenOverride === true;
+      const raw = updateData.manualOpenOverride;
+      if (raw === null || raw === '' || raw === 'null' || raw === 'auto') {
+        updateData.manualOpenOverride = null;
+        updateData.manualOverrideAt = null;
+      } else {
+        updateData.manualOpenOverride = raw === 'true' || raw === true;
+        updateData.manualOverrideAt = new Date();
+      }
     }
     if (typeof updateData.deliveryRadiusKm !== 'undefined') {
       updateData.deliveryRadiusKm = Number(updateData.deliveryRadiusKm || 5);
@@ -1711,6 +1700,10 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
     }
 
     const updated = await BusinessMDL.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    if (typeof updateData.offeringType !== 'undefined' && updateData.offeringType !== biz.offeringType) {
+      await User().findByIdAndUpdate(biz.ownerId, { businessOfferingType: updateData.offeringType })
+        .catch((syncErr) => console.warn('Could not sync seller catalog type:', syncErr?.message || syncErr));
+    }
     res.json({ success: true, business: serializeBusiness(updated) });
   } catch (err) {
     console.error(err);
@@ -4146,9 +4139,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), async (re
   try {
     const UserMDL = User();
     const users = await UserMDL.find({});
-    // Exclude password hashes from list
-    const safeUsers = users.map(({ password, ...u }) => u);
-    res.json(safeUsers);
+    res.json(users.map(toSafeUser));
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve users.' });
   }

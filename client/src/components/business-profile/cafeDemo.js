@@ -1,3 +1,5 @@
+import { isManualOverrideActive } from '../../utils/businessAvailability';
+
 export function formatRs(value, { plus = false } = {}) {
   const amount = Number(value || 0).toLocaleString('en-NP');
   return `NPR ${amount}${plus ? '+' : ''}`;
@@ -55,7 +57,7 @@ export function isOpenNow(business, now = new Date()) {
     : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const openToday = openingDays.includes(todayKey);
 
-  if (business?.manualOpenOverride !== null && business?.manualOpenOverride !== undefined) {
+  if (business && isManualOverrideActive(business, now)) {
     const forced = Boolean(business.manualOpenOverride);
     return {
       open: forced,

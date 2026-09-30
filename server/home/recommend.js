@@ -6,6 +6,8 @@
 const INTERACTION_WEIGHTS = { order: 5, booking: 4, wishlist: 4, review: 3, view: 1 };
 const MAX_VIEWS_COUNTED = 3;
 const AREA_RADIUS_KM = 25;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const NEW_BUSINESS_DAYS = 30;
 
 const REASON_BY_KIND = {
   order: (name) => `Because you ordered from ${name}`,
@@ -221,22 +223,53 @@ function recommendTrending(cards, place, { limit = 8 } = {}) {
   return [...rising, ...fill].slice(0, limit);
 }
 
+/** When a business went live: its approval date, or when it registered. */
+const joinedAt = (card) => new Date(card.approvedAt || card.createdAt || 0).getTime() || 0;
+
+function joinedReason(card, now) {
+  const days = Math.max(0, Math.floor((now - joinedAt(card)) / DAY_MS));
+  const when = days === 0 ? 'today'
+    : days === 1 ? 'yesterday'
+      : days < 7 ? `${days} days ago`
+        : `${plural(Math.floor(days / 7), 'week')} ago`;
+  return `Joined UdyogConnect ${when}. Support a new local business`;
+}
+
+/** Recently approved businesses, so new sellers get seen before they have orders or reviews. */
+function recommendNewLocal(cards, { userId = '', limit = 8, now = Date.now() } = {}) {
+  const cutoff = now - NEW_BUSINESS_DAYS * DAY_MS;
+  const inArea = (card) => (card.distanceKm != null && card.distanceKm <= AREA_RADIUS_KM ? 1 : 0);
+  return cards
+    .filter((card) => (!userId || card.ownerId !== userId) && joinedAt(card) >= cutoff)
+    .sort((a, b) => inArea(b) - inArea(a) || joinedAt(b) - joinedAt(a))
+    .slice(0, limit)
+    .map((card) => ({ ...card, reason: joinedReason(card, now) }));
+}
+
 const HIGHLIGHT_SLOTS = [
   { key: 'forYou', label: 'Recommended for You' },
   { key: 'nearYou', label: 'Based on Your Location' },
   { key: 'alsoViewed', label: 'People Also Viewed' },
   { key: 'trending', label: 'Trending in Your Area' },
+  { key: 'newLocal', label: 'New Local Business' },
 ];
+
+// New businesses pick first so the slot promoting them is never emptied by the other lists.
+const HIGHLIGHT_PICK_ORDER = ['newLocal', 'forYou', 'nearYou', 'alsoViewed', 'trending'];
 
 /** One card per recommendation type, never repeating a business. */
 function pickHighlights(lists) {
   const used = new Set();
-  return HIGHLIGHT_SLOTS.map((slot) => {
-    const card = (lists[slot.key] || []).find((item) => !used.has(item._id));
-    if (!card) return null;
+  const picked = new Map();
+  HIGHLIGHT_PICK_ORDER.forEach((key) => {
+    const card = (lists[key] || []).find((item) => !used.has(item._id));
+    if (!card) return;
     used.add(card._id);
-    return { slot: slot.key, label: slot.label, business: card };
-  }).filter(Boolean);
+    picked.set(key, card);
+  });
+  return HIGHLIGHT_SLOTS
+    .filter((slot) => picked.has(slot.key))
+    .map((slot) => ({ slot: slot.key, label: slot.label, business: picked.get(slot.key) }));
 }
 
 module.exports = {
@@ -246,8 +279,10 @@ module.exports = {
   recommendNearby,
   recommendAlsoViewed,
   recommendTrending,
+  recommendNewLocal,
   pickHighlights,
   momentumOf,
   AREA_RADIUS_KM,
+  NEW_BUSINESS_DAYS,
   HIGHLIGHT_SLOTS,
 };

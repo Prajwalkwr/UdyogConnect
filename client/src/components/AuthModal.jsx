@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiX, FiMail, FiLock, FiUser, FiPhone, FiAlertCircle, FiEye, FiEyeOff } from 'react-icons/fi';
 import Swal from 'sweetalert2';
 import api, { getApiErrorMessage } from '../utils/api';
@@ -31,13 +32,15 @@ async function completeLogin(email, password, headers) {
 }
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initialMode = 'login' }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
+  const navigate = useNavigate();
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [role, setRole] = useState('customer');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [offers, setOffers] = useState({ products: true, services: true });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
@@ -66,6 +69,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
 
     if (mode === 'signup') {
       const validation = validateRegistrationForm({ name, email, phone, password, confirmPassword, role });
+      if (role === 'seller' && !offers.products && !offers.services) {
+        validation.isValid = false;
+        validation.errors = { ...validation.errors, businessOfferingType: translate('Choose Products, Services, or both.', 'उत्पादन, सेवा वा दुवै छान्नुहोस्।') };
+      }
       if (!validation.isValid) {
         setFieldErrors(validation.errors);
         setError(Object.values(validation.errors)[0] || 'Please fix the highlighted fields.');
@@ -98,7 +105,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
       } else if (mode === 'signup') {
         const registerResponse = await api.post(
           '/api/auth/register',
-          { name, email, password, confirmPassword, phone, role },
+          {
+            name, email, password, confirmPassword, phone, role,
+            ...(role === 'seller'
+              ? { businessOfferingType: offers.products && offers.services ? 'both' : (offers.products ? 'products' : 'services') }
+              : {}),
+          },
           { headers: createIdempotencyHeader('auth-register') }
         );
 
@@ -124,16 +136,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         });
         onAuthSuccess(authPayload);
         onClose();
-      } else if (mode === 'forgot') {
-        await api.post('/api/auth/forgot-password', { emailOrPhone: email }, {
-          headers: createIdempotencyHeader('auth-forgot'),
-        });
-        Swal.fire({
-          icon: 'info',
-          title: translate('Reset Link Sent', 'लिङ्क पठाइयो'),
-          text: translate('An OTP reset link has been dispatched to your email inbox.', 'तपाईंको इमेलमा पुनःसेट लिङ्क पठाइएको छ।'),
-        });
-        setMode('login');
       }
     } catch (err) {
       const serverFieldErrors = err?.response?.data?.errors;
@@ -224,12 +226,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
             <h2 style={{ fontSize: 30, fontWeight: 800, color: '#1A1A2E', margin: 0 }}>
               {mode === 'login' && translate('Welcome Back', 'स्वागत छ')}
               {mode === 'signup' && translate('Create Your Account', 'खाता सिर्जना गर्नुहोस्')}
-              {mode === 'forgot' && translate('Forgot Password', 'पासवर्ड बिर्सनुभयो')}
             </h2>
             <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 6, marginBottom: 0 }}>
               {mode === 'login' && translate('Access Nepal\'s local marketplace', 'नेपालको स्थानीय बजारमा पहुँच पाउनुहोस्')}
               {mode === 'signup' && translate('Grow Your Business Locally', 'आफ्नो व्यवसाय स्थानीय रूपमा बढाउनुहोस्')}
-              {mode === 'forgot' && translate('Recover access to your account', 'आफ्नो खाता पुनः प्राप्त गर्नुहोस्')}
             </p>
           </div>
 
@@ -294,8 +294,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
               </div>
             )}
 
-            {mode !== 'forgot' && (
-              <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
                   {translate('Email Address', 'इमेल ठेगाना')}
                 </label>
@@ -316,8 +315,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   className={inputClass}
                 />
                 {fieldErrors.email && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.email}</p>}
-              </div>
-            )}
+            </div>
 
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
@@ -339,8 +337,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
               </div>
             )}
 
-            {mode !== 'forgot' && (
-              <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
                   {translate('Password', 'पासवर्ड')}
                 </label>
@@ -361,8 +358,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   {showPassword ? <FiEyeOff /> : <FiEye />}
                 </button>
                 {fieldErrors.password && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.password}</p>}
-              </div>
-            )}
+            </div>
 
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
@@ -395,13 +391,25 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   {translate('What do you offer?', 'तपाईं के प्रस्ताव गर्नुहुन्छ?')}
                 </label>
                 <div style={{ display: 'flex', gap: 12 }}>
-                  {['Products', 'Services'].map((item) => (
-                    <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#1A1A2E', cursor: 'pointer' }}>
-                      <input type="checkbox" defaultChecked style={{ accentColor: '#F2B71D', width: 16, height: 16 }} />
-                      {item}
+                  {[
+                    { key: 'products', label: translate('Products', 'उत्पादनहरू') },
+                    { key: 'services', label: translate('Services', 'सेवाहरू') },
+                  ].map((item) => (
+                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#1A1A2E', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={offers[item.key]}
+                        onChange={(e) => {
+                          setOffers((prev) => ({ ...prev, [item.key]: e.target.checked }));
+                          setFieldErrors((prev) => ({ ...prev, businessOfferingType: '' }));
+                        }}
+                        style={{ accentColor: '#F2B71D', width: 16, height: 16 }}
+                      />
+                      {item.label}
                     </label>
                   ))}
                 </div>
+                {fieldErrors.businessOfferingType && <p style={{ color: '#DC2626', fontSize: 12, margin: '4px 0 0' }}>❌ {fieldErrors.businessOfferingType}</p>}
               </div>
             )}
 
@@ -409,7 +417,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
               <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: 12 }}>
                 <button
                   type="button"
-                  onClick={() => setMode('forgot')}
+                  onClick={() => {
+                    onClose();
+                    navigate('/forgot-password', { state: { email: email.trim() } });
+                  }}
                   style={{ color: '#F2B71D', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
                 >
                   {translate('Forgot Password?', 'पासवर्ड बिर्सनुभयो?')}
@@ -432,7 +443,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
               {loading ? translate('Processing...', 'प्रक्रियामा...') : (
                 mode === 'login' ? translate('Login', 'लगइन') :
                 mode === 'signup' ? (role === 'seller' ? translate('Register Business', 'व्यवसाय दर्ता गर्नुहोस्') : translate('Create Account', 'दर्ता गर्नुहोस्')) :
-                mode === 'forgot' ? translate('Send Reset Code', 'रिसेट कोड पठाउनुहोस्') :
                 translate('Continue', 'जारी राख्नुहोस्')
               )}
             </button>

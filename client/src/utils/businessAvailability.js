@@ -12,15 +12,24 @@ export const WEEKDAY_OPTIONS = [
 
 export const ALL_OPENING_DAYS = WEEKDAY_OPTIONS.map((day) => day.key);
 
-function parseHours(hours = '') {
+const toMinutes = (hour, minute = '0', meridiem = '') => {
+  let h = Number(hour) % 24;
+  const suffix = String(meridiem || '').toUpperCase();
+  if (suffix === 'PM' && h < 12) h += 12;
+  if (suffix === 'AM' && h === 12) h = 0;
+  return h * 60 + Number(minute || 0);
+};
+
+export function parseHours(hours = '') {
   if (typeof hours !== 'string') return null;
-  const match = hours.match(/(\d{1,2})(?::(\d{2}))?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?/i);
+  const match = hours.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
   if (!match) return null;
 
-  const [, startHour, startMin = '0', endHour, endMin = '0'] = match;
-  const start = Number(startHour) * 60 + Number(startMin);
-  const end = Number(endHour) * 60 + Number(endMin);
-  return { start, end };
+  const [, startHour, startMin, startMeridiem, endHour, endMin, endMeridiem] = match;
+  return {
+    start: toMinutes(startHour, startMin, startMeridiem),
+    end: toMinutes(endHour, endMin, endMeridiem),
+  };
 }
 
 /** Normalize to unique valid day keys. Empty/missing => all days (legacy businesses). */
@@ -82,6 +91,57 @@ export function formatOpeningDaysLabel(business = {}) {
   return labels.join(', ');
 }
 
+/** Open/closed purely from opening days + hours, ignoring any manual switch. */
+export function isScheduledOpen(business = {}, now = new Date()) {
+  if (!isOpenOnDay(business, getTodayDayKey(now))) return false;
+  const hours = parseHours(business.hours);
+  if (!hours) return true;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (hours.start <= hours.end) return minutes >= hours.start && minutes < hours.end;
+  return minutes >= hours.start || minutes < hours.end;
+}
+
+/** The next moment the schedule flips between open and closed (searches up to 8 days ahead). */
+export function getNextScheduleChange(business = {}, from = new Date()) {
+  const hours = parseHours(business.hours);
+  const base = new Date(from);
+  base.setHours(0, 0, 0, 0);
+  const candidates = [];
+  for (let day = 0; day <= 8; day += 1) {
+    const offsets = [0];
+    if (hours) offsets.push(hours.start, hours.end);
+    offsets.forEach((minutes) => {
+      const at = new Date(base);
+      at.setDate(base.getDate() + day);
+      at.setMinutes(minutes);
+      if (at > from) candidates.push(at);
+    });
+  }
+  candidates.sort((a, b) => a - b);
+  return candidates.find((at) => isScheduledOpen(business, at) !== isScheduledOpen(business, new Date(at.getTime() - 60000))) || null;
+}
+
+const manualOverrideSetAt = (business = {}) => {
+  if (business.manualOpenOverride === null || business.manualOpenOverride === undefined) return null;
+  const setAt = business.manualOverrideAt ? new Date(business.manualOverrideAt) : null;
+  return setAt && !Number.isNaN(setAt.getTime()) ? setAt : null;
+};
+
+/**
+ * A manual open/close switch holds until the schedule's next open/close time, then automatic hours resume.
+ * Returns null when there is no switch, or when the schedule never changes (the switch then holds until turned off).
+ */
+export function getManualOverrideUntil(business = {}) {
+  const setAt = manualOverrideSetAt(business);
+  return setAt ? getNextScheduleChange(business, setAt) : null;
+}
+
+export function isManualOverrideActive(business = {}, now = new Date()) {
+  if (!manualOverrideSetAt(business)) return false;
+  const until = getManualOverrideUntil(business);
+  return !until || now < until;
+}
+
 export function getBusinessAvailabilityMeta(business = {}, now = new Date()) {
   const deliveryAvailable = business.deliveryAvailable !== undefined ? Boolean(business.deliveryAvailable) : true;
   const deliveryRadiusKm = Number(business.deliveryRadiusKm || business.radius || 5);
@@ -89,24 +149,19 @@ export function getBusinessAvailabilityMeta(business = {}, now = new Date()) {
 
   const todayKey = getTodayDayKey(now);
   const openToday = isOpenOnDay(business, todayKey);
-  const hours = parseHours(business.hours);
-  const isOpenByHours = openToday && hours ? (() => {
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    if (hours.start <= hours.end) {
-      return currentMinutes >= hours.start && currentMinutes <= hours.end;
-    }
-    return currentMinutes >= hours.start || currentMinutes <= hours.end;
-  })() : openToday && !hours;
-
-  const effectiveIsOpen = business.manualOpenOverride !== null && business.manualOpenOverride !== undefined
-    ? Boolean(business.manualOpenOverride)
-    : Boolean(isOpenByHours);
+  const scheduledOpen = isScheduledOpen(business, now);
+  const manualActive = isManualOverrideActive(business, now);
+  const effectiveIsOpen = manualActive ? Boolean(business.manualOpenOverride) : scheduledOpen;
 
   const hoursText = String(business.hours || '').trim() || '09:00 - 18:00';
   const daysLabel = formatOpeningDaysLabel(business);
 
   return {
     isOpen: effectiveIsOpen,
+    scheduledOpen,
+    mode: manualActive ? 'manual' : 'auto',
+    manualUntil: manualActive ? getManualOverrideUntil(business) : null,
+    nextChange: getNextScheduleChange(business, now),
     openToday,
     todayKey,
     deliveryAvailable,

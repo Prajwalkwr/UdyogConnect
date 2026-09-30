@@ -7,6 +7,7 @@ const {
   recommendNearby,
   recommendAlsoViewed,
   recommendTrending,
+  recommendNewLocal,
   pickHighlights,
 } = require('./recommend');
 
@@ -73,9 +74,11 @@ function toCard(business) {
     openingTime: business.openingTime,
     closingTime: business.closingTime,
     manualOpenOverride: business.manualOpenOverride ?? null,
+    manualOverrideAt: business.manualOverrideAt ?? null,
     deliveryAvailable: business.deliveryAvailable !== false,
     offeringType: business.offeringType || 'both',
     createdAt: business.createdAt,
+    approvedAt: business.approvedAt || null,
     groups: categoryGroupsOf(business),
     priceRange: null,
     popularity: 0,
@@ -340,6 +343,7 @@ async function buildHomeFeed({ user, visitorId, lat, lng, area }, deps) {
     nearYou: recommendNearby(cards, place),
     alsoViewed: recommendAlsoViewed(cards, { seeds, actorSets: base.actorSets, ownActors, cardById }),
     trending: recommendTrending(cards, place),
+    newLocal: recommendNewLocal(cards, { userId }),
   };
 
   const byPopularity = [...cards].sort((a, b) => b.popularity - a.popularity || bayesRating(b) - bayesRating(a));

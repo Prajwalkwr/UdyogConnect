@@ -1,76 +1,7 @@
-const nodemailer = require('nodemailer');
 const { formatRs } = require('../billing/billData');
+const { sendEmail, isEmailConfigured, escapeHtml, EMAIL_PATTERN } = require('./mailer');
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-let cachedTransport = null;
-let cachedTransportKey = '';
-
-function resolveMailConfig() {
-  const gmailUser = String(process.env.GMAIL_USER || '').trim();
-  // Google displays app passwords in groups of four; spaces are not part of the secret.
-  const gmailPass = String(process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
-  const fromName = String(process.env.GMAIL_FROM_NAME || 'UdyogConnect').trim() || 'UdyogConnect';
-
-  if (gmailUser && gmailPass) {
-    return {
-      key: `gmail:${gmailUser}`,
-      transport: { service: 'gmail', auth: { user: gmailUser, pass: gmailPass } },
-      from: { name: fromName, address: gmailUser },
-    };
-  }
-
-  // Older setups name the same Gmail App Password settings EMAIL_USER / EMAIL_PASS.
-  const legacyUser = String(process.env.EMAIL_USER || '').trim();
-  const legacyPass = String(process.env.EMAIL_PASS || '').replace(/\s+/g, '');
-  const legacyService = String(process.env.EMAIL_SERVICE || 'gmail').trim().toLowerCase() || 'gmail';
-  if (legacyUser && legacyPass) {
-    return {
-      key: `${legacyService}:${legacyUser}`,
-      transport: { service: legacyService, auth: { user: legacyUser, pass: legacyPass } },
-      from: { name: fromName, address: legacyUser },
-    };
-  }
-
-  const { SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
-  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-    return {
-      key: `smtp:${SMTP_HOST}:${SMTP_USER}`,
-      transport: {
-        host: SMTP_HOST,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: { user: SMTP_USER, pass: SMTP_PASS },
-      },
-      from: process.env.SMTP_FROM || { name: fromName, address: SMTP_USER },
-    };
-  }
-  return null;
-}
-
-function isBillEmailConfigured() {
-  return Boolean(resolveMailConfig());
-}
-
-function getTransport(config) {
-  if (!cachedTransport || cachedTransportKey !== config.key) {
-    cachedTransport = nodemailer.createTransport({
-      ...config.transport,
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 20000,
-    });
-    cachedTransportKey = config.key;
-  }
-  return cachedTransport;
-}
-
-const escapeHtml = (value) => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
+const isBillEmailConfigured = isEmailConfigured;
 
 function buildEmailContent(bill) {
   const total = formatRs(bill.totals.total);
@@ -156,16 +87,9 @@ async function sendBillEmail({ to, bill, pdfBuffer }) {
   if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
     throw new Error('Bill PDF is empty.');
   }
-  const config = resolveMailConfig();
-  if (!config) {
-    const err = new Error('Email service is not configured (set GMAIL_USER and GMAIL_APP_PASSWORD).');
-    err.code = 'EMAIL_NOT_CONFIGURED';
-    throw err;
-  }
 
   const { text, html } = buildEmailContent(bill);
-  return getTransport(config).sendMail({
-    from: config.from,
+  return sendEmail({
     to: recipient,
     subject: `UdyogConnect Bill - Order ${bill.orderId}`,
     text,

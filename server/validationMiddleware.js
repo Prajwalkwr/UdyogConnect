@@ -25,9 +25,13 @@ const isValidId = (id) => {
 };
 
 const validateRegistration = (req, res, next) => {
-  const { name, email, password, confirmPassword, phone, role } = req.body || {};
+  const { name, email, password, confirmPassword, phone, role, businessOfferingType } = req.body || {};
   const errors = {};
   const isSeller = role === 'seller';
+
+  if (isSeller && businessOfferingType !== undefined && !['products', 'services', 'both'].includes(businessOfferingType)) {
+    errors.businessOfferingType = 'Choose Products, Services, or both.';
+  }
 
   if (!name || !String(name).trim()) {
     errors.name = isSeller ? 'Business name is required.' : 'Name is required.';

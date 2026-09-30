@@ -22,7 +22,7 @@ const PAYMENT_ICONS = {
   'Card Payment': CreditCard,
 };
 
-export default function InfoSidebar({ business, services = [], onBook, onViewOffer }) {
+export default function InfoSidebar({ business, services = [], showServices = true, onBook, onViewOffer }) {
   const lat = business.latitude;
   const lng = business.longitude;
   const hasMap = Number.isFinite(lat) && Number.isFinite(lng);
@@ -41,6 +41,7 @@ export default function InfoSidebar({ business, services = [], onBook, onViewOff
         </ul>
       </section>
 
+      {showServices && (
       <section className="bp-side-card">
         <h3>Services</h3>
         <div className="bp-side-services">
@@ -65,6 +66,7 @@ export default function InfoSidebar({ business, services = [], onBook, onViewOff
           })}
         </div>
       </section>
+      )}
 
       <section className="bp-side-card">
         <h3>Location</h3>
