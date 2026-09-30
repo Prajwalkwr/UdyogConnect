@@ -14,8 +14,8 @@ services:
       # Public website address used in password reset emails (not a secret).
       - key: FRONTEND_URL
         value: https://udyog-connect-lyart.vercel.app
-    # Add sensitive env vars (MONGODB_URI, JWT_SECRET, GMAIL_USER, GMAIL_APP_PASSWORD, etc.)
-    # in the Render dashboard, not here.
+    # Add sensitive env vars (MONGODB_URI, JWT_SECRET, BREVO_API_KEY, EMAIL_FROM, etc.)
+    # in the Render dashboard, not here. The free plan blocks SMTP, so Gmail SMTP cannot send from Render.
 
   - type: static
     name: udyogconnect-client

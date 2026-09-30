@@ -287,12 +287,12 @@ describe('Password reset links', () => {
   };
   const req = (origin) => ({ headers: origin ? { origin } : {} });
 
-  it('uses FRONTEND_URL and never trusts the request origin in production', () => {
+  it('uses FRONTEND_URL (or the live site) and never trusts the request origin in production', () => {
     withEnv({ NODE_ENV: 'production', FRONTEND_URL: 'https://udyog.example/', CLIENT_URL: undefined }, () => {
       expect(resolveFrontendUrl(req('https://evil.example'))).toBe('https://udyog.example');
     });
     withEnv({ NODE_ENV: 'production', FRONTEND_URL: undefined, CLIENT_URL: undefined }, () => {
-      expect(resolveFrontendUrl(req('https://evil.example'))).toBeNull();
+      expect(resolveFrontendUrl(req('https://evil.example'))).toBe('https://udyog-connect-lyart.vercel.app');
     });
     withEnv({ NODE_ENV: 'production', FRONTEND_URL: 'http://localhost:5173', CLIENT_URL: undefined }, () => {
       expect(resolveFrontendUrl(req())).toBeNull();
@@ -304,6 +304,44 @@ describe('Password reset links', () => {
       expect(resolveFrontendUrl(req('http://localhost:5174'))).toBe('http://localhost:5174');
       expect(resolveFrontendUrl(req('https://evil.example'))).toBe('http://localhost:5174');
     });
+  });
+
+  it('sends through the Brevo HTTPS API when BREVO_API_KEY is set', async () => {
+    const { sendEmail } = serverRequire('./utils/mailer.js');
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 201, json: async () => ({ messageId: '<brevo-1>' }) };
+    };
+    const saved = { key: process.env.BREVO_API_KEY, from: process.env.EMAIL_FROM };
+    process.env.BREVO_API_KEY = 'brevo-test-key';
+    process.env.EMAIL_FROM = 'UdyogConnect <sender@udyog.example>';
+    try {
+      const info = await sendEmail({
+        to: 'buyer@example.com',
+        subject: 'Reset Your UdyogConnect Password',
+        text: 'plain',
+        html: '<p>html</p>',
+        attachments: [{ filename: 'bill.pdf', content: Buffer.from('PDF') }],
+      });
+      expect(info.messageId).toBe('<brevo-1>');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe('https://api.brevo.com/v3/smtp/email');
+      expect(calls[0].options.headers['api-key']).toBe('brevo-test-key');
+      const body = JSON.parse(calls[0].options.body);
+      expect(body.sender).toEqual({ name: 'UdyogConnect', email: 'sender@udyog.example' });
+      expect(body.to).toEqual([{ email: 'buyer@example.com' }]);
+      expect(body.htmlContent).toBe('<p>html</p>');
+      expect(body.attachment).toEqual([{ name: 'bill.pdf', content: Buffer.from('PDF').toString('base64') }]);
+
+      globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ code: 'unauthorized', message: 'Key not found' }) });
+      await expect(sendEmail({ to: 'buyer@example.com', subject: 's', text: 't' })).rejects.toThrow(/HTTP 401/);
+    } finally {
+      globalThis.fetch = realFetch;
+      if (saved.key === undefined) delete process.env.BREVO_API_KEY; else process.env.BREVO_API_KEY = saved.key;
+      if (saved.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = saved.from;
+    }
   });
 
   it('builds the branded email with the link and expiry', () => {

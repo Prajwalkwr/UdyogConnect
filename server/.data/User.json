@@ -2,7 +2,7 @@
   {
     "_id": "px9eq5q5j",
     "createdAt": "2026-09-30T14:19:34.278Z",
-    "updatedAt": "2026-09-30T14:24:01.784Z",
+    "updatedAt": "2026-09-30T15:06:22.751Z",
     "name": "Reset Tester",
     "email": "stockidfour+resettest@gmail.com",
     "password": "$2b$10$3cYrNw4nF4xCJeBiA9WIhevtKvdPyGbt7GxKv23ieoDGt8b.GgY6W",
@@ -30,9 +30,9 @@
     "failedLoginAttempts": 0,
     "lockUntil": null,
     "resetOtp": "",
-    "passwordResetTokenHash": null,
-    "passwordResetExpires": null,
-    "passwordResetRequestedAt": null,
+    "passwordResetTokenHash": "b7d0db2f3cbf9577876cf887ef4e4ccd63fa8f0060c3eaef1486d89b5222b860",
+    "passwordResetExpires": "2026-09-30T15:36:22.749Z",
+    "passwordResetRequestedAt": "2026-09-30T15:06:22.749Z",
     "passwordChangedAt": "2026-09-30T14:23:07.273Z"
   },
   {

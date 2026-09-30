@@ -14,8 +14,24 @@ function resolveFrom(fallbackAddress, fromName) {
   return configured.includes('<') ? configured : { name: fromName, address: configured };
 }
 
+const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
+
 function resolveMailConfig() {
   const fromName = String(process.env.GMAIL_FROM_NAME || 'UdyogConnect').trim() || 'UdyogConnect';
+
+  // An HTTPS email API is required on hosts that block SMTP ports (e.g. Render's free plan).
+  const brevoKey = String(process.env.BREVO_API_KEY || '').trim();
+  if (brevoKey) {
+    const configuredFrom = String(process.env.EMAIL_FROM || '').trim();
+    const fromMatch = configuredFrom.match(/^(.*)<([^>]+)>\s*$/);
+    const senderEmail = fromMatch
+      ? fromMatch[2].trim()
+      : configuredFrom || String(process.env.GMAIL_USER || process.env.EMAIL_USER || '').trim();
+    const senderName = (fromMatch && fromMatch[1].trim().replace(/^"|"$/g, '')) || fromName;
+    if (EMAIL_PATTERN.test(senderEmail)) {
+      return { key: 'brevo', api: 'brevo', apiKey: brevoKey, sender: { name: senderName, email: senderEmail } };
+    }
+  }
 
   const gmailUser = String(process.env.GMAIL_USER || '').trim();
   const gmailPass = cleanSecret(process.env.GMAIL_APP_PASSWORD);
@@ -94,6 +110,54 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
+const toBase64 = (content, encoding) => {
+  if (Buffer.isBuffer(content)) return content.toString('base64');
+  if (encoding === 'base64') return String(content);
+  return Buffer.from(String(content ?? ''), 'utf8').toString('base64');
+};
+
+async function sendWithBrevo(config, { to, subject, text, html, attachments }) {
+  const payload = {
+    sender: config.sender,
+    to: [{ email: to }],
+    subject,
+    ...(html ? { htmlContent: html } : {}),
+    ...(text ? { textContent: text } : {}),
+  };
+  if (Array.isArray(attachments) && attachments.length) {
+    payload.attachment = attachments.map((file, index) => ({
+      name: file.filename || `attachment-${index + 1}`,
+      content: toBase64(file.content, file.encoding),
+    }));
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(BREVO_ENDPOINT, {
+      method: 'POST',
+      headers: { 'api-key': config.apiKey, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    const err = new Error(cause && cause.name === 'AbortError' ? 'Email API request timed out.' : 'Email API request failed.');
+    err.code = 'EMAIL_API_UNREACHABLE';
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(`Email API rejected the message (HTTP ${response.status}${body.message ? `: ${body.message}` : ''}).`);
+    err.code = body.code || `EMAIL_API_${response.status}`;
+    throw err;
+  }
+  return { messageId: body.messageId, accepted: [to], provider: 'brevo' };
+}
+
 /**
  * Sends one email through the configured provider. Throws on any failure so callers
  * can decide what to tell the user.
@@ -107,10 +171,11 @@ async function sendEmail({ to, subject, text, html, attachments }) {
   }
   const config = resolveMailConfig();
   if (!config) {
-    const err = new Error('Email service is not configured (set GMAIL_USER and GMAIL_APP_PASSWORD).');
+    const err = new Error('Email service is not configured (set BREVO_API_KEY, or GMAIL_USER and GMAIL_APP_PASSWORD).');
     err.code = 'EMAIL_NOT_CONFIGURED';
     throw err;
   }
+  if (config.api === 'brevo') return sendWithBrevo(config, { to: recipient, subject, text, html, attachments });
   return getTransport(config).sendMail({ from: config.from, to: recipient, subject, text, html, attachments });
 }
 

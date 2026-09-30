@@ -57,7 +57,7 @@ try {
   const serverEnvPath = path.resolve(__dirname, '.env');
   if (fs.existsSync(serverEnvPath)) {
     const serverEnv = dotenv.parse(fs.readFileSync(serverEnvPath));
-    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_PASSWORD', 'EMAIL_FROM']) {
+    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_PASSWORD', 'EMAIL_FROM', 'BREVO_API_KEY']) {
       if (!process.env[key] && serverEnv[key]) process.env[key] = serverEnv[key];
     }
   }

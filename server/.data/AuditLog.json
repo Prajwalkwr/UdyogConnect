@@ -1,5 +1,13 @@
 [
   {
+    "_id": "doz8x54jl",
+    "createdAt": "2026-09-30T15:06:28.327Z",
+    "updatedAt": "2026-09-30T15:06:28.327Z",
+    "userId": "px9eq5q5j",
+    "action": "PASSWORD_RESET_REQUESTED",
+    "details": "Password reset link emailed"
+  },
+  {
     "_id": "fqsffbb3s",
     "createdAt": "2026-09-30T14:24:01.790Z",
     "updatedAt": "2026-09-30T14:24:01.790Z",

@@ -1,5 +1,25 @@
 [
   {
+    "_id": "h0z6s123f",
+    "createdAt": "2026-09-30T15:07:29.502Z",
+    "updatedAt": "2026-09-30T15:07:29.502Z",
+    "businessId": "other_shop",
+    "name": "Product C",
+    "category": "Grocery",
+    "price": 300,
+    "description": "Desc C"
+  },
+  {
+    "_id": "2ewy0dwyi",
+    "createdAt": "2026-09-30T14:45:42.911Z",
+    "updatedAt": "2026-09-30T14:45:42.911Z",
+    "businessId": "other_shop",
+    "name": "Product C",
+    "category": "Grocery",
+    "price": 300,
+    "description": "Desc C"
+  },
+  {
     "_id": "4m8y15qw7",
     "createdAt": "2026-09-30T14:27:03.743Z",
     "updatedAt": "2026-09-30T14:27:03.743Z",

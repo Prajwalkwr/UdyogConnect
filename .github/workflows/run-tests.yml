@@ -20,7 +20,8 @@ jobs:
       - name: Run tests
         env:
           CI: true
-          # mongodb-memory-server's default MongoDB 5.0 build needs libssl1.1, which Ubuntu 24.04 runners lack.
-          MONGOMS_VERSION: 7.0.14
+          # mongodb-memory-server's default MongoDB 5.0 build needs libssl1.1, which Ubuntu 24.04 runners lack,
+          # and MongoDB 7+ dropped the ephemeralForTest engine that mongodb-memory-server 8 starts with.
+          MONGOMS_VERSION: 6.0.19
           MONGOMS_DISTRO: ubuntu-22.04
         run: npm test -- --no-file-parallelism

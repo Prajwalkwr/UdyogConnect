@@ -66,6 +66,12 @@ function validateNewPassword(password, confirmPassword) {
 }
 
 const isLocalOrigin = (value) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(value);
+const PRODUCTION_FRONTEND_URL = 'https://udyog-connect-lyart.vercel.app';
+
+const maskEmail = (email) => {
+  const [name, domain] = String(email).split('@');
+  return `${name.slice(0, 2)}***@${domain || ''}`;
+};
 
 /**
  * The reset link must point at the real website. Request headers are never trusted in
@@ -79,7 +85,7 @@ function resolveFrontendUrl(req) {
     if (isProduction && isLocalOrigin(configured)) return null;
     return configured;
   }
-  if (isProduction) return null;
+  if (isProduction) return PRODUCTION_FRONTEND_URL;
   const origin = String(req.headers.origin || '').replace(/\/+$/, '');
   return isLocalOrigin(origin) ? origin : 'http://localhost:5174';
 }
@@ -206,7 +212,10 @@ function createPasswordResetRoutes() {
     try {
       const UserMDL = User();
       const user = await UserMDL.findOne({ email });
-      if (!user || user.status === 'suspended') return res.json({ success: true, message: MESSAGES.requested });
+      if (!user || user.status === 'suspended') {
+        console.log(`[password-reset] No email sent to ${maskEmail(email)}: ${user ? 'account suspended' : 'no registered account'}.`);
+        return res.json({ success: true, message: MESSAGES.requested });
+      }
 
       const token = createResetToken();
       tokenHash = hashResetToken(token);
@@ -230,11 +239,15 @@ function createPasswordResetRoutes() {
         },
         { new: true }
       );
-      if (!claimed) return res.json({ success: true, message: MESSAGES.requested });
+      if (!claimed) {
+        console.log(`[password-reset] No email sent to ${maskEmail(email)}: a link was sent less than a minute ago.`);
+        return res.json({ success: true, message: MESSAGES.requested });
+      }
       userId = user._id;
 
       const { subject, text, html } = buildResetEmail(`${frontendUrl}/reset-password/${token}`);
       await sendEmail({ to: user.email, subject, text, html });
+      console.log(`[password-reset] Reset link emailed to ${maskEmail(email)}.`);
       await recordAudit(userId, 'PASSWORD_RESET_REQUESTED', 'Password reset link emailed');
       return res.json({ success: true, message: MESSAGES.requested });
     } catch (err) {
