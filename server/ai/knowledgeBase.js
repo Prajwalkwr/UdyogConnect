@@ -32,6 +32,14 @@ const SYNONYMS = {
   book: ['booking', 'slot'],
   appointment: ['booking'],
   track: ['status', 'order'],
+  contact: ['message', 'chat', 'care'],
+  support: ['care', 'contact'],
+  complaint: ['report', 'problem'],
+  complain: ['report', 'problem'],
+  scam: ['report'],
+  fraud: ['report', 'scam'],
+  login: ['sign', 'password'],
+  notification: ['bell', 'update'],
 };
 
 let cache = null;

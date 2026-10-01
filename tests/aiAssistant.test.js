@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import express from 'express';
 
 const require = createRequire(import.meta.url);
-const { parseQuery } = require('../server/ai/queryParser');
+const { parseQuery, expandWord, wordsMatch } = require('../server/ai/queryParser');
 const { searchKnowledge } = require('../server/ai/knowledgeBase');
 const { explanationIsGrounded, NOT_FOUND, UNAVAILABLE, TRY_SEARCH } = require('../server/ai/assistant');
 const { isBusinessOpenNow } = require('../server/utils/businessHours');
@@ -27,6 +27,26 @@ describe('query understanding', () => {
     expect(parseQuery('laptop between 30k and 50k')).toMatchObject({ minPrice: 30000, maxPrice: 50000 });
     expect(parseQuery('salon within 2 km')).toMatchObject({ radiusKm: 3, maxPrice: null });
     expect(parseQuery('plumber within 25 km').radiusKm).toBe(10);
+  });
+
+  it('recognises customer care, contact and overview questions', () => {
+    expect(parseQuery('customer care number').intent).toBe('support');
+    expect(parseQuery('How can I contact UdyogConnect?').intent).toBe('support');
+    expect(parseQuery('what is your email').intent).toBe('support');
+    expect(parseQuery('I want to make a complaint').intent).toBe('support');
+    expect(parseQuery('phone number of bhoj garden')).toMatchObject({ intent: 'contact', aspect: 'contact' });
+    expect(parseQuery('mobile phones under 20000').intent).toBe('search');
+    expect(parseQuery('what can I buy here?').intent).toBe('overview');
+    expect(parseQuery('is bhoj garden open now').aspect).toBe('hours');
+  });
+
+  it('understands Nepali words and small typos', () => {
+    expect(expandWord('besar')).toEqual(expect.arrayContaining(['turmeric']));
+    expect(expandWord('chamal')).toEqual(expect.arrayContaining(['rice']));
+    expect(wordsMatch('turmric', 'turmeric')).toBe(true);
+    expect(wordsMatch('headphnoe', 'headphone')).toBe(true);
+    expect(wordsMatch('rice', 'race')).toBe(false);
+    expect(wordsMatch('iphone', 'phone')).toBe(false);
   });
 
   it('routes questions to the right intent', () => {
@@ -117,6 +137,7 @@ beforeAll(async () => {
   };
   await product('headphones', { businessId: ids.bizA, name: 'Sony Wireless Headphones', price: 4000, discount: 10, stock: 5 });
   await product('charger', { businessId: ids.bizA, name: 'Fast Phone Charger', price: 800, stock: 0 });
+  await product('earbuds', { businessId: ids.bizA, name: 'JBL Bluetooth Earbuds', price: 5000, stock: 20 });
   await product('pendingHeadphones', { businessId: ids.bizPending, name: 'Pending Headphones', price: 100, stock: 9 });
   await product('rejectedHeadphones', { businessId: ids.bizRejected, name: 'Rejected Headphones', price: 100, stock: 9 });
   await product('suspendedHeadphones', { businessId: ids.bizSuspended, name: 'Suspended Headphones', price: 100, stock: 9 });
@@ -180,10 +201,29 @@ describe('POST /api/ai/chat — marketplace search', () => {
     expect(res.body.results.products.map((p) => p.id)).not.toContain(ids.charger);
   });
 
-  it('admits when something does not exist', async () => {
+  it('admits when something does not exist and only offers clearly related items', async () => {
     const res = await chat('find iphone 15 pro max');
     expect(res.body.explanation).toContain(NOT_FOUND);
-    expect(res.body.results.products).toEqual([]);
+    expect(res.body.results.products.every((p) => p.match === 'similar' && !/iphone/i.test(p.name))).toBe(true);
+    expect(res.body.results.businesses).toEqual([]);
+  });
+
+  it('shows the asked product first, then up to two similar products, and no extra shop cards', async () => {
+    const res = await chat('headphones');
+    const { products, businesses, services } = res.body.results;
+    expect(products[0]).toMatchObject({ id: ids.headphones, match: 'main' });
+    expect(products.length).toBeLessThanOrEqual(3);
+    expect(products.slice(1).every((p) => p.match === 'similar')).toBe(true);
+    expect(products.map((p) => p.id)).toContain(ids.earbuds);
+    expect(businesses).toEqual([]);
+    expect(services).toEqual([]);
+    expect(res.body.focus).toBe('product');
+    expect(res.body.explanation).toMatch(/^Sony Wireless Headphones costs NPR 3,600/);
+  });
+
+  it('finds products by another word for them or with a typo', async () => {
+    expect((await chat('sony headphnes')).body.results.products[0].id).toBe(ids.headphones);
+    expect((await chat('earphone')).body.results.products.map((p) => p.id)).toEqual(expect.arrayContaining([ids.headphones, ids.earbuds]));
   });
 
   it('never returns pending, rejected or suspended businesses or their items', async () => {
@@ -295,7 +335,10 @@ describe('POST /api/ai/chat — AI layer', () => {
     });
     const res = await chat('good headphones for music');
     expect(res.body.mode).toBe('ai');
-    expect(res.body.productIds).toEqual([ids.headphones]);
+    expect(res.body.productIds[0]).toBe(ids.headphones);
+    expect(res.body.productIds).not.toContain(ids.rejectedHeadphones);
+    expect(res.body.productIds).not.toContain('made-up-id');
+    expect(res.body.productIds.length).toBeLessThanOrEqual(3);
     expect(res.body.businessIds).toEqual([]);
     expect(res.body.explanation).toBe('Sony Wireless Headphones at Gadget Ghar cost NPR 3,600.');
     const [url, init] = fetchSpy.mock.calls[0];
@@ -383,6 +426,62 @@ describe('POST /api/ai/chat — roles and privacy', () => {
     expect(res.body.intent).toBe('help');
     expect(res.body.explanation).toMatch(/placed or accepted/);
     expect(res.body.sources[0]).toMatchObject({ id: 'cancellations#cancelling-an-order', doc: 'Cancellations' });
+  });
+});
+
+describe('POST /api/ai/chat — customer care and questions about one business', () => {
+  afterEach(() => {
+    delete process.env.SUPPORT_PHONE;
+    delete process.env.SUPPORT_EMAIL;
+  });
+
+  it('gives UdyogConnect customer care details from server settings without calling the AI', async () => {
+    process.env.OPENAI_API_KEY = FAKE_KEY;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const plain = await chat('customer care number');
+    expect(plain.body.intent).toBe('support');
+    expect(plain.body.contact).toMatchObject({ kind: 'support', email: 'support@udyogconnect.np', phone: '' });
+    expect(plain.body.explanation).toContain('support@udyogconnect.np');
+
+    process.env.SUPPORT_PHONE = '01-5900000';
+    process.env.SUPPORT_EMAIL = 'help@udyogconnect.np';
+    const configured = await chat('How can I contact UdyogConnect?');
+    expect(configured.body.contact).toMatchObject({ phone: '01-5900000', email: 'help@udyogconnect.np' });
+    expect(configured.body.explanation).toContain('call 01-5900000');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('answers only the detail asked about a named business', async () => {
+    const contact = await chat('Gadget Ghar phone number');
+    expect(contact.body.intent).toBe('business');
+    expect(contact.body.contact).toMatchObject({ kind: 'business', businessId: ids.bizA, phone: '9800000000' });
+    expect(contact.body.results.businesses.map((b) => b.id)).toEqual([ids.bizA]);
+    expect(contact.body.results.products).toEqual([]);
+
+    const hours = await chat('is Style Studio open now?');
+    expect(hours.body.explanation).toBe('Style Studio is open now. Hours: 00:00 - 23:59, every day.');
+    expect(hours.body.contact).toBeUndefined();
+
+    expect((await chat('does gadget ghar deliver?')).body.explanation).toMatch(/^Yes, Gadget Ghar delivers up to \d+ km/);
+    expect((await chat('style studio rating')).body.explanation).toBe('Style Studio has no reviews yet.');
+
+    const item = await chat('headphones at gadget ghar');
+    expect(item.body.results.products[0]).toMatchObject({ id: ids.headphones, match: 'main' });
+    expect(item.body.results.products.every((p) => p.businessId === ids.bizA)).toBe(true);
+  });
+
+  it('never answers about hidden businesses, even by name', async () => {
+    const res = await chat('Pending Audio Hub phone number');
+    expect(res.body.intent).not.toBe('business');
+    expect(JSON.stringify(res.body)).not.toContain(ids.bizPending);
+  });
+
+  it('summarises what is on the marketplace from approved businesses only', async () => {
+    const res = await chat('what can I buy here?');
+    expect(res.body.intent).toBe('overview');
+    const count = Number((res.body.explanation.match(/has (\d+) approved/) || [])[1]);
+    expect(count).toBeGreaterThanOrEqual(2);
+    expect(count).toBeLessThanOrEqual((await db.Business().countDocuments({})) - 3);
   });
 });
 

@@ -1,9 +1,11 @@
 const { categoryGroupsOf, CATEGORY_GROUPS } = require('../home/catalog');
-const { isBusinessOpenNow } = require('../utils/businessHours');
-const { keywordsOf } = require('./queryParser');
+const { isBusinessOpenNow, normalizeOpeningDays } = require('../utils/businessHours');
+const { keywordsOf, tokenize, stem, expandWord, wordsMatch } = require('./queryParser');
 
+// phone and contactEmail are public on the business profile; they are only returned when someone asks how to contact a business.
 const BUSINESS_FIELDS = 'ownerId name category subcategory location description imageUrl coverUrl latitude longitude verified approvalStatus '
-  + 'rating reviewCount hours openingDays manualOpenOverride manualOverrideAt deliveryAvailable deliveryRadiusKm offeringType createdAt';
+  + 'rating reviewCount hours openingDays manualOpenOverride manualOverrideAt deliveryAvailable deliveryRadiusKm offeringType createdAt '
+  + 'phone contactEmail';
 const PRODUCT_FIELDS = 'businessId name category subcategory description price discount stock brand images availability';
 const SERVICE_FIELDS = 'businessId name description price duration availability homeService imageUrl images';
 
@@ -48,19 +50,71 @@ async function findDocs(modelFactory, { getIsMongo, filter = {}, fields, mongoFi
   return (await model.find(filter)).map(plain);
 }
 
-/** Same word, or a shared stem such as plumber/plumbing or haircut/hair. */
-function wordsMatch(a, b) {
-  if (a === b) return true;
-  let common = 0;
-  while (common < a.length && common < b.length && a[common] === b[common]) common += 1;
-  return common >= Math.max(4, Math.min(a.length, b.length) - 2);
-}
-
-/** Adds `weight` for each search word found in the field. */
+/** Adds `weight` for each search word (or one of its aliases) found in the field. */
 function fieldScore(words, text, weight) {
   if (!text || !words.length) return 0;
   const fieldWords = keywordsOf(text);
-  return words.reduce((score, word) => score + (fieldWords.some((candidate) => wordsMatch(word, candidate)) ? weight : 0), 0);
+  if (!fieldWords.length) return 0;
+  return words.reduce((score, word) => score
+    + (expandWord(word).some((alt) => fieldWords.some((candidate) => wordsMatch(alt, candidate))) ? weight : 0), 0);
+}
+
+const DAY_LABELS = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' };
+const WEEK = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/** "10:00 - 21:00, Sun to Fri" in plain words. */
+function businessHoursText(business) {
+  const days = normalizeOpeningDays(business?.openingDays);
+  let dayText = 'every day';
+  if (days.length < 7) {
+    const sorted = WEEK.filter((day) => days.includes(day));
+    const start = WEEK.indexOf(sorted[0]);
+    const consecutive = sorted.every((day, index) => WEEK.indexOf(day) === start + index);
+    dayText = consecutive && sorted.length > 2
+      ? `${DAY_LABELS[sorted[0]]} to ${DAY_LABELS[sorted[sorted.length - 1]]}`
+      : sorted.map((day) => DAY_LABELS[day]).join(', ');
+  }
+  const hours = String(business?.hours || '').trim();
+  return hours ? `${hours}, ${dayText}` : `Open ${dayText}`;
+}
+
+const NAME_FILLER = new Set(['the', 'and', 'pvt', 'ltd', 'private', 'limited', 'co']);
+const GENERIC_NAME_WORDS = new Set(['shop', 'store', 'pasal', 'corner', 'house', 'center', 'centre', 'mart', 'hub', 'point', 'trader',
+  'enterprise', 'supplier', 'service', 'suppliers', 'traders', 'enterprises', 'services', 'nepal', 'nepali', 'kathmandu', 'himalayan',
+  'hamro', 'new', 'local', 'best', 'everest', 'shree', 'shri', 'royal', 'golden', 'city', 'valley']);
+const nameWordsOf = (name) => [...new Set(tokenize(name).filter((word) => word.length > 1 && !NAME_FILLER.has(word)).map(stem))];
+
+/**
+ * Finds a live business the question names, e.g. "is bhoj garden open?" or "himalayan spice contact".
+ * Every distinctive word of the name must appear; generic words such as "corner" or a category may be left out.
+ */
+function matchBusinessByName(text, businesses) {
+  const lower = String(text || '').toLowerCase();
+  const queryWords = tokenize(lower).map(stem);
+  let best = null;
+  businesses.forEach((business) => {
+    const name = String(business.name || '').toLowerCase().trim();
+    const words = nameWordsOf(name);
+    if (!name || !words.length) return;
+    const matched = words.filter((word) => queryWords.some((query) => query === word || (word.length >= 5 && query.length >= 5 && wordsMatch(query, word))));
+    const missing = words.filter((word) => !matched.includes(word));
+    const distinctive = matched.filter((word) => word.length >= 4 && !GENERIC_NAME_WORDS.has(word) && !CATEGORY_WORDS.has(word));
+    const fullName = name.length >= 4 && lower.includes(name);
+    const onlyGenericMissing = missing.every((word) => GENERIC_NAME_WORDS.has(word) || CATEGORY_WORDS.has(word));
+    const ok = fullName || (onlyGenericMissing && (
+      (matched.length >= 2 && matched.some((word) => !GENERIC_NAME_WORDS.has(word)))
+      || (distinctive.length > 0 && (words.length === 1 || distinctive[0].length >= 6))
+    ));
+    if (!ok) return;
+    const score = (fullName ? 100 : 0) + matched.length * 10 - missing.length;
+    if (!best || score > best.score) best = { business, score };
+  });
+  return best?.business || null;
+}
+
+async function loadLiveBusinesses({ models, getIsMongo, isLiveBusiness }) {
+  const all = await findDocs(models.Business, { getIsMongo, fields: BUSINESS_FIELDS });
+  return all.filter((business) => isLiveBusiness(business));
 }
 
 function itemScore(item, words, conceptWords) {
@@ -101,9 +155,13 @@ async function retrieveMarketplace(parsed, {
   radiusKm = null,
   limit = 6,
   now = new Date(),
+  businesses: preloaded = null,
+  restrictBusinessId = null,
+  browseAll = false,
 } = {}) {
-  const allBusinesses = await findDocs(models.Business, { getIsMongo, fields: BUSINESS_FIELDS });
-  const live = allBusinesses.filter((business) => isLiveBusiness(business));
+  const loaded = preloaded || await loadLiveBusinesses({ models, getIsMongo, isLiveBusiness });
+  const live = loaded.filter((business) => isLiveBusiness(business)
+    && (!restrictBusinessId || sid(business._id) === sid(restrictBusinessId)));
   const liveIds = live.map((business) => sid(business._id));
   const idFilter = { businessId: { $in: liveIds } };
   const [allProducts, allServices] = liveIds.length
@@ -117,7 +175,7 @@ async function retrieveMarketplace(parsed, {
   const products = allProducts.filter((product) => liveSet.has(sid(product.businessId)));
   const services = allServices.filter((service) => liveSet.has(sid(service.businessId)));
 
-  const enforceRadius = Boolean(origin && radiusKm && (parsed.nearMe || parsed.radiusKm));
+  const enforceRadius = Boolean(!restrictBusinessId && origin && radiusKm && (parsed.nearMe || parsed.radiusKm));
   const businessInfo = new Map();
   live.forEach((business) => {
     const id = sid(business._id);
@@ -172,12 +230,17 @@ async function retrieveMarketplace(parsed, {
   let serviceHits = wantServices ? scoreItems(services, 'service') : [];
 
   // Without search words (e.g. "services near me" or "under NPR 500") every item passing the filters is a candidate.
-  const browseItems = priceFilter || parsed.kind === 'product' || parsed.kind === 'service';
+  const browseItems = browseAll || priceFilter || parsed.kind === 'product' || parsed.kind === 'service';
   const itemMatches = (hit) => (hasTextQuery ? hit.text > 0 : browseItems) && (!priceFilter || inPriceRange(hit.price));
   const namesItem = (hit) => fieldScore(itemWords, `${hit.item.name} ${hit.item.category || ''} ${hit.item.subcategory || ''} ${hit.item.brand || ''}`, 1) > 0;
   const unavailable = itemWords.length ? productHits.filter((hit) => namesItem(hit) && !isProductAvailable(hit.item)) : [];
-  productHits = productHits.filter((hit) => itemMatches(hit) && isProductAvailable(hit.item));
-  serviceHits = serviceHits.filter((hit) => itemMatches(hit) && isServiceAvailable(hit.item));
+  // When the best match names the item, drop hits that only matched a word in their description.
+  const dropWeak = (hits) => {
+    const best = hits.reduce((max, hit) => Math.max(max, hit.text), 0);
+    return best >= 4 ? hits.filter((hit) => hit.text >= Math.min(4, best / 2)) : hits;
+  };
+  productHits = dropWeak(productHits.filter((hit) => itemMatches(hit) && isProductAvailable(hit.item)));
+  serviceHits = dropWeak(serviceHits.filter((hit) => itemMatches(hit) && isServiceAvailable(hit.item)));
 
   const namedText = (item) => `${item.name} ${item.category || ''} ${item.subcategory || ''} ${item.brand || ''}`;
   const existsBeyondFilters = itemWords.length > 0 && (enforceRadius || parsed.openNow)
@@ -246,6 +309,7 @@ async function retrieveMarketplace(parsed, {
       price: roundMoney(item.price),
       discount: Number(item.discount) || 0,
       finalPrice: price,
+      description: String(item.description || '').slice(0, 300),
       stock: Number(item.stock) || 0,
       inStock: isProductAvailable(item),
       imageUrl: firstImage(item),
@@ -261,6 +325,7 @@ async function retrieveMarketplace(parsed, {
       businessName: businessNameOf(businessId),
       name: item.name,
       price,
+      description: String(item.description || '').slice(0, 300),
       durationMinutes: Number(item.duration) || null,
       homeService: Boolean(item.homeService),
       available: isServiceAvailable(item),
@@ -270,9 +335,53 @@ async function retrieveMarketplace(parsed, {
     };
   };
 
+  const rawById = new Map([...products, ...services].map((item) => [sid(item._id), item]));
+  /**
+   * Up to `count` in-stock items like the seeds (same category, shared name words, same kind of shop), honouring the
+   * same radius, open-now and price filters. With no seeds, items from the categories the question mentions.
+   */
+  const suggestSimilar = ({ type, seedIds = [], excludeIds = [], count = 2 }) => {
+    if (count <= 0) return [];
+    const seeds = seedIds.map((id) => rawById.get(sid(id))).filter(Boolean);
+    const exclude = new Set([...excludeIds, ...seedIds].map(sid));
+    const seedWords = [...new Set(seeds.flatMap((seed) => keywordsOf(seed.name)))];
+    const seedCategories = new Set(seeds.flatMap((seed) => [seed.category, seed.subcategory]).filter(Boolean).map((value) => String(value).toLowerCase()));
+    const seedGroups = new Set(seeds.length
+      ? seeds.flatMap((seed) => businessInfo.get(sid(seed.businessId))?.groups || [])
+      : [...wantsGroups]);
+    const seedPrimary = new Set(seeds.length
+      ? seeds.map((seed) => businessInfo.get(sid(seed.businessId))?.groups[0]).filter(Boolean)
+      : [...wantsGroups]);
+    if (!seeds.length && !seedGroups.size) return [];
+    const pool = type === 'product' ? products.filter(isProductAvailable) : services.filter(isServiceAvailable);
+    return pool
+      .filter((item) => !exclude.has(sid(item._id)) && eligible(sid(item.businessId)))
+      .filter((item) => (type === 'product' ? businessInfo.get(sid(item.businessId)).sellsProducts : businessInfo.get(sid(item.businessId)).sellsServices))
+      .map((item) => {
+        const businessId = sid(item.businessId);
+        const info = businessInfo.get(businessId);
+        const category = String(item.category || '').toLowerCase();
+        const subcategory = String(item.subcategory || '').toLowerCase();
+        const groupScore = seedPrimary.has(info.groups[0]) ? 2 : info.groups.some((group) => seedGroups.has(group)) ? 1 : 0;
+        const score = fieldScore(seedWords, item.name, 3)
+          + (subcategory && seedCategories.has(subcategory) ? 3 : 0)
+          + (category && seedCategories.has(category) ? 2 : 0)
+          + groupScore;
+        const price = type === 'product' ? productFinalPrice(item) : roundMoney(item.price);
+        return { item, type, businessId, text: 0, score, price };
+      })
+      .filter((hit) => hit.score >= 2 && (!priceFilter || inPriceRange(hit.price)))
+      .sort((a, b) => b.score - a.score
+        || byDistance(businessInfo.get(a.businessId)?.distance, businessInfo.get(b.businessId)?.distance)
+        || a.price - b.price)
+      .slice(0, count)
+      .map(type === 'product' ? productCard : serviceCard);
+  };
+
   const businesses = businessHits.slice(0, limit).map(({ id, info, bestItem }) => businessCard(info.business, {
     distanceKm: info.distance,
     isOpen: info.isOpen,
+    hoursText: businessHoursText(info.business),
     topItem: bestItem ? {
       type: bestItem.type,
       id: sid(bestItem.item._id),
@@ -282,10 +391,14 @@ async function retrieveMarketplace(parsed, {
     id,
   }));
 
+  const sortedProducts = sortItems(productHits);
+  const sortedServices = sortItems(serviceHits);
   return {
     businesses,
-    products: sortItems(productHits).slice(0, limit).map(productCard),
-    services: sortItems(serviceHits).slice(0, limit).map(serviceCard),
+    products: sortedProducts.slice(0, limit).map(productCard),
+    services: sortedServices.slice(0, limit).map(serviceCard),
+    topScores: { product: sortedProducts[0]?.text || 0, service: sortedServices[0]?.text || 0 },
+    suggestSimilar,
     unavailable: unavailable.slice(0, 3).map(productCard),
     notFound: !itemFound,
     existsBeyondFilters: !itemFound && existsBeyondFilters,
@@ -303,4 +416,14 @@ async function retrieveMarketplace(parsed, {
   };
 }
 
-module.exports = { retrieveMarketplace, productFinalPrice, isProductAvailable, distanceKm, findDocs, businessCard };
+module.exports = {
+  retrieveMarketplace,
+  loadLiveBusinesses,
+  matchBusinessByName,
+  businessHoursText,
+  productFinalPrice,
+  isProductAvailable,
+  distanceKm,
+  findDocs,
+  businessCard,
+};

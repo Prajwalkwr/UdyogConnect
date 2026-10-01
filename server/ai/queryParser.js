@@ -24,6 +24,37 @@ const CONCEPTS = [
   { kind: 'service', groups: ['clothing'], words: ['tailor', 'stitching', 'alteration'] },
 ];
 
+/** Words people use for the same thing, including common romanised Nepali. Matching any one matches the others. */
+const ALIAS_GROUPS = [
+  ['turmeric', 'besar', 'haldi'],
+  ['rice', 'chamal', 'basmati'],
+  ['lentil', 'dal', 'daal'],
+  ['vegetable', 'tarkari', 'sabji', 'sabzi'],
+  ['meat', 'masu'],
+  ['chicken', 'kukhura'],
+  ['egg', 'anda'],
+  ['milk', 'dudh'],
+  ['tea', 'chiya', 'chai'],
+  ['spice', 'masala'],
+  ['medicine', 'aushadhi', 'ausadhi', 'dabai', 'dawai'],
+  ['clothes', 'clothing', 'kapada', 'kapda', 'lugaa', 'luga'],
+  ['shoe', 'jutta', 'juta', 'footwear', 'sneaker'],
+  ['phone', 'mobile', 'smartphone', 'cellphone'],
+  ['headphone', 'headset', 'earphone', 'earbud'],
+  ['tv', 'television'],
+  ['journal', 'notebook', 'diary'],
+  ['gift', 'souvenir'],
+  ['handicraft', 'handmade', 'craft'],
+  ['cake', 'pastry'],
+  ['momo', 'dumpling'],
+  ['noodle', 'chowmein'],
+  ['repair', 'fix', 'servicing'],
+  ['electrician', 'electrical', 'wiring'],
+  ['cleaning', 'cleaner'],
+  ['catering', 'caterer', 'feast'],
+  ['delivery', 'deliver'],
+];
+
 const SERVICE_WORDS = /\b(services?|book|booking|appointment|schedule|hire)\b/;
 const PRODUCT_WORDS = /\b(products?|items?|buy|purchase|in stock|add to cart)\b/;
 const BUSINESS_WORDS = /\b(shops?|stores?|business(es)?|places?|outlets?|sellers?|vendors?)\b/;
@@ -36,6 +67,23 @@ const HELP_TERMS = [
   'chat with', 'message a', 'contact', 'delivery fee', 'delivery radius', 'pickup', 'commission', 'account', 'privacy',
   'recommendation', 'open or closed', 'opening hours',
 ];
+
+const SUPPORT_PATTERN = /\b(customer\s*(care|service|support)|support\s*(team|number|phone|email|mail|contact|center|centre|desk)|help\s*(desk|line|center|centre)|helpline|hotline|call\s*cent(er|re)|(contact|reach|call|email|mail)\s+(udyog\s*connect|the\s+(website|site|platform|company|team|admin|owners?|support)|you|admin|support)|udyog\s*connect('?s)?\s+(contact|phone|number|email|mail|address|office)|your\s+(contact|phone|number|email|mail|address|office)|talk\s+to\s+(a\s+)?(human|person|someone|agent|support|admin)|complain|complaint|report\s+(a\s+)?(problem|issue|bug|scam|fraud))/;
+const CONTACT_PATTERN = /\b(contacts?|phone|number|call|email|e-mail|mail|mobile|reach|whatsapp)\b/;
+const OVERVIEW_PATTERN = /\b(what|which)\s+(categories|category|kinds?|types?)\b|\bwhat\s+can\s+i\s+(buy|find|get|order|book)\b|\bwhat\s+(do|does)\s+(you|udyog\s*connect|this\s+(site|website|app))\s+(have|sell|offer)\b|\bwhat('s|\s+is)\s+available\b/;
+const ASPECTS = [
+  ['contact', CONTACT_PATTERN],
+  ['hours', /\b(open|opens|opening|close|closes|closed|closing|hours?|timings?|time|schedule)\b/],
+  ['delivery', /\b(deliver|delivers|delivery|home delivery|ship|shipping)\b/],
+  ['rating', /\b(rating|ratings|rated|reviews?|stars?)\b/],
+  ['location', /\b(where|address|location|located|directions?|map|how far|distance)\b/],
+  ['catalog', /\b(menu|products?|items?|sells?|selling|stock|have|offers?|services?|price list|what can i (buy|get|order|book))\b/],
+];
+/** Words that describe what is being asked about a business rather than an item to search for. */
+const ASPECT_WORDS = new Set(['contact', 'phone', 'number', 'call', 'email', 'mail', 'mobile', 'reach', 'whatsapp', 'detail', 'info',
+  'information', 'hour', 'timing', 'time', 'schedule', 'close', 'closed', 'closing', 'opening', 'deliver', 'delivery', 'ship',
+  'shipping', 'rating', 'rated', 'review', 'star', 'address', 'location', 'located', 'direction', 'map', 'far', 'distance', 'menu',
+  'stock', 'list', 'tell', 'cost', 'costs', 'their', 'they', 'them', 'does', 'still']);
 
 const INJECTION_PATTERN = /(ignore|disregard|forget|override)\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)|system prompt|developer mode|jailbreak|\bdan\b mode|reveal.{0,30}\b(prompt|instructions?|key|secret|password|token)|api[_ ]?key|openai_api_key|jwt_secret|mongodb_uri|database (password|credentials?)|(show|list|give|dump).{0,30}\b(all )?(users?|customers?|emails?|phone numbers?|passwords?)\b.{0,20}(database|db|table|of all)/i;
 
@@ -67,6 +115,58 @@ function tokenize(text) {
 
 function keywordsOf(text) {
   return [...new Set(tokenize(text).filter((word) => word.length > 1 && !STOPWORDS.has(word) && !/^\d+$/.test(word)).map(stem))];
+}
+
+const ALIASES = new Map();
+ALIAS_GROUPS.forEach((group) => {
+  const stems = group.map(stem);
+  stems.forEach((word) => ALIASES.set(word, [...new Set([...(ALIASES.get(word) || []), ...stems])]));
+});
+
+/** The word plus its aliases ("besar" -> turmeric, haldi). */
+const expandWord = (word) => ALIASES.get(word) || [word];
+
+/** True when two words differ by one edit or one swapped pair of letters (typo tolerance). */
+function withinOneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    const diff = [...a].map((char, index) => (char === b[index] ? -1 : index)).filter((index) => index >= 0);
+    if (diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]) return true;
+  }
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+    } else {
+      edits += 1;
+      if (edits > 1) return false;
+      if (a.length > b.length) i += 1;
+      else if (b.length > a.length) j += 1;
+      else {
+        i += 1;
+        j += 1;
+      }
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/** Same word, a shared stem such as plumber/plumbing or haircut/hair, or a one-letter typo such as "turmric". */
+function wordsMatch(a, b) {
+  if (a === b) return true;
+  let common = 0;
+  while (common < a.length && common < b.length && a[common] === b[common]) common += 1;
+  if (common >= Math.max(4, Math.min(a.length, b.length) - 2)) return true;
+  // Typos keep the first letter, which also stops "iphone" from matching "phone".
+  return a.length >= 5 && b.length >= 5 && a[0] === b[0] && withinOneEdit(a, b);
+}
+
+function detectAspect(lower) {
+  const hit = ASPECTS.find(([, pattern]) => pattern.test(lower));
+  return hit ? hit[0] : null;
 }
 
 const containsPhrase = (lower, phrase) => new RegExp(`(^|[^a-z])${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(e?s)?($|[^a-z])`).test(lower);
@@ -106,12 +206,14 @@ function parsePrice(lower) {
 function parseQuery(message, { role } = {}) {
   const text = normalize(message).slice(0, MAX_MESSAGE_LENGTH);
   const lower = text.toLowerCase();
+  // "phone number" asks for contact details, not for a phone to buy.
+  const itemText = lower.replace(/\b(phone|mobile|cell|contact|whatsapp)\s*(no\.?|number|num|nos?)\b/g, ' contact ');
 
   const groups = new Set();
   const conceptTerms = [];
   let conceptKind = null;
   CONCEPTS.forEach((concept) => {
-    const hit = concept.words.find((word) => containsPhrase(lower, word));
+    const hit = concept.words.find((word) => containsPhrase(itemText, word));
     if (!hit) return;
     concept.groups.forEach((group) => groups.add(group));
     if (concept.generic) return;
@@ -119,7 +221,7 @@ function parseQuery(message, { role } = {}) {
     if (concept.kind && !conceptKind) conceptKind = concept.kind;
   });
   CATEGORY_GROUPS.forEach((group) => {
-    if (group.key !== 'home' && group.keywords.some((word) => containsPhrase(lower, word))) groups.add(group.key);
+    if (group.key !== 'home' && group.keywords.some((word) => containsPhrase(itemText, word))) groups.add(group.key);
   });
 
   let kind = 'any';
@@ -148,10 +250,15 @@ function parseQuery(message, { role } = {}) {
   const hasSearchSignals = groups.size > 0 || nearMe || openNow || minPrice !== null || maxPrice !== null
     || /\b(find|show|recommend|suggest|search|looking for|where can i|where to|any)\b/.test(lower);
 
+  const asksContact = CONTACT_PATTERN.test(lower) && groups.size === 0 && conceptTerms.length === 0 && minPrice === null && maxPrice === null;
+
   let intent = 'search';
   if (!text) intent = 'empty';
   else if (INJECTION_PATTERN.test(text)) intent = 'unsafe';
   else if (/^(hi|hello|hey|namaste|namaskar|good (morning|afternoon|evening)|thanks|thank you|ok|okay)[!. ]*$/.test(lower)) intent = 'greeting';
+  else if (SUPPORT_PATTERN.test(lower)) intent = 'support';
+  else if (asksContact && !/\b(my|mine)\b.{0,20}\b(orders?|bookings?)\b/.test(lower)) intent = 'contact';
+  else if (OVERVIEW_PATTERN.test(lower) && groups.size === 0 && conceptTerms.length === 0) intent = 'overview';
   else if (role === 'seller' && /\b(my|our)\b.{0,25}\b(business|shop|store|products?|stock|inventory|services?|orders?|sales|revenue|earnings|reviews?|ratings?|bookings?|customers?|performance|analytics)\b|\blow stock\b|\bout of stock\b.{0,20}\bmy\b/.test(lower)) intent = 'seller';
   else if (role === 'admin' && /\b(pending|approval|approve|platform|marketplace|how many|total|statistics|stats|overview|reports?|suspended|rejected)\b/.test(lower)) intent = 'admin';
   else if (helpScore > 0 && groups.size === 0 && !nearMe && minPrice === null && maxPrice === null
@@ -175,8 +282,23 @@ function parseQuery(message, { role } = {}) {
     openNow,
     sort,
     place,
+    aspect: detectAspect(lower),
     wantsHelp: helpScore > 0,
   };
 }
 
-module.exports = { parseQuery, keywordsOf, tokenize, stem, snapRadius, normalize, RADIUS_OPTIONS, MAX_MESSAGE_LENGTH, STOPWORDS };
+module.exports = {
+  parseQuery,
+  keywordsOf,
+  tokenize,
+  stem,
+  snapRadius,
+  normalize,
+  expandWord,
+  wordsMatch,
+  RADIUS_OPTIONS,
+  MAX_MESSAGE_LENGTH,
+  STOPWORDS,
+  ASPECT_WORDS,
+  BUSINESS_WORDS,
+};

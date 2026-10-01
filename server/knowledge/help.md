@@ -14,3 +14,6 @@ Use "Near me" on the home page or allow location access in the AI assistant. Dis
 
 ## About the AI assistant
 The UdyogConnect AI assistant searches live UdyogConnect listings and these help pages before answering. It only recommends approved businesses and shows the actual listings it used. Always check the business or product page for the final price, stock and opening hours. The assistant never asks for your password, OTP or payment PIN.
+
+## What you can ask the assistant
+Ask for a product or service by name, price or distance, such as "cheapest rice near me" or "haircut within 3 km"; it shows the best match and up to two similar options. Ask about one business by name to get its phone number, opening hours, delivery, rating, location or what it sells. Common Nepali words such as besar, chamal or tarkari also work.

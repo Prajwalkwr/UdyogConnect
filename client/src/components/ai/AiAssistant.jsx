@@ -16,7 +16,8 @@ import {
 } from '../../utils/aiAssistant';
 
 const SUGGESTIONS = {
-  guest: ['Find businesses near me', 'Recommend a grocery store', 'Find electronics under NPR 5000', 'Find services near me'],
+  guest: ['Find businesses near me', 'Find electronics under NPR 5000', 'Find services near me', 'Customer care contact'],
+  customer: ['Where is my order?', 'Find businesses near me', 'Find services near me', 'Customer care contact'],
   seller: ['How is my business doing?', 'Which of my products are low on stock?', 'How do I accept eSewa?', 'How do I handle a new order?'],
   admin: ['Give me a platform overview', 'How many businesses are pending approval?', 'How does business approval work?', 'Find businesses near me'],
 };
@@ -66,6 +67,7 @@ function BusinessResult({ business, onOpenBusiness, onOpenProduct }) {
               {top.type === 'service' ? 'Service' : 'Top item'}: <b>{top.name}</b> · {formatNpr(top.price)}
             </p>
           )}
+          {business.hoursText && <p className="mt-0.5 truncate text-[11px] text-[var(--mp-muted)]">Hours: {business.hoursText}</p>}
         </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
@@ -133,6 +135,51 @@ function ServiceResult({ service, onOpenBusiness }) {
   );
 }
 
+const telHref = (value) => `tel:${String(value).replace(/[^\d+]/g, '')}`;
+const whatsappHref = (value) => `https://wa.me/${String(value).replace(/\D/g, '')}`;
+
+function ContactCard({ contact, onOpenBusiness }) {
+  const rows = [
+    contact.phone && ['Phone', contact.phone],
+    contact.whatsapp && ['WhatsApp', contact.whatsapp],
+    contact.email && ['Email', contact.email],
+    contact.hours && ['Hours', contact.hours],
+    contact.address && ['Address', contact.address],
+  ].filter(Boolean);
+  return (
+    <div className="rounded-2xl border border-[var(--mp-border)] bg-white p-3">
+      <p className="text-sm font-bold text-[var(--mp-ink)]">{contact.title}</p>
+      <dl className="mt-1.5 space-y-0.5 text-[12px]">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex gap-2">
+            <dt className="w-16 shrink-0 text-[var(--mp-muted)]">{label}</dt>
+            <dd className="min-w-0 break-words font-semibold text-[var(--mp-ink)]">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+        {contact.phone && <a className={primaryClass} href={telHref(contact.phone)}>Call</a>}
+        {contact.whatsapp && <a className={actionClass} href={whatsappHref(contact.whatsapp)} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+        {contact.email && <a className={contact.phone ? actionClass : primaryClass} href={`mailto:${contact.email}`}>Email</a>}
+        {contact.kind === 'business' && contact.businessId && (
+          <button type="button" className={actionClass} onClick={() => onOpenBusiness(contact.businessId)}>View Business</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Cards in answer order, with a "You may also like" heading before the first similar suggestion. */
+function ItemList({ items, render }) {
+  const firstSimilar = items.findIndex((item) => item.match === 'similar');
+  return items.map((item, index) => (
+    <React.Fragment key={item.id}>
+      {index === firstSimilar && <p className="pt-1 text-[11px] font-bold uppercase tracking-wide text-[var(--mp-muted)]">You may also like</p>}
+      {render(item)}
+    </React.Fragment>
+  ));
+}
+
 function StatGrid({ items }) {
   return (
     <div className="grid grid-cols-2 gap-1.5">
@@ -166,9 +213,10 @@ function AnswerBody({ data, handlers, navigate }) {
   const { businesses = [], products = [], services = [] } = data.results || {};
   return (
     <div className="mt-2 space-y-2 text-[11px]">
-      {products.map((product) => <ProductResult key={`p-${product.id}`} product={product} {...handlers} />)}
-      {services.map((service) => <ServiceResult key={`s-${service.id}`} service={service} {...handlers} />)}
-      {businesses.map((business) => <BusinessResult key={`b-${business.id}`} business={business} {...handlers} />)}
+      {data.contact && <ContactCard contact={data.contact} onOpenBusiness={handlers.onOpenBusiness} />}
+      <ItemList items={products} render={(product) => <ProductResult product={product} {...handlers} />} />
+      <ItemList items={services} render={(service) => <ServiceResult service={service} {...handlers} />} />
+      {!data.contact && businesses.map((business) => <BusinessResult key={`b-${business.id}`} business={business} {...handlers} />)}
 
       {data.orders?.length > 0 && (
         <div className="space-y-1.5">
