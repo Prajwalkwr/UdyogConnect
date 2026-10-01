@@ -1009,6 +1009,7 @@ const initMongooseModels = async () => {
   }, { timestamps: true });
   bookingSchema.index({ businessId: 1, date: 1, status: 1 });
   bookingSchema.index({ businessId: 1, serviceId: 1, date: 1, timeSlot: 1 });
+  bookingSchema.index({ customerId: 1, createdAt: -1 });
 
   const reviewSchema = new mongoose.Schema({
     customerId: { type: String, required: true, trim: true },

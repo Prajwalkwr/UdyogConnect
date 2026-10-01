@@ -66,4 +66,32 @@ const authenticateToken = async (req, res, next) => {
   return next();
 };
 
-module.exports = { authenticateToken, forgetPasswordChange, SESSION_EXPIRED_MESSAGE, PASSWORD_CHANGED_MESSAGE };
+/** Same checks as authenticateToken, but requests without a valid session continue as guests (req.user = null). */
+const optionalAuthenticate = async (req, res, next) => {
+  req.user = null;
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  const token = authHeader && String(authHeader).split(' ')[1];
+  if (!token) return next();
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, getJwtSecret());
+  } catch (_) {
+    return next();
+  }
+  const userId = decoded.userId || decoded.id;
+  if (!userId) return next();
+
+  let changedAt = null;
+  try {
+    changedAt = await getPasswordChangedAt(userId);
+  } catch (err) {
+    console.warn('[auth] Password change check skipped:', err && err.message);
+  }
+  if (changedAt && decoded.iat && decoded.iat < Math.floor(changedAt / 1000)) return next();
+
+  req.user = { ...decoded, userId, id: userId, role: decoded.role };
+  return next();
+};
+
+module.exports = { authenticateToken, optionalAuthenticate, forgetPasswordChange, SESSION_EXPIRED_MESSAGE, PASSWORD_CHANGED_MESSAGE };

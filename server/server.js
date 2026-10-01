@@ -41,7 +41,8 @@ const {
 const { evaluateBookingAvailability, getNepalParts, ACTIVE_BOOKING_STATUSES } = require('./booking/availability');
 const { createBillingRoutes } = require('./billing/routes');
 const { createHomeRoutes } = require('./home/routes');
-const { recordActivity } = require('./home/feedService');
+const { recordActivity, buildHomeFeed } = require('./home/feedService');
+const { createAiRoutes } = require('./ai/routes');
 const { buildSuggestions } = require('./suggestions');
 const { validateAddressList } = require('./deliveryAddress');
 const { createPasswordResetRoutes, SENSITIVE_USER_FIELDS } = require('./auth/passwordReset');
@@ -57,7 +58,7 @@ try {
   const serverEnvPath = path.resolve(__dirname, '.env');
   if (fs.existsSync(serverEnvPath)) {
     const serverEnv = dotenv.parse(fs.readFileSync(serverEnvPath));
-    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_PASSWORD', 'EMAIL_FROM', 'BREVO_API_KEY']) {
+    for (const key of ['GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GMAIL_FROM_NAME', 'EMAIL_SERVICE', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE', 'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_PASSWORD', 'EMAIL_FROM', 'BREVO_API_KEY', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_BASE_URL']) {
       if (!process.env[key] && serverEnv[key]) process.env[key] = serverEnv[key];
     }
   }
@@ -648,6 +649,14 @@ app.use('/api', createHomeRoutes({
   isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
   serializeBusiness: (business) => serializeBusiness(business),
   getOptionalUser: (req) => getOptionalRequestUser(req),
+}));
+app.use('/api', createAiRoutes({
+  models: { Business, Product, Service, Order, Booking, User },
+  getIsMongo,
+  isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
+  getApprovalStatus: (business) => getApprovalStatus(business),
+  buildHomeFeed,
+  serializeBusiness: (business) => serializeBusiness(business),
 }));
 
 // Helper: Extract Cloudinary public_id from secure_url
@@ -3632,107 +3641,6 @@ app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res
   }
 });
 
-// AI Chatbot supporting Catalog Queries & Status Check
-app.post('/api/ai/chatbot', async (req, res) => {
-  try {
-    const { message, customerId } = req.body;
-    if (!message) return res.status(400).json({ message: 'Prompt is required.' });
-
-    const prompt = message.toLowerCase().trim();
-    const BusinessMDL = Business();
-    const ProductMDL = Product();
-    const CouponMDL = Coupon();
-    const OrderMDL = Order();
-
-    const businesses = (await BusinessMDL.find({})).filter((b) => isPubliclyLiveBusiness(b));
-    const liveBusinessIds = new Set(businesses.map((b) => String(b._id)));
-    const products = (await ProductMDL.find({})).filter((p) => liveBusinessIds.has(String(p.businessId)));
-
-    let response = '';
-
-    // Order Tracking Query
-    if (prompt.includes('order') || prompt.includes('track') || prompt.includes('status')) {
-      const match = message.match(/[a-z0-9]{5,10}/i);
-      if (match) {
-        const orderId = match[0];
-        const ord = await OrderMDL.findById(orderId);
-        if (ord) {
-          response = `Your order **${orderId}** totaling **NPR ${ord.total}** is currently **${ord.status.toUpperCase()}**.\n` +
-            `Payment Status: **${ord.paymentStatus.toUpperCase()}**.\n` +
-            `Tracking Note: _${ord.trackingHistory[ord.trackingHistory.length - 1].note}_`;
-        } else {
-          response = `I found a code "${orderId}" but couldn't locate a matching order in our marketplace database. Please double-check your Order ID.`;
-        }
-      } else {
-        // Find recent orders for user
-        if (customerId) {
-          const userOrders = await OrderMDL.find({ customerId });
-          if (userOrders.length > 0) {
-            const last = userOrders[0];
-            response = `Your most recent order is **${last._id}** (${last.items.map(i=>i.name).join(', ')}).\n` +
-              `Status: **${last.status.toUpperCase()}**.\n` +
-              `Total: **NPR ${last.total}**.`;
-          } else {
-            response = 'You have not placed any orders yet. Would you like help finding a shop?';
-          }
-        } else {
-          response = 'To track an order, please provide your 9-character Order ID (e.g. `u8h3jnsd`).';
-        }
-      }
-    }
-    // Coupon Query
-    else if (prompt.includes('coupon') || prompt.includes('promo') || prompt.includes('discount')) {
-      const coupons = await CouponMDL.find({ active: true });
-      if (coupons.length > 0) {
-        response = `Here are active marketplace discount coupons you can use:\n` +
-          coupons.map((c) => `- **${c.code}**: Get ${c.discountPercent}% off (up to NPR ${c.maxDiscount})`).join('\n');
-      } else {
-        response = 'There are no active coupons right now, but check back during flash sales!';
-      }
-    }
-    // Business Queries
-    else {
-      let matchedBiz = null;
-      for (let b of businesses) {
-        if (prompt.includes(b.name.toLowerCase())) {
-          matchedBiz = b;
-          break;
-        }
-      }
-
-      if (matchedBiz) {
-        const bizProds = products.filter((p) => p.businessId === matchedBiz._id);
-        const prodList = bizProds.length > 0 ? bizProds.map((p) => `- ${p.name} (NPR ${p.price})`).slice(0, 3).join('\n') : 'No products loaded.';
-        response = `**${matchedBiz.name}** is a verified vendor in **${matchedBiz.category}** located in **${matchedBiz.location}**.\n` +
-          `Hours: **${matchedBiz.hours}**\n` +
-          `Rating: **${matchedBiz.rating} ⭐** (${matchedBiz.reviewCount} reviews)\n` +
-          `Description: _${matchedBiz.description}_\n\n` +
-          `**Featured Products/Services:**\n${prodList}`;
-      }
-      // General categories or generic welcome
-      else if (prompt.includes('food') || prompt.includes('restaurant') || prompt.includes('eat')) {
-        const foodBizs = businesses.filter((b) => b.category.toLowerCase().includes('restaurant') || b.category.toLowerCase().includes('food'));
-        response = `Here are some food options on UdyogConnect:\n` +
-          foodBizs.map((b) => `- **${b.name}** in ${b.location} (${b.rating} ⭐)`).join('\n');
-      } else if (prompt.includes('craft') || prompt.includes('gift') || prompt.includes('art')) {
-        const craftBizs = businesses.filter((b) => b.category.toLowerCase().includes('gift') || b.category.toLowerCase().includes('craft'));
-        response = `Check out our local artisan shops:\n` +
-          craftBizs.map((b) => `- **${b.name}** in ${b.location} (${b.rating} ⭐)`).join('\n');
-      } else {
-        response = `Namaste! I am the **UdyogConnect Support AI**. I can assist you with:\n` +
-          `- **Finding Shops**: Ask about "Bhoj Garden" or "Sunar Craft House".\n` +
-          `- **Tracking Delivery**: Ask "Where is my order" or provide your Order ID.\n` +
-          `- **Discount Coupons**: Type "coupons" to see active offers.\n` +
-          `- **Categories**: Search for "food", "furniture", or "crafts".`;
-      }
-    }
-
-    res.json({ text: response });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Chatbot encountered an error.' });
-  }
-});
 
 // Location-based recommendations
 // Location-based recommendations

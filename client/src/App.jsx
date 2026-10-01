@@ -24,6 +24,7 @@ const EsewaSimulator = lazy(() => import('./components/EsewaSimulator'));
 const BusinessProfilePage = lazy(() => import('./components/business-profile/BusinessProfilePage'));
 const CartCheckout = lazy(() => import('./components/CartCheckout'));
 const ChatAndAI = lazy(() => import('./components/ChatAndAI'));
+const AiAssistant = lazy(() => import('./components/ai/AiAssistant'));
 const CustomerMessagesPage = lazy(() => import('./components/messaging/CustomerMessagesPage'));
 const ForgotPasswordPage = lazy(() => import('./components/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./components/auth/ResetPasswordPage'));
@@ -831,6 +832,14 @@ function App() {
       {/* Floating Chat & AI system */}
       <Suspense fallback={null}>
         <ChatAndAI user={user} lang={lang} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <AiAssistant
+          user={user}
+          onOpenBusiness={(id, tab) => navigate(`/business-profile/${id}${tab ? `?tab=${tab}` : ''}`)}
+          onOpenProduct={(id) => setSelectedProductId(id)}
+          onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}
+        />
       </Suspense>
 
       {/* Footer — only on non-dashboard pages */}

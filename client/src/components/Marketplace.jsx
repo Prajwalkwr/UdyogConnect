@@ -431,6 +431,8 @@ export default function Marketplace({
               onToggleSave={toggleSaved}
               isSaved={isSavedBusiness}
               onRetry={reloadFeed}
+              area={feedArea}
+              coords={coords}
             />
 
             <PopularBusinesses

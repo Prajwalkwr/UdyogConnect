@@ -1,5 +1,5 @@
 const express = require('express');
-const { Business, Product, getIsMongo } = require('../db');
+const { Business, Product, ActivityEvent, getIsMongo } = require('../db');
 const { buildHomeFeed, recordActivity } = require('./feedService');
 
 const VISITOR_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
@@ -33,6 +33,7 @@ function toPublicFeed(feed) {
 /**
  * GET  /api/home/feed      — everything the home page needs, personalised when signed in
  * POST /api/activity/view  — records a business/product view for recommendations and trending
+ * DELETE /api/activity/history — resets the caller's view history used for personalisation
  */
 function createHomeRoutes({ isLiveBusiness, serializeBusiness, getOptionalUser }) {
   const router = express.Router();
@@ -90,6 +91,24 @@ function createHomeRoutes({ isLiveBusiness, serializeBusiness, getOptionalUser }
     } catch (err) {
       console.error('[home] Failed to record view:', err && err.message);
       return res.status(500).json({ message: 'Failed to record view.' });
+    }
+  });
+
+  // Clears the caller's own browsing signals. Orders, bookings, reviews and saved businesses are kept.
+  router.delete('/activity/history', async (req, res) => {
+    try {
+      const user = getOptionalUser(req);
+      const userId = String(user?.id || user?.userId || '');
+      const visitorId = readVisitorId(req);
+      if (!userId && !visitorId) return res.status(400).json({ message: 'Visitor id required.' });
+      const model = ActivityEvent();
+      let deleted = 0;
+      if (model && userId) deleted += (await model.deleteMany({ userId })).deletedCount || 0;
+      if (model && visitorId) deleted += (await model.deleteMany({ visitorId })).deletedCount || 0;
+      return res.json({ message: 'Your recommendation history was reset.', deleted });
+    } catch (err) {
+      console.error('[home] Failed to reset activity history:', err && err.message);
+      return res.status(500).json({ message: 'Failed to reset your recommendation history.' });
     }
   });
 

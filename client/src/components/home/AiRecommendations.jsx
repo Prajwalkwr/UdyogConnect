@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FiArrowRight, FiHelpCircle, FiX } from 'react-icons/fi';
+import Swal from 'sweetalert2';
+import { FiArrowRight, FiHelpCircle, FiRotateCcw, FiX } from 'react-icons/fi';
 import { Bot, Sparkles } from 'lucide-react';
 import BusinessRecCard from './BusinessRecCard';
+import { AI_MESSAGES, fetchHomeSummary, openAssistant, resetRecommendationHistory } from '../../utils/aiAssistant';
 
 const SLOTS = [
   { key: 'forYou', label: 'Recommended for You' },
@@ -13,8 +15,9 @@ const SLOTS = [
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-function HowItWorks({ feed, user, onClose }) {
+function HowItWorks({ feed, user, onClose, onReset }) {
   const ref = useRef(null);
+  const [resetting, setResetting] = useState(false);
   useEffect(() => {
     const onPointer = (event) => {
       if (ref.current && !ref.current.contains(event.target)) onClose();
@@ -63,9 +66,43 @@ function HowItWorks({ feed, user, onClose }) {
           ? `Your picks use ${plural(s.orders || 0, 'order')}, ${plural(s.bookings || 0, 'booking')}, ${s.saved || 0} saved, ${plural(s.reviews || 0, 'review')} and ${plural(s.views || 0, 'recent view')}.`
           : 'Browsing as a guest: picks use what you view on this device. Sign in to include your orders, bookings and wishlist.'}
       </p>
-      <p className="mt-2 text-[10px] text-[var(--mp-muted)]">Only live, admin-approved businesses are recommended.</p>
+      <p className="mt-2 text-[10px] text-[var(--mp-muted)]">Only live, admin-approved businesses are recommended. We never use sensitive personal details.</p>
+      <button
+        type="button"
+        disabled={resetting}
+        onClick={async () => {
+          setResetting(true);
+          await onReset();
+          setResetting(false);
+        }}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--mp-border)] px-3 py-1.5 text-[11px] font-semibold text-[var(--mp-brown)] transition hover:border-[var(--mp-gold)] hover:text-[var(--mp-gold)] disabled:opacity-50"
+      >
+        <FiRotateCcw /> {resetting ? 'Resetting…' : 'Reset my recommendation history'}
+      </button>
+      <p className="mt-1 text-[10px] text-[var(--mp-muted)]">Clears the pages you viewed. Orders, bookings and saved businesses stay in your account.</p>
     </div>
   );
+}
+
+/** Optional one-line AI intro. The section works the same without it. */
+function useAiSummary({ area, coords, userId, enabled }) {
+  const [state, setState] = useState({ status: 'idle', summary: null });
+  const lat = coords?.lat;
+  const lng = coords?.lng;
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const controller = new AbortController();
+    setState((prev) => ({ ...prev, status: 'loading' }));
+    const timer = setTimeout(() => {
+      fetchHomeSummary({ area, coords: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null, signal: controller.signal })
+        .then((result) => !controller.signal.aborted && setState(result));
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [area, lat, lng, userId, enabled]);
+  return state;
 }
 
 function SkeletonCards() {
@@ -76,12 +113,22 @@ function SkeletonCards() {
   );
 }
 
-export default function AiRecommendations({ feed, status, user, onOpenBusiness, onToggleSave, isSaved, onRetry }) {
+export default function AiRecommendations({ feed, status, user, onOpenBusiness, onToggleSave, isSaved, onRetry, area = '', coords = null }) {
   const [expanded, setExpanded] = useState(false);
   const [activeSlot, setActiveSlot] = useState('forYou');
   const [showHelp, setShowHelp] = useState(false);
   const highlights = feed?.highlights || [];
   const recommendations = feed?.recommendations || {};
+  const aiSummary = useAiSummary({ area, coords, userId: user?._id || user?.id || '', enabled: highlights.length > 0 });
+
+  const resetHistory = async () => {
+    const result = await resetRecommendationHistory();
+    Swal.fire({ icon: result.ok ? 'success' : 'error', title: result.message });
+    if (result.ok) {
+      setShowHelp(false);
+      onRetry?.();
+    }
+  };
 
   const openAll = (slot = activeSlot) => {
     setActiveSlot(slot);
@@ -93,13 +140,21 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="ai-recs-title" className="flex items-center gap-2 text-lg font-bold text-[var(--mp-ink)]">
-            <Sparkles className="h-5 w-5 text-[var(--mp-gold)]" /> Smart Recommendations
+            <Sparkles className="h-5 w-5 text-[var(--mp-gold)]" /> AI Recommendations For You
           </h2>
           <p className="mt-0.5 text-xs text-[var(--mp-muted)]">
             {feed?.personalized
               ? 'Personalized picks just for you based on your interests, location and activity.'
               : 'Picks based on your location and what shoppers love right now. They get smarter as you explore.'}
           </p>
+          {aiSummary.status === 'ai' && aiSummary.summary && (
+            <p className="mt-2 flex max-w-2xl items-start gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs text-[var(--mp-brown)]">
+              <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--mp-gold)]" /> {aiSummary.summary}
+            </p>
+          )}
+          {aiSummary.status === 'unavailable' && (
+            <p className="mt-2 text-[11px] text-[var(--mp-muted)]">{AI_MESSAGES.recommendationsUnavailable}</p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="relative">
@@ -111,7 +166,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
             >
               <FiHelpCircle /> How it works?
             </button>
-            {showHelp && <HowItWorks feed={feed} user={user} onClose={() => setShowHelp(false)} />}
+            {showHelp && <HowItWorks feed={feed} user={user} onClose={() => setShowHelp(false)} onReset={resetHistory} />}
           </div>
           {highlights.length > 0 && (
             <button
@@ -159,12 +214,19 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
             </span>
             <p className="mt-2 text-xs font-bold text-indigo-700">AI Powered<br />Better Recommendations</p>
             <p className="mt-1.5 text-[10.5px] leading-snug text-slate-500">
-              We&apos;ll show you more relevant businesses as you explore, search and shop on UdyogConnect.
+              Ask in your own words, like &quot;a quiet cafe near me&quot; or &quot;electronics under NPR 5000&quot;.
             </p>
             <button
               type="button"
-              onClick={() => openAll('forYou')}
+              onClick={() => openAssistant()}
               className="mt-3 inline-flex items-center gap-1 rounded-full bg-indigo-600 px-4 py-1.5 text-[11px] font-bold text-white transition hover:bg-indigo-700"
+            >
+              🤖 Ask UdyogConnect AI
+            </button>
+            <button
+              type="button"
+              onClick={() => openAll('forYou')}
+              className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:underline"
             >
               Explore More <FiArrowRight />
             </button>

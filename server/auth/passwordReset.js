@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const { User, AuditLog } = require('../db');
 const { sendEmail, escapeHtml } = require('../utils/mailer');
 const { forgetPasswordChange } = require('../middleware/authMiddleware');
+const { createWindowLimiter } = require('../utils/windowLimiter');
 
 const RESET_TOKEN_BYTES = 32;
 const RESET_TOKEN_TTL_MINUTES = 30;
@@ -28,25 +29,6 @@ const envNumber = (name, fallback) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
-
-function createWindowLimiter({ windowMs, max }) {
-  const hits = new Map();
-  return {
-    hit(key) {
-      const now = Date.now();
-      if (hits.size > 10000) {
-        for (const [k, entry] of hits) if (entry.resetAt <= now) hits.delete(k);
-      }
-      const entry = hits.get(key);
-      if (!entry || entry.resetAt <= now) {
-        hits.set(key, { count: 1, resetAt: now + windowMs });
-        return { allowed: true, retryAfterSec: 0 };
-      }
-      entry.count += 1;
-      return { allowed: entry.count <= max, retryAfterSec: Math.ceil((entry.resetAt - now) / 1000) };
-    },
-  };
-}
 
 const normalizeEmail = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
 const isValidEmail = (email) => Boolean(email) && email.length <= MAX_EMAIL_LENGTH && EMAIL_REGEX.test(email);
