@@ -221,7 +221,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
               onClick={() => openAssistant()}
               className="mt-3 inline-flex items-center gap-1 rounded-full bg-indigo-600 px-4 py-1.5 text-[11px] font-bold text-white transition hover:bg-indigo-700"
             >
-              🤖 Ask UdyogConnect AI
+              Ask UdyogConnect AI
             </button>
             <button
               type="button"
