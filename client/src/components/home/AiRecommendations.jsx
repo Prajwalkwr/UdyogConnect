@@ -212,7 +212,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
               <Bot className="h-6 w-6" />
             </span>
-            <p className="mt-2 text-xs font-bold text-indigo-700">AI Powered<br />Better Recommendations</p>
+            <p className="mt-2 text-xs font-bold text-indigo-700">Udyog Smart</p>
             <p className="mt-1.5 text-[10.5px] leading-snug text-slate-500">
               Ask in your own words, like &quot;a quiet cafe near me&quot; or &quot;electronics under NPR 5000&quot;.
             </p>
