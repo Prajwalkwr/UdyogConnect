@@ -87,6 +87,20 @@ export default function DetailsModal({
 
   const businessImage = businessData?.business?.imageUrl || businessData?.business?.logoUrl || businessData?.business?.logo || businessData?.business?.image || '';
 
+  const featuredProduct = productId
+    ? (businessData?.products || []).find((p) => String(p._id) === String(productId))
+    : null;
+  const listedProducts = featuredProduct
+    ? businessData.products.filter((p) => p._id !== featuredProduct._id)
+    : businessData?.products || [];
+
+  const productFinalPrice = (p) => p.price - (p.price * (p.discount || 0)) / 100;
+
+  const handleAddProduct = (p) => {
+    onAddToCart({ id: p._id, name: p.name, price: productFinalPrice(p), quantity: 1, seller: businessData.business.name, stock: p.stock });
+    Swal.fire({ icon: 'success', text: translate('Added to cart', 'कार्टमा थपियो'), timer: 800, showConfirmButton: false });
+  };
+
   const isBusinessSaved = Array.isArray(user?.wishlist?.businesses)
     && user.wishlist.businesses.some((item) => String(item?._id || item?.id || item) === String(businessData?.business?._id));
 
@@ -351,21 +365,69 @@ export default function DetailsModal({
                 </div>
 
                 {/* Products Tab */}
-                {activeTab === 'products' && (
+                {activeTab === 'products' && featuredProduct && (
+                  <div className="flex flex-col gap-4 rounded-2xl border border-amber-400/30 bg-slate-950/40 p-4 sm:flex-row">
+                    <div className="relative flex h-56 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white sm:h-60 sm:w-60">
+                      {featuredProduct.images?.[0] ? (
+                        <img src={featuredProduct.images[0]} alt={featuredProduct.name} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="text-4xl">🛍️</span>
+                      )}
+                      {featuredProduct.discount > 0 && (
+                        <span className="absolute left-2 top-2 rounded bg-[#c0392b] px-2 py-0.5 text-[11px] font-bold text-white">
+                          -{featuredProduct.discount}%
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <h3 className="text-lg font-black text-white">{featuredProduct.name}</h3>
+                      {featuredProduct.description && (
+                        <p className="mt-2 text-xs leading-relaxed text-slate-300">{featuredProduct.description}</p>
+                      )}
+                      <div className="mt-3 text-[10px] font-mono text-slate-500">SKU: {featuredProduct.sku}</div>
+                      <div className={`mt-1 text-xs font-bold ${featuredProduct.stock > 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
+                        {featuredProduct.stock > 0 ? `Stock: ${featuredProduct.stock}` : translate('Out of stock', 'स्टक छैन')}
+                      </div>
+                      <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4">
+                        <div>
+                          <span className="whitespace-nowrap text-xl font-black text-amber-300">{displayPrice(productFinalPrice(featuredProduct))}</span>
+                          {featuredProduct.discount > 0 && (
+                            <span className="ml-2 whitespace-nowrap text-xs text-slate-500 line-through">{displayPrice(featuredProduct.price)}</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleAddProduct(featuredProduct)}
+                          disabled={featuredProduct.stock <= 0}
+                          className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold ${featuredProduct.stock > 0 ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                        >
+                          {featuredProduct.stock > 0 ? translate('+ Add to cart', '+ कार्टमा थप्नुहोस्') : translate('Sold Out', 'बिकिसकेको')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'products' && featuredProduct && listedProducts.length > 0 && (
+                  <h4 className="pt-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    {translate('More from this store', 'यस पसलका थप उत्पादनहरू')}
+                  </h4>
+                )}
+
+                {activeTab === 'products' && (!featuredProduct || listedProducts.length > 0) && (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {businessData.products.length === 0 ? (
+                    {listedProducts.length === 0 ? (
                       <div className="sm:col-span-2 py-10 text-center text-xs text-slate-500">
                         {translate('No products currently listed.', 'हाल कुनै उत्पादनहरू सूचीकृत छैनन्।')}
                       </div>
                     ) : (
-                      businessData.products.map((p) => {
-                        const finalPrice = p.price - (p.price * (p.discount || 0)) / 100;
+                      listedProducts.map((p) => {
+                        const finalPrice = productFinalPrice(p);
                         return (
                           <div key={p._id} className="rounded-xl border border-slate-805 bg-slate-950/20 p-3.5 flex flex-col justify-between">
                             <div>
-                              <div className="relative h-24 w-full bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center">
+                              <div className="relative h-40 w-full bg-white rounded-lg overflow-hidden flex items-center justify-center">
                                 {p.images && p.images[0] ? (
-                                  <img src={p.images[0]} alt="product" className="h-full w-full object-cover" />
+                                  <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain" />
                                 ) : (
                                   <span className="text-xl">🛍️</span>
                                 )}
@@ -385,10 +447,7 @@ export default function DetailsModal({
                                 )}
                               </div>
                               <button
-                                onClick={() => {
-                                  onAddToCart({ id: p._id, name: p.name, price: finalPrice, quantity: 1, seller: businessData.business.name, stock: p.stock });
-                                  Swal.fire({ icon: 'success', text: translate('Added to cart', 'कार्टमा थपियो'), timer: 800, showConfirmButton: false });
-                                }}
+                                onClick={() => handleAddProduct(p)}
                                 disabled={p.stock <= 0}
                                 className={`rounded-lg px-3 py-1 text-xs font-bold ${p.stock > 0 ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
                               >
