@@ -651,7 +651,7 @@ app.use('/api', createHomeRoutes({
   getOptionalUser: (req) => getOptionalRequestUser(req),
 }));
 app.use('/api', createAiRoutes({
-  models: { Business, Product, Service, Order, Booking, User },
+  models: { Business, Product, Service, Order, Booking, User, Review },
   getIsMongo,
   isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
   getApprovalStatus: (business) => getApprovalStatus(business),

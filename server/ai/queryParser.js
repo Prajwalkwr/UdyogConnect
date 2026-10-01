@@ -75,7 +75,7 @@ const ASPECTS = [
   ['contact', CONTACT_PATTERN],
   ['hours', /\b(open|opens|opening|close|closes|closed|closing|hours?|timings?|time|schedule)\b/],
   ['delivery', /\b(deliver|delivers|delivery|home delivery|ship|shipping)\b/],
-  ['rating', /\b(rating|ratings|rated|reviews?|stars?)\b/],
+  ['rating', /\b(rating|ratings|rated|reviews?|stars?|feedback|(say|saying|think)\s+about)\b/],
   ['location', /\b(where|address|location|located|directions?|map|how far|distance)\b/],
   ['catalog', /\b(menu|products?|items?|sells?|selling|stock|have|offers?|services?|price list|what can i (buy|get|order|book))\b/],
 ];
@@ -94,7 +94,13 @@ const STOPWORDS = new Set(('a an the and or but of for to in on at by with from 
   + 'below less than more over above within upto up maximum max minimum min npr rs rupee rupees price prices cost km kilometer '
   + 'kilometers meter shop shops store stores business businesses place places service services product products item items '
   + 'buy book booking hire udyogconnect ai assistant hi hello hey namaste thanks thank also just like about into get got sell '
-  + 'sells selling offer offers offering have has one ones lot lots much many very really kind type sort something someone').split(' '));
+  + 'sells selling offer offers offering have has one ones lot lots much many very really kind type sort something someone '
+  + 'deal deals discount discounts discounted sale sales promotion promotions promo bargain bargains clearance special festival '
+  + 'festive running biggest big most least lowest highest high low expensive costliest priciest premium luxury charge charges '
+  + 'popular trending famous bestseller bestselling sold ordered bought booked visited demand newest latest new newly recently '
+  + 'added listed registered arrival arrivals joined rated rating ratings review reviews reviewed star stars highly well verified '
+  + 'trusted percent off plus based previous past usual favourite favorite interest interests personalised personalized might '
+  + 'may recommendation recommendations customers having right').split(' '));
 
 const normalize = (text) => String(text || '')
   .normalize('NFKC')
@@ -199,6 +205,27 @@ function parsePrice(lower) {
   return { minPrice: min ? parseAmount(min[1]) : null, maxPrice: max ? parseAmount(max[1]) : null };
 }
 
+const RATING_PATTERN = /(?:(?:rated|rating|ratings)\s*(?:of\s*)?(?:above|over|at least|min(?:imum)?|>=?)?\s*([1-5](?:\.\d)?)\s*(?:\+|plus|stars?|or (?:more|above|higher))?)|(?:([1-5](?:\.\d)?)\s*(?:\+|plus|or (?:more|above|higher)|and (?:above|up))?\s*(?:stars?|ratings?|rated))/;
+const DISCOUNT_PATTERN = /(?:at least|min(?:imum)?|over|above|more than)?\s*(\d{1,2})\s*(?:%|percent)\s*(?:or (?:more|above|higher)|and (?:above|up)|\+|plus)?\s*(?:off|discount)?/;
+
+/** Ranking words, checked in order so "least expensive" is cheap and "best deals" is about discounts, not ratings. */
+const SORT_RULES = [
+  ['discount', /\b(deals?|discounts?|discounted|on sale|sales?|promotions?|promos?|bargains?|value for money|clearance|offers? ((are|is) )?(available|today|near|running|going on)|(best|any|special|festival|festive|today'?s|current|latest|great|top|biggest) offers?)\b/],
+  ['price', /\b(cheapest|cheaper|cheap|lowest[- ]price[ds]?|low[- ]price[ds]?|lowest cost|least expensive|less expensive|inexpensive|affordable|budget|best price|(charges?|costs?) (the )?least|lowest)\b/],
+  ['price_desc', /\b(most expensive|costliest|priciest|highest[- ]price[ds]?|high[- ]priced|premium|luxury|expensive)\b/],
+  ['newest', /\b(newest|latest|new arrivals?|newly|recently (added|listed|registered|opened|joined)|new (products?|items?|services?|businesses|business|shops?|stores?|listings?))\b/],
+  ['popular', /\b(popular|trending|best[- ]?sell(ing|ers?)|most (sold|ordered|bought|booked|visited|viewed)|(sold|ordered|bought|booked|visited) the most|famous|in demand)\b/],
+  ['reviews', /\b(most reviews|most reviewed|most review)\b/],
+  ['rating', /\b(highest[- ]rated|top[- ]rated|best[- ]rated|highly[- ]rated|well[- ]rated|best reviews?|best ratings?|highest ratings?|good reviews?|good ratings?|5[- ]star|five[- ]star|best|top)\b/],
+  ['distance', /\b(nearest|closest)\b/],
+];
+/** Sorts that rank listings by a number from the database rather than by how well they match the words. */
+const RANKING_SORTS = new Set(['price', 'price_desc', 'discount', 'newest', 'popular', 'reviews', 'rating']);
+
+const DELIVERY_PATTERN = /\b(home delivery|delivery available|deliver(s|ing)? (to|near|nearby|around|in|at)|(offer|offers|provide|provides|with|has|have|do|does)\s+(home\s+)?delivery|(that|who|which|can|businesses|shops?|stores?|restaurants?|sellers?)\s+deliver)\b/;
+const VERIFIED_PATTERN = /\b(verified|trusted)\s+(business|businesses|shops?|stores?|sellers?|places?|restaurants?)\b|\b(business|businesses|shops?|stores?|sellers?|places?)\s+(are|is)\s+(verified|trusted)\b|\bonly verified\b/;
+const FOR_YOU_PATTERN = /\b(based on my|my (previous|past|recent|last|old) (orders?|purchases?|searches?)|what i (bought|ordered|purchased)|(might|would|will) i like|i (might|would|may) (like|need|enjoy)|my (favou?rite|usual|preferred) (categor(y|ies)|price|shops?|stores?|business(es)?)|my interests?|personali[sz]ed|picked for me|just for me)\b/;
+
 /**
  * Turns a free-text question into structured search filters. Deterministic and side-effect free,
  * so the marketplace search works the same whether or not the AI model is reachable.
@@ -230,7 +257,13 @@ function parseQuery(message, { role } = {}) {
   else if (BUSINESS_WORDS.test(lower) && !conceptKind) kind = 'business';
   else if (conceptKind) kind = conceptKind;
 
-  const { minPrice, maxPrice } = parsePrice(lower);
+  const ratingMatch = lower.match(RATING_PATTERN);
+  const minRating = ratingMatch ? Math.min(5, Number(ratingMatch[1] || ratingMatch[2])) : null;
+  const discountMatch = lower.match(DISCOUNT_PATTERN);
+  const minDiscount = discountMatch ? Number(discountMatch[1]) || null : null;
+  // "rated above 4" and "20% off" are not prices.
+  const priceText = lower.replace(RATING_PATTERN, ' ').replace(DISCOUNT_PATTERN, ' ');
+  const { minPrice, maxPrice } = parsePrice(priceText);
   if ((minPrice || maxPrice) && kind === 'business') kind = 'any';
 
   const radiusMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:km|kilomet)/);
@@ -238,16 +271,25 @@ function parseQuery(message, { role } = {}) {
   const nearMe = /\b(near\s*(me|by)?|nearby|nearest|closest|close to me|around me|around here|in my area)\b/.test(lower) || Boolean(radiusKm);
   const openNow = /\b(open now|open right now|currently open|open today|still open|open at the moment|is open)\b/.test(lower);
 
-  let sort = null;
-  if (/\b(cheapest|lowest price|low price|affordable|budget|cheap)\b/.test(lower)) sort = 'price';
-  else if (/\b(best|top|highest rated|top rated|best rated|popular|famous)\b/.test(lower)) sort = 'rating';
-  else if (/\b(nearest|closest)\b/.test(lower)) sort = 'distance';
+  const closedNow = /\b(closed now|closed right now|currently closed|closed today|closed at the moment)\b/.test(lower);
+  const wantsDelivery = DELIVERY_PATTERN.test(lower);
+  const verifiedOnly = VERIFIED_PATTERN.test(lower);
+  const forYou = FOR_YOU_PATTERN.test(lower);
+
+  let sort = (SORT_RULES.find(([, pattern]) => pattern.test(lower)) || [null])[0];
+  if (minDiscount) sort = 'discount';
+  else if (minRating && !sort) sort = 'rating';
 
   const place = resolvePlace(lower);
-  const keywords = keywordsOf(text).filter((word) => !(place && place.label.toLowerCase().split(' ').includes(word)));
+  const keywords = keywordsOf(text).filter((word) => !(place && place.label.toLowerCase().split(' ').includes(word))
+    && !(wantsDelivery && /^deliver/.test(word)));
   const helpScore = HELP_TERMS.reduce((score, term) => score + (containsPhrase(lower, term) ? 1 : 0), 0);
   const isQuestion = /\?$|^(how|what|why|when|can|do|does|is|are|will|should|who)\b/.test(lower);
-  const hasSearchSignals = groups.size > 0 || nearMe || openNow || minPrice !== null || maxPrice !== null
+  const ranking = (RANKING_SORTS.has(sort) && sort !== 'rating') || (sort === 'rating' && /\b(rated|ratings?|reviews?|stars?)\b/.test(lower))
+    || Boolean(minRating || minDiscount) || wantsDelivery || verifiedOnly || closedNow;
+  // "Which business has the highest rating?" is a search; "How do ratings work?" is a help question.
+  const rankingSearch = ranking && !/^(how|why|can i|could i|is it possible|am i able)\b/.test(lower);
+  const hasSearchSignals = groups.size > 0 || nearMe || openNow || minPrice !== null || maxPrice !== null || rankingSearch
     || /\b(find|show|recommend|suggest|search|looking for|where can i|where to|any)\b/.test(lower);
 
   const asksContact = CONTACT_PATTERN.test(lower) && groups.size === 0 && conceptTerms.length === 0 && minPrice === null && maxPrice === null;
@@ -261,11 +303,12 @@ function parseQuery(message, { role } = {}) {
   else if (OVERVIEW_PATTERN.test(lower) && groups.size === 0 && conceptTerms.length === 0) intent = 'overview';
   else if (role === 'seller' && /\b(my|our)\b.{0,25}\b(business|shop|store|products?|stock|inventory|services?|orders?|sales|revenue|earnings|reviews?|ratings?|bookings?|customers?|performance|analytics)\b|\blow stock\b|\bout of stock\b.{0,20}\bmy\b/.test(lower)) intent = 'seller';
   else if (role === 'admin' && /\b(pending|approval|approve|platform|marketplace|how many|total|statistics|stats|overview|reports?|suspended|rejected)\b/.test(lower)) intent = 'admin';
-  else if (helpScore > 0 && groups.size === 0 && !nearMe && minPrice === null && maxPrice === null
+  else if (helpScore > 0 && !rankingSearch && groups.size === 0 && !nearMe && minPrice === null && maxPrice === null
     && /^(how|can|could|what|why|is it possible|am i able)\b/.test(lower)) intent = 'help';
+  else if (forYou && !/^(how|why|can i|could i)\b/.test(lower)) intent = 'for_you';
   else if (/\b(my|mine)\b.{0,20}\b(orders?|purchases?|deliver(y|ies)|parcel|package)\b|\bwhere is my\b|\btrack\b.{0,15}\border\b|\border status\b/.test(lower)) intent = 'my_orders';
   else if (/\b(my|mine)\b.{0,20}\b(bookings?|appointments?|reservations?)\b/.test(lower)) intent = 'my_bookings';
-  else if (helpScore > 0 && (!hasSearchSignals || (isQuestion && groups.size === 0))) intent = 'help';
+  else if (helpScore > 0 && !rankingSearch && (!hasSearchSignals || (isQuestion && groups.size === 0))) intent = 'help';
 
   return {
     text,
@@ -280,7 +323,12 @@ function parseQuery(message, { role } = {}) {
     radiusKm,
     nearMe,
     openNow,
+    closedNow,
     sort,
+    minRating,
+    minDiscount,
+    wantsDelivery,
+    verifiedOnly,
     place,
     aspect: detectAspect(lower),
     wantsHelp: helpScore > 0,
@@ -301,4 +349,5 @@ module.exports = {
   STOPWORDS,
   ASPECT_WORDS,
   BUSINESS_WORDS,
+  RANKING_SORTS,
 };

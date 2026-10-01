@@ -59,6 +59,24 @@ describe('query understanding', () => {
     expect(parseQuery('give me a platform overview', { role: 'admin' }).intent).toBe('admin');
   });
 
+  it('reads ranking questions from the suggested question buttons', () => {
+    expect(parseQuery('What are the best deals today?')).toMatchObject({ intent: 'search', sort: 'discount' });
+    expect(parseQuery('Which businesses have the best offers?')).toMatchObject({ kind: 'business', sort: 'discount' });
+    expect(parseQuery('Which products have 20% or more discount?')).toMatchObject({ kind: 'product', sort: 'discount', minDiscount: 20, minPrice: null });
+    expect(parseQuery('What is the most expensive product?')).toMatchObject({ kind: 'product', sort: 'price_desc' });
+    expect(parseQuery('Which plumber charges the least?')).toMatchObject({ kind: 'service', sort: 'price' });
+    expect(parseQuery('Show businesses with 4.5+ ratings')).toMatchObject({ kind: 'business', sort: 'rating', minRating: 4.5, minPrice: null });
+    expect(parseQuery('Which businesses have the most reviews?')).toMatchObject({ intent: 'search', sort: 'reviews' });
+    expect(parseQuery('Which business has the highest rating?')).toMatchObject({ intent: 'search', sort: 'rating' });
+    expect(parseQuery('Which services are booked the most?')).toMatchObject({ kind: 'service', sort: 'popular' });
+    expect(parseQuery('Show the newest products')).toMatchObject({ kind: 'product', sort: 'newest' });
+    expect(parseQuery('Which nearby businesses are verified?')).toMatchObject({ intent: 'search', verifiedOnly: true, nearMe: true });
+    expect(parseQuery('Which businesses deliver near me?')).toMatchObject({ intent: 'search', wantsDelivery: true });
+    expect(parseQuery('Recommend products based on my previous orders').intent).toBe('for_you');
+    expect(parseQuery('How do reviews work?').intent).toBe('help');
+    expect(parseQuery('What is the best way to pay?').intent).toBe('help');
+  });
+
   it('finds the matching help page section', () => {
     expect(searchKnowledge('How do I cancel my order?')[0].id).toBe('cancellations#cancelling-an-order');
     expect(searchKnowledge('can I pay with esewa')[0].id).toMatch(/^payments#/);
@@ -482,6 +500,107 @@ describe('POST /api/ai/chat — customer care and questions about one business',
     const count = Number((res.body.explanation.match(/has (\d+) approved/) || [])[1]);
     expect(count).toBeGreaterThanOrEqual(2);
     expect(count).toBeLessThanOrEqual((await db.Business().countDocuments({})) - 3);
+  });
+});
+
+describe('POST /api/ai/chat — rankings computed from the database', () => {
+  const created = [];
+  afterEach(async () => {
+    await Promise.all(created.splice(0).map(([model, id]) => model().findByIdAndDelete(id)));
+  });
+  const track = (model, doc) => { created.push([model, doc._id]); return doc; };
+  const review = (targetId, rating) => db.Review().create({
+    customerId: ids.customerA, customerName: 'A', businessId: ids.bizA, targetId, targetType: 'product', rating, comment: 'ok',
+  }).then((doc) => track(db.Review, doc));
+
+  it('ranks by price, most expensive and discount without asking the AI', async () => {
+    process.env.OPENAI_API_KEY = FAKE_KEY;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const cheap = await chat('What is the cheapest product available?');
+    expect(cheap.body.results.products[0].id).toBe(ids.headphones);
+    expect(cheap.body.explanation).toMatch(/^Cheapest option: Sony Wireless Headphones costs NPR 3,600/);
+
+    const dear = await chat('What is the most expensive product?');
+    expect(dear.body.results.products[0]).toMatchObject({ id: ids.earbuds, match: 'main' });
+    expect(dear.body.explanation).toMatch(/^Most expensive: JBL Bluetooth Earbuds costs NPR 5,000/);
+
+    const deals = await chat('Which products have the biggest discounts?');
+    expect(deals.body.results.products.map((p) => p.id)).toContain(ids.headphones);
+    expect(deals.body.results.products[0]).toMatchObject({ id: ids.headphones, discount: 10 });
+    expect(deals.body.explanation).toContain('10% off');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('says honestly when nothing has the discount asked for', async () => {
+    const res = await chat('Which products have 20% or more discount?');
+    expect(res.body.results.products).toEqual([]);
+    expect(res.body.explanation).toBe('No products have 20% or more off right now.');
+    expect((await chat('Show me discounted services')).body.explanation).toBe("Services on UdyogConnect don't have discounts right now.");
+  });
+
+  it('ranks products by their real reviews and never invents a rating', async () => {
+    const none = await chat('Show me the highest rated products');
+    expect(none.body.explanation).toMatch(/have customer reviews yet/);
+
+    await review(ids.headphones, 5);
+    await review(ids.earbuds, 3);
+    await review(ids.earbuds, 4);
+    const best = await chat('Show me the highest rated products');
+    expect(best.body.results.products[0]).toMatchObject({ id: ids.headphones, rating: 5, reviewCount: 1 });
+    expect(best.body.explanation).toMatch(/^Highest rated: Sony Wireless Headphones .*Rated 5 out of 5 from 1 review\./);
+    const most = await chat('Which products have the most reviews?');
+    expect(most.body.results.products[0]).toMatchObject({ id: ids.earbuds, reviewCount: 2, rating: 3.5 });
+  });
+
+  it('ranks popular products by units actually ordered', async () => {
+    const address = { name: 'Test Customer', email: 'c@ai-test.np', phone: '9800000001', address: 'Kathmandu', method: 'delivery' };
+    track(db.Order, await db.Order().create({ customerId: ids.customerB, businessId: ids.bizA, items: [{ id: ids.earbuds, type: 'product', name: 'JBL Bluetooth Earbuds', quantity: 3 }], subtotal: 15000, total: 15000, paymentMethod: 'COD', deliveryAddress: address, status: 'completed' }));
+    track(db.Order, await db.Order().create({ customerId: ids.customerB, businessId: ids.bizA, items: [{ id: ids.headphones, type: 'product', name: 'Sony Wireless Headphones', quantity: 9 }], subtotal: 100, total: 100, paymentMethod: 'COD', deliveryAddress: address, status: 'cancelled' }));
+    const res = await chat('What are the most popular products?');
+    expect(res.body.results.products[0]).toMatchObject({ id: ids.earbuds, sold: 3 });
+    expect(res.body.explanation).toContain('3 sold so far');
+    expect(JSON.stringify(res.body)).not.toContain(ids.customerB);
+  });
+
+  it('ranks and filters businesses by rating, verification and delivery', async () => {
+    await db.Business().findByIdAndUpdate(ids.bizA, { rating: 4.9, reviewCount: 2 });
+    const rated = await chat('Which business has the highest rating?');
+    expect(rated.body.results.businesses[0].id).toBe(ids.bizA);
+    expect(rated.body.explanation).toMatch(/^Gadget Ghar is the highest rated: 4.9 out of 5 from 2 reviews\./);
+    const highly = (await chat('Show businesses with 4.5+ ratings')).body.results.businesses;
+    expect(highly.map((b) => b.id)).toContain(ids.bizA);
+    expect(highly.every((b) => b.rating >= 4.5 && b.reviewCount > 0)).toBe(true);
+    await db.Business().findByIdAndUpdate(ids.bizA, { rating: 0, reviewCount: 0 });
+    expect((await chat('Show businesses with 4.5+ ratings')).body.results.businesses.map((b) => b.id)).not.toContain(ids.bizA);
+
+    const verifiedIds = async () => (await chat('Which businesses are verified?')).body.results.businesses.map((b) => b.id);
+    await db.Business().findByIdAndUpdate(ids.bizB, { rating: 5, reviewCount: 999 });
+    expect(await verifiedIds()).not.toContain(ids.bizB);
+    await db.Business().findByIdAndUpdate(ids.bizB, { isVerified: true });
+    expect((await verifiedIds())[0]).toBe(ids.bizB);
+    await db.Business().findByIdAndUpdate(ids.bizB, { isVerified: false, rating: 0, reviewCount: 0 });
+
+    const delivery = (await chat('Which businesses deliver near me?')).body.results.businesses.map((b) => b.id);
+    expect(delivery).toContain(ids.bizA);
+    expect(delivery).not.toContain(ids.bizB);
+  });
+
+  it('recommends from the signed-in customer\'s own orders only', async () => {
+    const address = { name: 'Test Customer', email: 'c@ai-test.np', phone: '9800000001', address: 'Kathmandu', method: 'delivery' };
+    track(db.Order, await db.Order().create({ customerId: ids.customerA, businessId: ids.bizA, items: [{ id: ids.headphones, type: 'product', name: 'Sony Wireless Headphones', unitPrice: 3600, quantity: 1 }], subtotal: 3600, total: 3600, paymentMethod: 'COD', deliveryAddress: address, status: 'completed' }));
+    const mine = await chat('Recommend products based on my previous orders', { token: tokens.customerA, customerId: ids.customerB });
+    expect(mine.body.intent).toBe('for_you');
+    expect(mine.body.results.products[0]).toMatchObject({ id: ids.earbuds, match: 'main' });
+    expect(mine.body.productIds).not.toContain(ids.headphones);
+    expect(mine.body.explanation).toMatch(/^Based on your past orders, you may like JBL Bluetooth Earbuds/);
+    expect(JSON.stringify(mine.body)).not.toContain(ids.customerA);
+
+    const other = await chat('Recommend products based on my previous orders', { token: tokens.customerB, customerId: ids.customerA });
+    expect(other.body.explanation).not.toMatch(/^Based on your past orders/);
+
+    const guest = await chat('What products might I like?');
+    expect(guest.body.requiresLogin).toBe(true);
+    expect(guest.body.explanation).toMatch(/^Sign in to get suggestions based on your orders/);
   });
 });
 

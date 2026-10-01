@@ -5,9 +5,12 @@ const { keywordsOf, tokenize, stem, expandWord, wordsMatch } = require('./queryP
 // phone and contactEmail are public on the business profile; they are only returned when someone asks how to contact a business.
 const BUSINESS_FIELDS = 'ownerId name category subcategory location description imageUrl coverUrl latitude longitude verified approvalStatus '
   + 'rating reviewCount hours openingDays manualOpenOverride manualOverrideAt deliveryAvailable deliveryRadiusKm offeringType createdAt '
-  + 'phone contactEmail';
-const PRODUCT_FIELDS = 'businessId name category subcategory description price discount stock brand images availability';
-const SERVICE_FIELDS = 'businessId name description price duration availability homeService imageUrl images';
+  + 'phone contactEmail isVerified visitorsCount';
+const PRODUCT_FIELDS = 'businessId name category subcategory description price discount stock brand images availability createdAt';
+const SERVICE_FIELDS = 'businessId name description price duration availability homeService imageUrl images createdAt';
+const INACTIVE_STATUSES = ['cancelled', 'rejected'];
+const ITEM_RANK_SORTS = new Set(['price', 'price_desc', 'discount', 'newest', 'popular', 'reviews', 'rating']);
+const METRIC_SORTS = new Set(['rating', 'reviews', 'popular']);
 
 const CATEGORY_WORDS = new Set(CATEGORY_GROUPS.flatMap((group) => group.keywords.flatMap((word) => keywordsOf(word))));
 
@@ -28,6 +31,8 @@ const productFinalPrice = (product) => {
 };
 const isProductAvailable = (product) => product.availability !== false && Number(product.stock) > 0;
 const isServiceAvailable = (service) => service.availability !== false;
+const isVerifiedBusiness = (business) => business.isVerified === true || ['verified', 'approved'].includes(business.verified);
+const timeOf = (value) => new Date(value || 0).getTime() || 0;
 
 function distanceKm(lat1, lng1, lat2, lng2) {
   if (![lat1, lng1, lat2, lng2].every((value) => value !== null && value !== '' && Number.isFinite(Number(value)))) return null;
@@ -112,6 +117,49 @@ function matchBusinessByName(text, businesses) {
   return best?.business || null;
 }
 
+/** Average rating and review count of each reviewed product or service. */
+async function loadItemReviews({ models, getIsMongo, liveIds }) {
+  if (!models.Review) return new Map();
+  const reviews = await findDocs(models.Review, {
+    getIsMongo,
+    fields: 'targetId targetType rating businessId',
+    mongoFilter: { businessId: { $in: liveIds }, targetType: { $in: ['product', 'service'] } },
+  });
+  const totals = new Map();
+  reviews.forEach((review) => {
+    const rating = Number(review.rating);
+    if ((review.targetType !== 'product' && review.targetType !== 'service') || !Number.isFinite(rating)) return;
+    const entry = totals.get(sid(review.targetId)) || { sum: 0, count: 0 };
+    entry.sum += rating;
+    entry.count += 1;
+    totals.set(sid(review.targetId), entry);
+  });
+  return new Map([...totals].map(([id, { sum, count }]) => [id, { rating: Math.round((sum / count) * 10) / 10, count }]));
+}
+
+/** Units sold per product, bookings per service, and orders plus bookings per business. Only counts leave this function. */
+async function loadPopularity({ models, getIsMongo, liveIds }) {
+  const mongoFilter = { businessId: { $in: liveIds }, status: { $nin: INACTIVE_STATUSES } };
+  const [orders, bookings] = await Promise.all([
+    models.Order ? findDocs(models.Order, { getIsMongo, fields: 'businessId items status', mongoFilter }) : [],
+    models.Booking ? findDocs(models.Booking, { getIsMongo, fields: 'businessId serviceId status', mongoFilter }) : [],
+  ]);
+  const items = new Map();
+  const businesses = new Map();
+  const add = (map, id, amount) => { if (id) map.set(id, (map.get(id) || 0) + amount); };
+  orders.filter((order) => !INACTIVE_STATUSES.includes(order.status)).forEach((order) => {
+    add(businesses, sid(order.businessId), 1);
+    (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+      add(items, sid(item?.id || item?.productId || item?.serviceId || item?._id), Math.max(1, Math.round(Number(item?.quantity) || 1)));
+    });
+  });
+  bookings.filter((booking) => !INACTIVE_STATUSES.includes(booking.status)).forEach((booking) => {
+    add(businesses, sid(booking.businessId), 1);
+    add(items, sid(booking.serviceId), 1);
+  });
+  return { items, businesses };
+}
+
 async function loadLiveBusinesses({ models, getIsMongo, isLiveBusiness }) {
   const all = await findDocs(models.Business, { getIsMongo, fields: BUSINESS_FIELDS });
   return all.filter((business) => isLiveBusiness(business));
@@ -175,6 +223,15 @@ async function retrieveMarketplace(parsed, {
   const products = allProducts.filter((product) => liveSet.has(sid(product.businessId)));
   const services = allServices.filter((service) => liveSet.has(sid(service.businessId)));
 
+  const sort = parsed.sort || null;
+  const needsReviews = sort === 'rating' || sort === 'reviews' || Boolean(parsed.minRating);
+  const [reviewStats, popularity] = await Promise.all([
+    needsReviews && liveIds.length ? loadItemReviews({ models, getIsMongo, liveIds }) : new Map(),
+    sort === 'popular' && liveIds.length ? loadPopularity({ models, getIsMongo, liveIds }) : null,
+  ]);
+  const reviewsOf = (item) => reviewStats.get(sid(item._id)) || null;
+  const soldOf = (item) => popularity?.items.get(sid(item._id)) || 0;
+
   const enforceRadius = Boolean(!restrictBusinessId && origin && radiusKm && (parsed.nearMe || parsed.radiusKm));
   const businessInfo = new Map();
   live.forEach((business) => {
@@ -196,6 +253,9 @@ async function retrieveMarketplace(parsed, {
     if (!info) return false;
     if (enforceRadius && (info.distance === null || info.distance > radiusKm)) return false;
     if (parsed.openNow && !info.isOpen) return false;
+    if (parsed.closedNow && info.isOpen) return false;
+    if (parsed.wantsDelivery && (info.business.deliveryAvailable === false || !info.sellsProducts)) return false;
+    if (parsed.verifiedOnly && !isVerifiedBusiness(info.business)) return false;
     return true;
   };
 
@@ -224,13 +284,19 @@ async function retrieveMarketplace(parsed, {
       return { item, type, businessId, text, score: text + (text > 0 ? groupBoost(businessId) : 0), price };
     });
 
-  const wantProducts = parsed.kind === 'product' || parsed.kind === 'any';
+  // "Cheapest groceries" or "best offers" from businesses are decided by the price or discount of what they sell.
+  const businessByItem = parsed.kind === 'business' && ['price', 'price_desc', 'discount'].includes(sort);
+  // Ranking questions such as "most expensive products" or "what's trending" compare listings, not shops.
+  const itemRanking = Boolean(ITEM_RANK_SORTS.has(sort) || parsed.minDiscount) && (
+    parsed.kind === 'product' || parsed.kind === 'service'
+    || (parsed.kind === 'any' && sort !== 'rating' && sort !== 'reviews' && (!hasTextQuery || sort === 'discount' || sort === 'price' || sort === 'price_desc')));
+  const wantProducts = parsed.kind === 'product' || parsed.kind === 'any' || businessByItem;
   const wantServices = parsed.kind === 'service' || parsed.kind === 'any';
   let productHits = wantProducts ? scoreItems(products, 'product') : [];
   let serviceHits = wantServices ? scoreItems(services, 'service') : [];
 
   // Without search words (e.g. "services near me" or "under NPR 500") every item passing the filters is a candidate.
-  const browseItems = browseAll || priceFilter || parsed.kind === 'product' || parsed.kind === 'service';
+  const browseItems = browseAll || priceFilter || parsed.kind === 'product' || parsed.kind === 'service' || itemRanking || businessByItem;
   const itemMatches = (hit) => (hasTextQuery ? hit.text > 0 : browseItems) && (!priceFilter || inPriceRange(hit.price));
   const namesItem = (hit) => fieldScore(itemWords, `${hit.item.name} ${hit.item.category || ''} ${hit.item.subcategory || ''} ${hit.item.brand || ''}`, 1) > 0;
   const unavailable = itemWords.length ? productHits.filter((hit) => namesItem(hit) && !isProductAvailable(hit.item)) : [];
@@ -242,6 +308,27 @@ async function retrieveMarketplace(parsed, {
   productHits = dropWeak(productHits.filter((hit) => itemMatches(hit) && isProductAvailable(hit.item)));
   serviceHits = dropWeak(serviceHits.filter((hit) => itemMatches(hit) && isServiceAvailable(hit.item)));
 
+  // Discounts and minimum ratings are what the customer asked for, so items without them are left out.
+  const discountOf = (hit) => (hit.type === 'product' ? Number(hit.item.discount) || 0 : 0);
+  const keepItem = (hit) => (sort !== 'discount' || discountOf(hit) >= Math.max(1, parsed.minDiscount || 0))
+    && (!parsed.minRating || parsed.kind === 'business' || (reviewsOf(hit.item)?.rating || 0) >= parsed.minRating);
+  productHits = productHits.filter(keepItem);
+  serviceHits = serviceHits.filter(keepItem);
+
+  const itemMetric = (hit) => {
+    if (sort === 'rating') return reviewsOf(hit.item)?.rating || 0;
+    if (sort === 'reviews') return reviewsOf(hit.item)?.count || 0;
+    if (sort === 'popular') return soldOf(hit.item);
+    return 0;
+  };
+  // Never call an item "highest rated" or "most popular" without reviews or orders behind it.
+  let rankingMissing = false;
+  if (itemRanking && METRIC_SORTS.has(sort)) {
+    const ranked = [productHits.filter((hit) => itemMetric(hit) > 0), serviceHits.filter((hit) => itemMetric(hit) > 0)];
+    if (ranked[0].length + ranked[1].length > 0) [productHits, serviceHits] = ranked;
+    else rankingMissing = productHits.length + serviceHits.length > 0;
+  }
+
   const namedText = (item) => `${item.name} ${item.category || ''} ${item.subcategory || ''} ${item.brand || ''}`;
   const existsBeyondFilters = itemWords.length > 0 && (enforceRadius || parsed.openNow)
     && [...products.filter(isProductAvailable), ...services.filter(isServiceAvailable)].some((item) => fieldScore(itemWords, namedText(item), 1) > 0);
@@ -249,12 +336,19 @@ async function retrieveMarketplace(parsed, {
     || [...productHits, ...serviceHits].some(namesItem)
     || live.some((business) => eligible(sid(business._id)) && fieldScore(itemWords, `${business.name} ${business.category || ''} ${business.subcategory || ''}`, 1) > 0);
 
+  const betterItem = (hit, current) => {
+    if (sort === 'discount' && discountOf(hit) !== discountOf(current)) return discountOf(hit) > discountOf(current);
+    if (sort === 'price_desc' && hit.price !== current.price) return hit.price > current.price;
+    if (sort === 'price' && hit.price !== current.price) return hit.price < current.price;
+    return hit.score > current.score || (hit.score === current.score && hit.price < current.price);
+  };
   const bestItemByBusiness = new Map();
   [...productHits, ...serviceHits].forEach((hit) => {
     const current = bestItemByBusiness.get(hit.businessId);
-    if (!current || hit.score > current.score || (hit.score === current.score && hit.price < current.price)) bestItemByBusiness.set(hit.businessId, hit);
+    if (!current || betterItem(hit, current)) bestItemByBusiness.set(hit.businessId, hit);
   });
 
+  const rating = (business) => (Number(business.reviewCount) > 0 ? Number(business.rating) || 0 : 0);
   const businessHits = [];
   businessInfo.forEach((info, id) => {
     if (!eligible(id)) return;
@@ -269,34 +363,56 @@ async function retrieveMarketplace(parsed, {
       + (groupMatch ? 5 : 0)
       + (bestItem ? Math.min(bestItem.score, 8) : 0);
     if (priceFilter && !bestItem) return;
-    if (!hasTextQuery && browseItems && !bestItem) return;
+    if ((businessByItem || (!hasTextQuery && browseItems)) && !bestItem) return;
+    if (parsed.minRating && !itemRanking && rating(business) < parsed.minRating) return;
     if (!hasTextQuery) score = Math.max(score, 1);
     if (score <= 0) return;
     businessHits.push({ id, info, score, bestItem });
   });
 
-  const rating = (business) => (Number(business.reviewCount) > 0 ? Number(business.rating) || 0 : 0);
-  const sortKey = parsed.sort || (parsed.nearMe ? 'distance' : 'relevance');
+  const sortKey = sort || (parsed.nearMe ? 'distance' : 'relevance');
   const byDistance = (a, b) => (a ?? Infinity) - (b ?? Infinity);
+  const reviewCount = (business) => Number(business.reviewCount) || 0;
+  const ordersOf = (id) => popularity?.businesses.get(id) || 0;
   businessHits.sort((a, b) => {
+    const [ba, bb] = [a.info.business, b.info.business];
     if (sortKey === 'distance') return byDistance(a.info.distance, b.info.distance) || b.score - a.score;
-    if (sortKey === 'rating') return rating(b.info.business) - rating(a.info.business) || b.score - a.score;
+    if (sortKey === 'rating') return rating(bb) - rating(ba) || reviewCount(bb) - reviewCount(ba) || b.score - a.score;
+    if (sortKey === 'reviews') return reviewCount(bb) - reviewCount(ba) || rating(bb) - rating(ba);
+    if (sortKey === 'popular') return ordersOf(b.id) - ordersOf(a.id) || (Number(bb.visitorsCount) || 0) - (Number(ba.visitorsCount) || 0) || reviewCount(bb) - reviewCount(ba);
+    if (sortKey === 'newest') return timeOf(bb.createdAt) - timeOf(ba.createdAt);
+    if (sortKey === 'discount') return (b.bestItem ? discountOf(b.bestItem) : 0) - (a.bestItem ? discountOf(a.bestItem) : 0) || b.score - a.score;
     if (sortKey === 'price') return (a.bestItem?.price ?? Infinity) - (b.bestItem?.price ?? Infinity) || b.score - a.score;
+    if (sortKey === 'price_desc') return (b.bestItem?.price ?? -Infinity) - (a.bestItem?.price ?? -Infinity) || b.score - a.score;
     return b.score - a.score
       || (Number(b.info.isOpen) - Number(a.info.isOpen))
-      || rating(b.info.business) - rating(a.info.business)
+      || rating(bb) - rating(ba)
       || byDistance(a.info.distance, b.info.distance);
   });
 
+  // With no reviews or orders to rank by, the newest listings are shown and the answer says so.
+  const itemSort = rankingMissing ? 'newest' : sortKey;
   const sortItems = (hits) => hits.sort((a, b) => {
     const da = businessInfo.get(a.businessId)?.distance;
     const db = businessInfo.get(b.businessId)?.distance;
-    if (sortKey === 'price') return a.price - b.price || b.score - a.score;
-    if (sortKey === 'distance') return byDistance(da, db) || b.score - a.score;
+    if (itemSort === 'price') return a.price - b.price || b.score - a.score;
+    if (itemSort === 'price_desc') return b.price - a.price || b.score - a.score;
+    if (itemSort === 'discount') return discountOf(b) - discountOf(a) || a.price - b.price;
+    if (itemSort === 'rating') return itemMetric(b) - itemMetric(a) || (reviewsOf(b.item)?.count || 0) - (reviewsOf(a.item)?.count || 0);
+    if (itemSort === 'reviews' || itemSort === 'popular') return itemMetric(b) - itemMetric(a) || b.score - a.score;
+    if (itemSort === 'newest') return timeOf(b.item.createdAt) - timeOf(a.item.createdAt) || b.score - a.score;
+    if (itemSort === 'distance') return byDistance(da, db) || b.score - a.score;
     return b.score - a.score || a.price - b.price || byDistance(da, db);
   });
 
   const businessNameOf = (id) => businessInfo.get(id)?.business?.name || '';
+  const rankFacts = (item) => {
+    const reviews = reviewsOf(item);
+    return {
+      ...(needsReviews ? { rating: reviews?.rating || 0, reviewCount: reviews?.count || 0 } : {}),
+      ...(popularity ? { sold: soldOf(item) } : {}),
+    };
+  };
   const productCard = ({ item, businessId, price }) => {
     const info = businessInfo.get(businessId);
     return {
@@ -315,6 +431,7 @@ async function retrieveMarketplace(parsed, {
       imageUrl: firstImage(item),
       distanceKm: info?.distance ?? null,
       businessOpen: Boolean(info?.isOpen),
+      ...rankFacts(item),
     };
   };
   const serviceCard = ({ item, businessId, price }) => {
@@ -332,6 +449,7 @@ async function retrieveMarketplace(parsed, {
       imageUrl: firstImage(item),
       distanceKm: info?.distance ?? null,
       businessOpen: Boolean(info?.isOpen),
+      ...rankFacts(item),
     };
   };
 
@@ -387,7 +505,12 @@ async function retrieveMarketplace(parsed, {
       id: sid(bestItem.item._id),
       name: bestItem.item.name,
       price: bestItem.price,
+      discount: discountOf(bestItem),
     } : null,
+    ...(popularity ? { orderCount: ordersOf(id), visitorsCount: Number(info.business.visitorsCount) || 0 } : {}),
+    ...(sortKey === 'newest' ? { joinedAt: info.business.createdAt || null } : {}),
+    ...(parsed.wantsDelivery ? { deliveryRadiusKm: Number(info.business.deliveryRadiusKm) || 5 } : {}),
+    isVerified: isVerifiedBusiness(info.business),
     id,
   }));
 
@@ -410,8 +533,15 @@ async function retrieveMarketplace(parsed, {
       minPrice: parsed.minPrice,
       maxPrice: parsed.maxPrice,
       openNow: parsed.openNow,
+      closedNow: Boolean(parsed.closedNow),
+      wantsDelivery: Boolean(parsed.wantsDelivery),
+      verifiedOnly: Boolean(parsed.verifiedOnly),
+      minRating: parsed.minRating || null,
+      minDiscount: parsed.minDiscount || null,
       sort: sortKey,
+      itemRanking,
     },
+    rankingMissing,
     totals: { businesses: businessHits.length, products: productHits.length, services: serviceHits.length },
   };
 }

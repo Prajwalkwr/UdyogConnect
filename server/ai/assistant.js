@@ -1,4 +1,4 @@
-const { parseQuery, keywordsOf, MAX_MESSAGE_LENGTH, ASPECT_WORDS, BUSINESS_WORDS } = require('./queryParser');
+const { parseQuery, keywordsOf, MAX_MESSAGE_LENGTH, ASPECT_WORDS, BUSINESS_WORDS, RANKING_SORTS } = require('./queryParser');
 const { searchKnowledge } = require('./knowledgeBase');
 const {
   retrieveMarketplace,
@@ -38,8 +38,8 @@ const ORDER_STATUS_LABELS = {
 };
 
 const SUGGESTIONS = {
-  guest: ['Find businesses near me', 'Find electronics under NPR 5000', 'Find services near me', 'Customer care contact'],
-  customer: ['Where is my order?', 'Find businesses near me', 'Find services near me', 'Customer care contact'],
+  guest: ['What are the best deals today?', 'Show me the cheapest products near me', 'Which business has the highest rating?', 'Customer care contact'],
+  customer: ['Where is my order?', 'What are the best deals today?', 'Recommend products based on my previous orders', 'Customer care contact'],
   seller: ['How is my business doing?', 'Which of my products are low on stock?', 'How do I accept eSewa?', 'How do I handle a new order?'],
   admin: ['Give me a platform overview', 'How many businesses are pending approval?', 'How does business approval work?', 'Find businesses near me'],
 };
@@ -93,11 +93,18 @@ async function resolveOrigin({ parsed, coords, user, models }) {
 function pickFocus(parsed, found) {
   const { products, services, businesses } = found;
   const namedItem = found.itemWords.length > 0;
-  const priceAsked = parsed.minPrice !== null || parsed.maxPrice !== null;
+  const priceAsked = parsed.minPrice !== null || parsed.maxPrice !== null || Boolean(found.filters?.itemRanking);
   const productFit = products.length > 0 && parsed.kind !== 'service' && parsed.kind !== 'business'
     && (namedItem || parsed.kind === 'product' || priceAsked || !businesses.length);
   const serviceFit = services.length > 0 && parsed.kind !== 'product' && parsed.kind !== 'business'
     && (namedItem || parsed.kind === 'service' || priceAsked || !businesses.length);
+  if (productFit && serviceFit && found.filters?.itemRanking && !namedItem) {
+    const sort = found.filters.sort;
+    if (sort === 'price') return services[0].price < products[0].finalPrice ? 'service' : 'product';
+    if (sort === 'price_desc') return services[0].price > products[0].finalPrice ? 'service' : 'product';
+    if (sort === 'popular') return (services[0].sold || 0) > (products[0].sold || 0) ? 'service' : 'product';
+    return 'product';
+  }
   if (productFit && serviceFit) return found.topScores.service > found.topScores.product ? 'service' : 'product';
   if (productFit) return 'product';
   if (serviceFit) return 'service';
@@ -112,20 +119,94 @@ const markSimilar = (item) => ({ ...item, match: 'similar' });
 function withSimilar(type, list, found) {
   const [main, ...others] = list;
   const similar = others.slice(0, SIMILAR_COUNT);
+  // A ranked list only shows items that passed the ranking and its filters, such as "20% or more off".
+  if (found.filters?.itemRanking) return [markMain(main), ...similar.map((item) => ({ ...item, match: 'next' }))];
   const fill = found.suggestSimilar({ type, seedIds: [main.id], excludeIds: similar.map((item) => item.id), count: SIMILAR_COUNT - similar.length });
   return [markMain(main), ...[...similar, ...fill].map(markSimilar)];
 }
 
-function productSentence(product, { cheapest }) {
-  const where = [product.businessName, distanceText(product.distanceKm)].filter(Boolean).join(', ');
-  const stock = product.stock <= LOW_STOCK_THRESHOLD ? `Only ${product.stock} left.` : 'In stock.';
-  return `${cheapest ? 'Cheapest option: ' : ''}${product.name} costs ${formatNpr(product.finalPrice)}${product.discount ? ` (${product.discount}% off)` : ''} at ${where}. ${stock}`;
+const SORT_PREFIX = {
+  price: 'Cheapest option: ',
+  price_desc: 'Most expensive: ',
+  discount: 'Biggest discount: ',
+  rating: 'Highest rated: ',
+  reviews: 'Most reviewed: ',
+  popular: 'Most popular: ',
+  newest: 'Newest: ',
+};
+
+/** The number the item was ranked by, straight from reviews or orders. */
+function rankNote(item, sort, type) {
+  if ((sort === 'rating' || sort === 'reviews') && item.reviewCount) return ` Rated ${item.rating} out of 5 from ${plural(item.reviewCount, 'review')}.`;
+  if (sort === 'popular' && item.sold) return type === 'service' ? ` Booked ${plural(item.sold, 'time')}.` : ` ${item.sold} sold so far.`;
+  return '';
 }
 
-function serviceSentence(service, { cheapest }) {
+function productSentence(product, { prefix = '', sort = null } = {}) {
+  const where = [product.businessName, distanceText(product.distanceKm)].filter(Boolean).join(', ');
+  const stock = product.stock <= LOW_STOCK_THRESHOLD ? `Only ${product.stock} left.` : 'In stock.';
+  const off = product.discount ? ` (${product.discount}% off${sort === 'discount' ? ` ${formatNpr(product.price)}` : ''})` : '';
+  return `${prefix}${product.name} costs ${formatNpr(product.finalPrice)}${off} at ${where}. ${stock}${rankNote(product, sort, 'product')}`;
+}
+
+function serviceSentence(service, { prefix = '', sort = null } = {}) {
   const where = [service.businessName, distanceText(service.distanceKm)].filter(Boolean).join(', ');
-  return `${cheapest ? 'Cheapest option: ' : ''}${service.name} costs ${formatNpr(service.price)} at ${where}.`
-    + `${service.durationMinutes ? ` It takes about ${service.durationMinutes} min.` : ''}${service.homeService ? ' Home service is available.' : ''}`;
+  return `${prefix}${service.name} costs ${formatNpr(service.price)} at ${where}.`
+    + `${service.durationMinutes ? ` It takes about ${service.durationMinutes} min.` : ''}${service.homeService ? ' Home service is available.' : ''}`
+    + rankNote(service, sort, 'service');
+}
+
+const formatDate = (value) => {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) || !date.getTime() ? '' : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+/** "X is the highest rated", "X has the best offer", ... computed from the ranked business card. */
+function businessLead(top, { sort, where, facts }) {
+  const fallback = `${top.name} is your best match${where}: ${facts}.`;
+  const item = top.topItem;
+  switch (sort) {
+    case 'rating':
+      return top.reviewCount
+        ? `${top.name} is the highest rated${where}: ${top.rating} out of 5 from ${plural(top.reviewCount, 'review')}.`
+        : `None of the matching businesses have reviews yet. ${fallback}`;
+    case 'reviews':
+      return top.reviewCount
+        ? `${top.name} has the most reviews${where}: ${plural(top.reviewCount, 'review')}, rated ${top.rating} out of 5.`
+        : `None of the matching businesses have reviews yet. ${fallback}`;
+    case 'popular':
+      if (top.orderCount) return `${top.name} is the most popular${where}: customers have ordered or booked from it ${plural(top.orderCount, 'time')}.`;
+      if (top.visitorsCount) return `${top.name} is the most visited${where}, with ${plural(top.visitorsCount, 'profile visit')}.`;
+      return `There aren't enough orders yet to rank businesses by popularity. ${fallback}`;
+    case 'newest': {
+      const date = formatDate(top.joinedAt);
+      return `${top.name} is the newest business${where}${date ? `, listed on ${date}` : ''}.`;
+    }
+    case 'discount':
+      return item ? `${top.name} has the best offer${where}: ${item.name} is ${item.discount}% off, now ${formatNpr(item.price)}.` : fallback;
+    case 'price':
+      return item ? `${top.name} has the lowest price${where}: ${item.name} at ${formatNpr(item.price)}.` : fallback;
+    case 'price_desc':
+      return item ? `${top.name} has the most expensive listing${where}: ${item.name} at ${formatNpr(item.price)}.` : fallback;
+    default:
+      return fallback;
+  }
+}
+
+/** Plain explanation when nothing passes a ranking filter, instead of a generic "nothing found". */
+function emptyRankingText(parsed, filters, where) {
+  const noun = parsed.kind === 'service' ? 'services' : parsed.kind === 'business' ? 'businesses' : 'products';
+  if (filters.sort === 'discount') {
+    if (parsed.kind === 'service') return "Services on UdyogConnect don't have discounts right now.";
+    return filters.minDiscount
+      ? `No products have ${filters.minDiscount}% or more off${where} right now.`
+      : `No products are on discount${where} right now.`;
+  }
+  if (filters.minRating) return `No ${noun} are rated ${filters.minRating} or higher${where} yet.`;
+  if (filters.verifiedOnly) return `No verified businesses found${where}.`;
+  if (filters.wantsDelivery) return `No businesses offering delivery found${where}.`;
+  if (filters.closedNow) return `No matching businesses are closed right now${where ? ` ${where.trim()}` : ''}.`;
+  return '';
 }
 
 const similarSentence = (count, noun) => (count ? ` I've added ${count} similar ${noun}${count === 1 ? '' : 's'} you may like.` : '');
@@ -162,28 +243,43 @@ function composeSearch(parsed, found) {
   const focus = pickFocus(parsed, found);
   if (!focus) {
     const wider = filters.radiusKm && filters.radiusKm < 10 ? ' Try a larger radius.' : '';
+    const ranked = emptyRankingText(parsed, filters, where);
+    if (ranked) return { focus: null, results, explanation: `${ranked}${wider}${originNote}` };
     const empty = parsed.kind === 'product' ? 'No matching products found' : parsed.kind === 'service' ? 'No matching services found' : NO_RESULTS.replace('.', '');
     return { focus: null, results, explanation: `${empty}${where}.${wider}${originNote}` };
   }
 
-  const cheapest = filters.sort === 'price';
-  if (focus === 'product') {
-    results.products = withSimilar('product', found.products, found);
-    const [main] = results.products;
-    return { focus, results, explanation: `${productSentence(main, { cheapest: cheapest && found.totals.products > 1 })}${similarSentence(results.products.length - 1, 'product')}${originNote}` };
-  }
-  if (focus === 'service') {
-    results.services = withSimilar('service', found.services, found);
-    const [main] = results.services;
-    return { focus, results, explanation: `${serviceSentence(main, { cheapest: cheapest && found.totals.services > 1 })}${similarSentence(results.services.length - 1, 'service')}${originNote}` };
+  const sort = filters.sort;
+  if (focus === 'product' || focus === 'service') {
+    const key = RESULT_KEY[focus];
+    results[key] = withSimilar(focus, found[key], found);
+    const [main] = results[key];
+    const noun = focus === 'product' ? 'products' : 'services';
+    if (found.rankingMissing) {
+      const why = sort === 'popular'
+        ? `There aren't enough orders yet to rank ${noun} by popularity.`
+        : `None of these ${noun} have customer reviews yet, so I can't rank them by rating.`;
+      return { focus, results, explanation: `${why} Here are the newest ones${where}.${originNote}` };
+    }
+    const prefix = SORT_PREFIX[sort] && found.totals[key] > 1 ? SORT_PREFIX[sort] : '';
+    const sentence = focus === 'product' ? productSentence(main, { prefix, sort }) : serviceSentence(main, { prefix, sort });
+    const extra = results[key].length - 1;
+    const more = filters.itemRanking ? (extra ? ` ${plural(extra, `more ${focus}`)} below.` : '') : similarSentence(extra, focus);
+    return { focus, results, explanation: `${sentence}${more}${originNote}` };
   }
 
   results.businesses = found.businesses.slice(0, BUSINESS_DISPLAY_LIMIT);
   const [top] = results.businesses;
   const descriptor = top.category ? `${top.category}${top.location ? ` in ${top.location}` : ''}` : top.location;
-  const facts = [descriptor, distanceText(top.distanceKm), top.isOpen ? 'open now' : 'closed right now'].filter(Boolean).join(', ');
+  const facts = [
+    descriptor,
+    distanceText(top.distanceKm),
+    top.isOpen ? 'open now' : 'closed right now',
+    filters.verifiedOnly && top.isVerified ? 'verified' : '',
+    filters.wantsDelivery && top.deliveryRadiusKm ? `delivers up to ${top.deliveryRadiusKm} km` : '',
+  ].filter(Boolean).join(', ');
   const more = results.businesses.length > 1 ? ` ${plural(results.businesses.length - 1, 'more option')} below.` : '';
-  return { focus, results, explanation: `${top.name} is your best match${where}: ${facts}.${more}${originNote}` };
+  return { focus, results, explanation: `${businessLead(top, { sort, where, facts })}${more}${originNote}` };
 }
 
 /** The first two sentences of a help section keep answers short; the full text stays in the sources panel. */
@@ -446,6 +542,87 @@ async function answerAdmin({ user, models, getIsMongo, getApprovalStatus }) {
   });
 }
 
+/**
+ * Suggestions seeded only from the signed-in customer's own orders and bookings (identity from the verified session).
+ * Only public listings are returned; the order history itself never leaves the server.
+ */
+async function answerForYou({ parsed, user, coords, deps, live }) {
+  const { models, getIsMongo } = deps;
+  const seeds = [];
+  const prices = [];
+  let hasHistory = false;
+  if (user) {
+    const userId = sid(user.id);
+    const [orders, bookings] = await Promise.all([
+      findDocs(models.Order, { getIsMongo, filter: { customerId: userId } }),
+      models.Booking ? findDocs(models.Booking, { getIsMongo, filter: { customerId: userId } }) : [],
+    ]);
+    const active = (doc) => sid(doc.customerId) === userId && doc.status !== 'cancelled' && doc.status !== 'rejected';
+    const newestFirst = (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    hasHistory = orders.some(active) || bookings.some(active);
+    orders.filter(active).sort(newestFirst).forEach((order) => (Array.isArray(order.items) ? order.items : []).forEach((item) => {
+      const id = sid(item?.id || item?.productId || item?.serviceId || item?._id);
+      if (id) seeds.push(id);
+      const price = Number(item?.unitPrice ?? item?.price);
+      if (price > 0) prices.push(price);
+    }));
+    bookings.filter(active).sort(newestFirst).forEach((booking) => {
+      if (booking.serviceId) seeds.push(sid(booking.serviceId));
+      if (Number(booking.servicePrice) > 0) prices.push(Number(booking.servicePrice));
+    });
+  }
+
+  const usualRange = prices.length > 0 && /\b(price range|budget|usual price|spend)\b/.test(parsed.lower);
+  const kind = parsed.kind === 'product' || parsed.kind === 'service' ? parsed.kind : 'any';
+  const query = {
+    ...parseQuery(''),
+    kind,
+    sort: 'popular',
+    minPrice: usualRange ? roundMoney(Math.min(...prices)) : null,
+    maxPrice: usualRange ? roundMoney(Math.max(...prices)) : null,
+  };
+  const origin = await resolveOrigin({ parsed, coords, user, models });
+  const found = await retrieveMarketplace(query, {
+    models,
+    getIsMongo,
+    isLiveBusiness: deps.isLiveBusiness,
+    origin,
+    limit: CANDIDATE_LIMIT,
+    businesses: live,
+    browseAll: true,
+  });
+
+  const seedIds = [...new Set(seeds)].slice(0, 20);
+  const types = kind === 'any' ? ['product', 'service'] : [kind];
+  let focus = null;
+  let list = [];
+  if (seedIds.length) {
+    for (const type of types) {
+      list = found.suggestSimilar({ type, seedIds, count: SIMILAR_COUNT + 1 });
+      if (list.length) { focus = type; break; }
+    }
+  }
+  const personal = list.length > 0;
+  if (!personal) {
+    focus = types.find((type) => found[RESULT_KEY[type]].length) || null;
+    list = focus ? found[RESULT_KEY[focus]].slice(0, SIMILAR_COUNT + 1) : [];
+  }
+  const results = { ...EMPTY_RESULTS(), ...(focus ? { [RESULT_KEY[focus]]: list.map((item, index) => (index ? markSimilar(item) : markMain(item))) } : {}) };
+  const response = (explanation, extra = {}) => finalize(baseResponse('for_you', user, { explanation, focus, results, ...extra }));
+  if (!list.length) return response('There is nothing to recommend yet. Try searching for a product or service.', user ? {} : { requiresLogin: true });
+
+  const [main] = list;
+  const what = `${main.name} (${formatNpr(focus === 'product' ? main.finalPrice : main.price)}) at ${main.businessName}`;
+  const picks = found.rankingMissing ? 'new listings' : 'popular picks';
+  if (!user) return response(`Sign in to get suggestions based on your orders. Meanwhile, here are ${picks}, starting with ${what}.`, { requiresLogin: true });
+  if (!personal) {
+    const lead = hasHistory ? "I couldn't find anything close to what you ordered before" : "You haven't ordered anything yet";
+    return response(`${lead}, so here are ${picks}, starting with ${what}.`);
+  }
+  const range = usualRange ? ` within your usual ${formatNpr(query.minPrice)} to ${formatNpr(query.maxPrice)} range` : '';
+  return response(`Based on your past orders, you may like ${what}${range}.${similarSentence(list.length - 1, focus)}`);
+}
+
 /* ───────────────────────── Customer care, overview and named businesses (no AI) ───────────────────────── */
 
 const joinList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0] || '');
@@ -489,6 +666,17 @@ async function answerOverview({ user, ...deps }) {
   return baseResponse('overview', user, {
     explanation: `UdyogConnect has ${live.length} approved ${live.length === 1 ? 'business' : 'businesses'}: ${joinList(list)}. Ask me for any product, service or shop.`,
   });
+}
+
+/** Up to two short, unreported review comments for a business, without reviewer names. */
+async function recentReviewQuotes({ models, getIsMongo }, businessId) {
+  if (!models.Review) return [];
+  const reviews = await findDocs(models.Review, { getIsMongo, filter: { businessId }, fields: 'businessId comment reported createdAt' });
+  return reviews
+    .filter((review) => sid(review.businessId) === businessId && !review.reported && String(review.comment || '').trim())
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 2)
+    .map((review) => `"${shorten(review.comment, 80)}"`);
 }
 
 /** Answers just the detail asked about one approved business: contact, hours, delivery, rating, location, items or an overview. */
@@ -547,10 +735,11 @@ async function answerBusiness({ parsed, business, origin, user, deps }) {
       const radius = Number(business.deliveryRadiusKm) || 5;
       return reply(`Yes, ${name} delivers up to ${radius} km. You can also choose pickup.`);
     }
-    case 'rating':
-      return reply(card.reviewCount
-        ? `${name} is rated ${card.rating} out of 5 from ${plural(card.reviewCount, 'review')}.`
-        : `${name} has no reviews yet.`);
+    case 'rating': {
+      if (!card.reviewCount) return reply(`${name} has no reviews yet.`);
+      const quotes = await recentReviewQuotes(deps, id);
+      return reply(`${name} is rated ${card.rating} out of 5 from ${plural(card.reviewCount, 'review')}.${quotes.length ? ` Recent reviews say ${joinList(quotes)}.` : ''}`);
+    }
     case 'location': {
       if (!card.location) return reply(`${name} hasn't added an address yet.`);
       const from = distance === null ? '' : `, ${distanceText(distance).replace(' away', '')} from ${origin?.source === 'gps' ? 'you' : origin?.label || 'Kathmandu'}`;
@@ -626,6 +815,7 @@ async function answerQuestion({ message, user = null, coords = null, radiusKm = 
     const origin = await resolveOrigin({ parsed, coords, user, models: deps.models });
     return finalize(await answerBusiness({ parsed, business: named, origin, user, deps }));
   }
+  if (parsed.intent === 'for_you') return answerForYou({ parsed, user, coords, deps, live });
   if (parsed.intent === 'contact' && !BUSINESS_WORDS.test(parsed.lower)) return answerSupport(user);
 
   const chunks = searchKnowledge(parsed.text, { limit: 3 });
@@ -672,7 +862,10 @@ async function answerQuestion({ message, user = null, coords = null, radiusKm = 
     notFound: found.notFound,
   });
 
-  if (composed.focus && !found.notFound && llm.isAvailable()) {
+  // Rankings ("cheapest", "best deals", "highest rated", ...) come from database numbers, so the model can't reorder them.
+  const ranked = RANKING_SORTS.has(parsed.sort) || Boolean(parsed.minRating || parsed.minDiscount)
+    || parsed.verifiedOnly || parsed.wantsDelivery || parsed.closedNow;
+  if (composed.focus && !found.notFound && !ranked && llm.isAvailable()) {
     try {
       const pool = {
         businesses: uniqueById(found.businesses, composed.results.businesses),
