@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { FiCheckCircle, FiChevronDown, FiMapPin, FiNavigation, FiRefreshCw, FiSend, FiStar, FiTrash2, FiX } from 'react-icons/fi';
+import { FiCheckCircle, FiChevronDown, FiMapPin, FiRefreshCw, FiSend, FiStar, FiTrash2, FiX } from 'react-icons/fi';
 import { Bot } from 'lucide-react';
 import {
   AI_MESSAGES,
   AI_OPEN_EVENT,
   MAX_QUESTION_LENGTH,
-  RADIUS_OPTIONS,
   askAssistant,
   clearChatHistory,
   formatNpr,
@@ -33,6 +32,7 @@ const QUICK_ACTIONS = [
   { id: 'popular', icon: '🛍️', label: 'Popular Products', questions: ['What are the most popular products?', "What's trending right now?", 'Which products are best-selling?', 'Which services are booked the most?', 'Show the newest products'] },
   { id: 'for-you', icon: '🎯', label: 'For You', signedIn: true, questions: ['Recommend products based on my previous orders', 'What products might I like?', 'Suggest services I may need', 'Show popular products in my favourite categories', 'Recommend something within my usual price range'] },
 ];
+const DEFAULT_RADIUS_KM = 5;
 const HIDDEN_ON = /^\/(checkout|payment|payment-success|forgot-password|reset-password)(\/|$)/;
 const NEAR_ME = /\b(near\s*(me|by)?|nearby|nearest|closest|around me|within \d+\s*km)\b/i;
 
@@ -371,7 +371,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
   const [messages, setMessages] = useState(() => loadChatHistory(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [radiusKm, setRadiusKm] = useState(5);
+  const radiusKm = DEFAULT_RADIUS_KM;
   const [coords, setCoords] = useState(null);
   const [locationState, setLocationState] = useState('idle');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -523,7 +523,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
         <section
           role="dialog"
           aria-label="UdyogConnect AI assistant"
-          className="fixed inset-x-2 bottom-2 top-16 z-[60] flex flex-col overflow-hidden rounded-[24px] border border-[var(--mp-border)] bg-[var(--mp-paper)] shadow-2xl sm:inset-x-auto sm:bottom-[5.25rem] sm:right-6 sm:top-auto sm:h-[min(640px,calc(100vh-7rem))] sm:w-[400px]"
+          className="fixed bottom-[5.5rem] right-6 z-[60] flex h-[min(480px,calc(100vh-7rem))] w-[min(350px,calc(100vw-3rem))] flex-col overflow-hidden rounded-[28px] border border-[var(--mp-border)] bg-[var(--mp-paper)] shadow-2xl sm:w-[380px]"
         >
           <header className="flex items-center justify-between border-b border-[var(--mp-border)] bg-white px-4 py-3">
             <div className="flex items-center gap-2">
@@ -544,30 +544,6 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
               </button>
             </div>
           </header>
-
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--mp-border)] bg-[var(--mp-cream)] px-3 py-2 text-[11px]">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--mp-muted)]">Radius</span>
-            {RADIUS_OPTIONS.map((km) => (
-              <button
-                key={km}
-                type="button"
-                onClick={() => setRadiusKm(km)}
-                aria-pressed={radiusKm === km}
-                className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition ${radiusKm === km ? 'bg-[var(--mp-gold)] text-white' : 'bg-white text-[var(--mp-brown)] hover:text-[var(--mp-gold)]'}`}
-              >
-                {km} km
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => requestLocation()}
-              className={`ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${locationState === 'on' ? 'bg-emerald-50 text-emerald-700' : 'bg-white text-[var(--mp-brown)] hover:text-[var(--mp-gold)]'}`}
-              disabled={locationState === 'locating'}
-            >
-              <FiNavigation className="h-3 w-3" />
-              {{ on: 'Using your location', locating: 'Locating…', denied: 'Location off', unsupported: 'No location' }[locationState] || 'Use my location'}
-            </button>
-          </div>
 
           <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-live="polite">
             {messages.length === 0 && (
