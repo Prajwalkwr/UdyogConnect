@@ -511,11 +511,10 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
           type="button"
           onClick={() => setOpen(true)}
           className="fixed bottom-[5.25rem] right-6 z-45 inline-flex items-center gap-2 rounded-full border border-[var(--mp-gold)] bg-[var(--mp-paper)] px-4 py-2.5 text-sm font-bold text-[var(--mp-brown)] shadow-lg transition hover:scale-105 hover:bg-white active:scale-95"
-          aria-label="Ask UdyogConnect AI"
+          aria-label="Open UdyogConnect AI"
         >
           <span aria-hidden className="text-sm">🤖</span>
-          <span className="hidden text-sm sm:inline">Ask UdyogConnect AI</span>
-          <span className="text-sm sm:hidden">Ask AI</span>
+          <span className="text-sm">UdyogConnect AI</span>
         </button>
       )}
 
