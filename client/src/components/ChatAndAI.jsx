@@ -223,9 +223,9 @@ export default function ChatAndAI({ user, lang, socket: externalSocket = null, u
   const blocked = selected?.status === 'blocked';
 
   return (
-    <div className={`fixed bottom-6 right-6 ${isOpen ? 'z-50' : 'z-45'} flex flex-col items-end`}>
+    <div className={`fixed bottom-[4.75rem] right-6 ${isOpen ? 'z-50' : 'z-45'} flex flex-col items-end`}>
       {isOpen && (
-        <div className="mb-4 h-[min(480px,calc(100vh-7rem))] w-[min(350px,calc(100vw-3rem))] sm:w-[380px] flex flex-col rounded-[28px] border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-md animate-slide-up">
+        <div className="mb-4 h-[min(480px,calc(100vh-10.25rem))] w-[min(350px,calc(100vw-3rem))] sm:w-[380px] flex flex-col rounded-[28px] border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-md animate-slide-up">
           <div className="flex items-center justify-between border-b border-slate-850 px-4 py-3 bg-slate-900 rounded-t-[28px]">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-400 text-slate-950 font-black">
