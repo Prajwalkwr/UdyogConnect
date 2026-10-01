@@ -209,8 +209,13 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
             />
           ))}
           <div className={`${highlights.length % 2 ? 'col-span-1' : 'col-span-2'} flex flex-col items-center justify-center rounded-2xl bg-gradient-to-br from-[#eef2ff] to-[#f5f0ff] p-4 text-center md:col-span-1`}>
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
-              <Bot className="h-6 w-6" />
+            <span className="uc-bot" aria-hidden>
+              <span className="uc-bot-ring" />
+              <span className="uc-bot-ring" />
+              <span className="uc-bot-tile flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm">
+                <Bot className="uc-bot-icon h-6 w-6" />
+                <span className="uc-bot-live" />
+              </span>
             </span>
             <p className="mt-2 text-xs font-bold text-indigo-700">Udyog Sathi</p>
             <p className="mt-1.5 text-[10.5px] leading-snug text-slate-500">
