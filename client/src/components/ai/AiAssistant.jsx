@@ -510,7 +510,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-[5.25rem] right-6 z-45 inline-flex items-center gap-2 rounded-full border border-[var(--mp-gold)] bg-[var(--mp-paper)] px-4 py-2.5 text-sm font-bold text-[var(--mp-brown)] shadow-lg transition hover:scale-105 hover:bg-white active:scale-95"
+          className="fixed bottom-[5.25rem] right-6 z-45 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-xl shadow-amber-500/20 transition hover:scale-105 active:scale-95"
           aria-label="Open UdyogConnect AI"
         >
           <span className="text-sm">UdyogConnect AI</span>
