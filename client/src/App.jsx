@@ -557,6 +557,10 @@ function App() {
     location.pathname === '/business'
     || location.pathname.startsWith('/customer')
     || location.pathname.startsWith('/admin');
+  // The full Messages view has its own composer; floating launchers would cover its Send button.
+  const onMessagesPage =
+    location.pathname.startsWith('/customer/messages')
+    || (location.pathname === '/business' && dashboardTab === 'messages');
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -831,11 +835,24 @@ function App() {
 
       {/* Floating Chat & AI system */}
       <Suspense fallback={null}>
-        <ChatAndAI user={user} lang={lang} />
+        <ChatAndAI
+          user={user}
+          lang={lang}
+          hidden={onMessagesPage}
+          socket={socketRef.current}
+          unreadCount={messageUnread}
+          onUnreadChange={setMessageUnread}
+          onOpenMessages={(conversationId) => {
+            const query = conversationId ? `c=${encodeURIComponent(conversationId)}` : '';
+            if (user?.role === 'seller') navigate(`/business?tab=messages${query ? `&${query}` : ''}`);
+            else navigate(`/customer/messages${query ? `?${query}` : ''}`);
+          }}
+        />
       </Suspense>
       <Suspense fallback={null}>
         <AiAssistant
           user={user}
+          hidden={onMessagesPage}
           onOpenBusiness={(id, tab) => navigate(`/business-profile/${id}${tab ? `?tab=${tab}` : ''}`)}
           onOpenProduct={(id) => setSelectedProductId(id)}
           onAddToCart={(item) => dispatch({ type: 'ADD_TO_CART', payload: item })}

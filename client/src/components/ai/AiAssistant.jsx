@@ -288,7 +288,7 @@ function AnswerBody({ data, handlers, navigate }) {
   );
 }
 
-export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAddToCart }) {
+export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAddToCart, hidden = false }) {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const userId = String(user?._id || user?.id || '');
@@ -425,7 +425,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
     clearChatHistory(userId);
   };
 
-  if (HIDDEN_ON.test(routerLocation.pathname)) return null;
+  if (hidden || HIDDEN_ON.test(routerLocation.pathname)) return null;
 
   return (
     <>
