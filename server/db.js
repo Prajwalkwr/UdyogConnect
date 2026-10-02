@@ -1420,8 +1420,21 @@ async function nextSequence(key) {
   return Number(counter.seq);
 }
 
+const DEMO_ACCOUNT_EMAILS = new Set(DEMO_USERS.map((user) => user.email.toLowerCase()));
+
+/**
+ * Demo accounts share the publicly known password "password", so on the live site they are
+ * refused unless the owner deliberately enables demo data (SEED_DEMO or ALLOW_DEMO_LOGIN).
+ */
+function isBlockedDemoAccount(email) {
+  const production = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
+  const allowed = !production || process.env.SEED_DEMO === 'true' || process.env.ALLOW_DEMO_LOGIN === 'true';
+  return !allowed && DEMO_ACCOUNT_EMAILS.has(String(email || '').trim().toLowerCase());
+}
+
 module.exports = {
   connectDb,
+  isBlockedDemoAccount,
   getIsMongo: () => isMongo,
   nextSequence,
   db,

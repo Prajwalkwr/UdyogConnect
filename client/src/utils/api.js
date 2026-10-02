@@ -20,9 +20,16 @@ export function getApiUrl(path) {
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
 }
 
+const DEFAULT_TIMEOUT_MS = 20000;
+const UPLOAD_TIMEOUT_MS = 120000;
+const UPLOAD_PATHS = ['/api/upload/', '/api/admin/hero-image'];
+// Only requests that can't change data are retried automatically; resending a POST
+// that timed out could place the same order or payment twice.
+const RETRYABLE_METHODS = new Set(['get', 'head', 'options']);
+
 const api = axios.create({
   baseURL: getApiBaseUrl() || '', // Use the Vite proxy locally; deployments should provide VITE_API_URL.
-  timeout: 20000,
+  timeout: DEFAULT_TIMEOUT_MS,
 });
 
 const GET_CACHE_MS = 20000;
@@ -55,6 +62,12 @@ api.interceptors.request.use((config) => {
       }
     }
   }
+  // Uploads can take well over the default timeout on a slow mobile connection.
+  const isUpload = (typeof FormData !== 'undefined' && config.data instanceof FormData)
+    || UPLOAD_PATHS.some((path) => String(config.url || '').startsWith(path));
+  if (isUpload && (!config.timeout || config.timeout === DEFAULT_TIMEOUT_MS)) {
+    config.timeout = UPLOAD_TIMEOUT_MS;
+  }
   // Let the browser set multipart boundary for FormData
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
     if (typeof headers.delete === 'function') {
@@ -86,7 +99,8 @@ api.interceptors.response.use(
     const response = error.response;
     
     // Auth handling
-    if (response && response.status === 401) {
+    const suspended = response?.status === 403 && response.data?.code === 'ACCOUNT_SUSPENDED';
+    if (response && (response.status === 401 || suspended)) {
       if (typeof window !== 'undefined') {
         clearSessionAuth();
         const message = response.data?.message || 'Your session has expired. Please log in again.';
@@ -94,8 +108,10 @@ api.interceptors.response.use(
       }
     }
 
-    // Retry logic for temporary server errors (502, 503, 504) or network timeouts
-    if (config && !config.noRetry && (!response || (response.status >= 500 && response.status <= 504))) {
+    // Retry once for temporary server errors (502, 503, 504) or network failures, reads only.
+    const method = String(config?.method || 'get').toLowerCase();
+    const temporaryFailure = !response || (response.status >= 502 && response.status <= 504);
+    if (config && !config.noRetry && RETRYABLE_METHODS.has(method) && temporaryFailure) {
       config.__retryCount = config.__retryCount || 0;
       
       if (config.__retryCount < 1) {
@@ -122,7 +138,9 @@ api.interceptors.response.use(
         }
         error.message = serverMessage || response.statusText || error.message;
       }
-    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+    } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      error.message = 'You appear to be offline. Please check your internet connection and try again.';
+    } else if (error.code === 'ECONNABORTED' || String(error.message || '').includes('timeout')) {
       error.message = 'Request timed out. Please check your connection and try again.';
     } else if (!response) {
       error.message = 'Network error. Please check your internet connection.';

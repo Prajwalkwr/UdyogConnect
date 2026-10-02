@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiPackage, FiTruck, FiMapPin, FiCheckCircle, FiClock } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 
 export default function RiderDashboard({ user, lang }) {
   const [availableDeliveries, setAvailableDeliveries] = useState([]);
@@ -38,8 +38,10 @@ export default function RiderDashboard({ user, lang }) {
 
       setLoading(false);
     } catch (e) {
-      console.log(e);
       setLoading(false);
+      if (e?.response?.status !== 401) {
+        Swal.fire({ icon: 'error', text: getApiErrorMessage(e, 'Could not load deliveries. Please check your connection and try again.') });
+      }
     }
   };
 

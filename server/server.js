@@ -6,22 +6,27 @@ const multer = require('multer');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
 
 // Prevent the server from crashing on unhandled errors
 process.on('uncaughtException', (err) => {
-  console.error('CRITICAL: Uncaught Exception:', err);
+  console.error('CRITICAL: Uncaught Exception:', err && (err.stack || err.message));
 });
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+  console.error('CRITICAL: Unhandled Rejection:', reason && (reason.stack || reason.message || reason));
 });
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { generateToken, getJwtSecret } = require('./utils/generateToken');
-const { authenticateToken } = require('./middleware/authMiddleware');
+const { generateToken, getJwtSecret, assertJwtSecretConfigured } = require('./utils/generateToken');
+const { authenticateToken, resolveSession, forgetPasswordChange } = require('./middleware/authMiddleware');
+const {
+  securityHeaders, uploadHeaders, sanitizeRequest, rateLimit, byUserOrIp, clientIp, corsOrigin, isProduction,
+} = require('./middleware/security');
+const { detectFileType, isImageBuffer, IMAGE_MIMES } = require('./utils/fileType');
 const { requireRole } = require('./middleware/roleMiddleware');
 const { isNepalPlace } = require('./utils/nepalPlaces');
-const { connectDb, db, getIsMongo, User, Business, Product, Service, Order, Booking, Review, Report, Chat, Notification, Coupon, AuditLog, Category, SystemSetting, PaymentCredential, EsewaPayment } = require('./db');
+const { connectDb, db, getIsMongo, isBlockedDemoAccount, User, Business, Product, Service, Order, Booking, Review, Report, Chat, Notification, Coupon, AuditLog, Category, SystemSetting, PaymentCredential, EsewaPayment } = require('./db');
 const { createEsewaRoutes } = require('./payments/esewaRoutes');
 const { createOrderLifecycleRoutes, sanitizeOrderFor, generateDeliveryOtp } = require('./orders/lifecycle');
 const { createReportRoutes } = require('./moderation/reports');
@@ -50,7 +55,7 @@ const { POLICY_VERSION, LOGIN_HISTORY_LIMIT } = require('./legal/policy');
 const billing = require('./billing/service');
 const { roundMoney, VAT_RATE } = require('./billing/billData');
 const { isBillEmailConfigured } = require('./utils/sendBillEmail');
-const nodemailer = require('nodemailer');
+const { sendEmail, isEmailConfigured, escapeHtml, EMAIL_PATTERN } = require('./utils/mailer');
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 // The app reads the root .env; also accept the Gmail bill mail settings from server/.env
@@ -68,22 +73,27 @@ try {
 }
 
 const app = express();
+app.disable('x-powered-by');
 // Behind Render (and Vercel's /api rewrite) the client address arrives in X-Forwarded-For;
 // rate limits need the real client IP rather than the proxy's.
 if (process.env.TRUST_PROXY || process.env.RENDER) {
   app.set('trust proxy', Number(process.env.TRUST_PROXY) || 2);
 }
-// Request timing middleware for performance monitoring
+const SLOW_REQUEST_MS = Number(process.env.SLOW_REQUEST_MS) || 1500;
+// Logs only slow or failing requests (or every request with LOG_REQUESTS=true). Query strings are
+// dropped because they can carry locations, search terms and reset tokens.
 app.use((req, res, next) => {
   const startHrTime = process.hrtime();
   res.on('finish', () => {
     const elapsedHrTime = process.hrtime(startHrTime);
     const elapsedMs = elapsedHrTime[0] * 1000 + elapsedHrTime[1] / 1e6;
-    const loggedUrl = req.originalUrl.replace(/(\/reset-password\/verify\/)[^/?#]+/, '$1[redacted]');
-    console.log(`[PERF] ${req.method} ${loggedUrl} - ${elapsedMs.toFixed(3)} ms`);
+    if (process.env.LOG_REQUESTS !== 'true' && elapsedMs < SLOW_REQUEST_MS && res.statusCode < 500) return;
+    const loggedPath = req.path.replace(/(\/reset-password\/verify\/)[^/?#]+/, '$1[redacted]');
+    console.log(`[HTTP] ${req.method} ${loggedPath} ${res.statusCode} - ${elapsedMs.toFixed(0)} ms`);
   });
   next();
 });
+app.use(securityHeaders);
 const httpServer = http.createServer(app);
 const port = process.env.PORT || 3000;
 
@@ -108,7 +118,6 @@ function getAvailablePort(startPort) {
     server.listen(startPort);
   });
 }
-const JWT_SECRET = getJwtSecret();
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_ENPOINT_WEBHOOK_SECRET_KEY || '';
 let stripe = null;
@@ -195,7 +204,7 @@ try {
   console.warn('Cloudinary package not available. Falling back to local /uploads storage.');
 }
 
-app.use(cors());
+app.use(cors({ origin: corsOrigin }));
 
 // Stripe webhook: needs the raw body for signature verification, so it is registered before express.json().
 app.post('/api/payment/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
@@ -233,8 +242,20 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json', limit: 
   }
 });
 
-app.use(express.json({ limit: '15mb' }));
-app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+// Only endpoints that accept base64 images need large JSON bodies; everything else is capped at 1 MB.
+const LARGE_JSON_PATHS = new Set(['/api/upload/image-base64', '/api/admin/hero-image']);
+const needsLargeJson = (reqPath) => LARGE_JSON_PATHS.has(reqPath) || /^\/api\/services(\/[^/]+)?$/.test(reqPath);
+const largeJson = express.json({ limit: '15mb' });
+const smallJson = express.json({ limit: '1mb' });
+app.use((req, res, next) => (needsLargeJson(req.path) ? largeJson : smallJson)(req, res, next));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(sanitizeRequest);
+
+// Every API route shares a generous per-IP ceiling; sensitive routes add their own stricter limits.
+app.use('/api', rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 300,
+}));
 
 const ensureDbReady = async (req, res, next) => {
   try {
@@ -248,67 +269,50 @@ const ensureDbReady = async (req, res, next) => {
 };
 app.use(ensureDbReady);
 
-// ─── Email helper (Nodemailer) ───────────────────────────────────────────────
-let mailTransporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  try {
-    mailTransporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === 'true' || false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    });
-    // verify connection
-    mailTransporter.verify().then(() => console.log('SMTP transporter verified')).catch((e) => console.warn('SMTP verify failed', e.message));
-  } catch (e) {
-    console.warn('Failed to initialize SMTP transporter', e.message);
-    mailTransporter = null;
-  }
-} else {
-  console.warn('SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS in .env to enable email notifications.');
+// ─── Email helper ────────────────────────────────────────────────────────────
+// Uses the shared mailer (Brevo, Gmail App Password or SMTP). Recipients are never logged.
+if (!isEmailConfigured()) {
+  console.warn('Email is not configured. Set BREVO_API_KEY, or GMAIL_USER and GMAIL_APP_PASSWORD, to enable email notifications.');
 }
 
-async function sendMail(options = {}) {
-  if (!mailTransporter) {
-    console.warn('Mail transporter not available — skipping email:', options.to, options.subject);
-    return false;
-  }
+async function sendMail({ to, subject, html, text } = {}) {
+  if (process.env.NODE_ENV === 'test' || !isEmailConfigured()) return false;
   try {
-    const info = await mailTransporter.sendMail(options);
-    console.log('Email sent:', info.messageId);
+    await sendEmail({ to, subject, html, text });
     return true;
   } catch (err) {
-    console.error('Failed to send email:', err && err.message);
+    console.error('Failed to send email:', err && err.code ? err.code : 'unknown error');
     return false;
   }
 }
 
 // ─── Socket.IO real-time setup ────────────────────────────────────────────────
 const io = new SocketIOServer(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { origin: corsOrigin, methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 1e6,
   transports: ['websocket', 'polling'],
 });
 const onlineUsers = new Map();
 
 // Middleware: authenticate socket connections via JWT token in handshake
-io.use((socket, next) => {
+io.use(async (socket, next) => {
+  socket.userId = null;
+  socket.userRole = null;
+  socket.authChecked = true;
   const token = socket.handshake.auth?.token || socket.handshake.query?.token;
-  if (!token) {
-    // Allow unauthenticated connections for broadcast-only rooms
-    socket.userId = null;
-    socket.userRole = null;
-    return next();
-  }
+  // Unauthenticated connections are allowed for broadcast-only rooms.
+  if (!token) return next();
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
-    socket.userId = decoded.id || decoded.userId || null;
-    socket.userRole = decoded.role || null;
-    next();
+    const decoded = jwt.verify(String(token), getJwtSecret(), { algorithms: ['HS256'] });
+    const session = await resolveSession(decoded);
+    if (session.user) {
+      socket.userId = session.user.id || null;
+      socket.userRole = session.user.role || null;
+    }
   } catch {
-    socket.userId = null;
-    socket.userRole = null;
-    next();
+    // Invalid token: continue as a guest.
   }
+  return next();
 });
 
 io.on('connection', (socket) => {
@@ -361,20 +365,14 @@ const getApprovalStatus = (business) => {
 
 const isPubliclyLiveBusiness = (business) => getApprovalStatus(business) === 'approved';
 
-const getOptionalRequestUser = (req) => {
+const getOptionalRequestUser = async (req) => {
   try {
     const authHeader = req.headers.authorization || req.headers.Authorization;
     const token = authHeader && String(authHeader).split(' ')[1];
     if (!token) return null;
-    const decoded = jwt.verify(token, getJwtSecret());
-    const userId = decoded.userId || decoded.id;
-    if (!userId) return null;
-    return {
-      ...decoded,
-      userId,
-      id: userId,
-      role: decoded.role,
-    };
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+    const session = await resolveSession(decoded);
+    return session.user || null;
   } catch (_) {
     return null;
   }
@@ -435,6 +433,7 @@ const canSeePrivateBusinessFields = (business, requestUser) => Boolean(
 );
 
 const idempotencyStore = new Map();
+const IDEMPOTENCY_STORE_MAX = 5000;
 
 app.use((req, res, next) => {
   const method = req.method.toUpperCase();
@@ -449,13 +448,18 @@ app.use((req, res, next) => {
       idempotencyStore.delete(key);
     }
   }
+  // Bounded so a flood of unique keys can't exhaust memory; the oldest entries go first.
+  for (const key of idempotencyStore.keys()) {
+    if (idempotencyStore.size < IDEMPOTENCY_STORE_MAX) break;
+    idempotencyStore.delete(key);
+  }
 
   // Runs before authentication, so scope replays to the caller's credentials rather than req.user.
   const authHeader = String(req.headers.authorization || '');
   const caller = authHeader
     ? require('crypto').createHash('sha256').update(authHeader).digest('hex').slice(0, 32)
     : (req.ip || 'anonymous');
-  const cacheKey = `${method}:${req.path}:${caller}:${idempotencyKey}`;
+  const cacheKey = `${method}:${req.path}:${caller}:${String(idempotencyKey).slice(0, 128)}`;
   const cached = idempotencyStore.get(cacheKey);
   if (cached) {
     return cached.isJson
@@ -494,21 +498,42 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 5, fields: 60, fieldSize: 2 * 1024 * 1024, parts: 70 },
 });
 
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', uploadHeaders, express.static(uploadsDir, { dotfiles: 'deny', index: false }));
 
-const saveBufferLocally = (file) => {
-  const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
-  const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
-  const filename = `svc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+const uploadError = (message) => Object.assign(new Error(message), { status: 400, expose: true });
+
+// Runs after multer: rejects any file whose bytes are not an allowed image (or PDF for pdfFields).
+const checkUploadedFiles = ({ pdfFields = [] } = {}) => (req, res, next) => {
+  const files = [req.file, ...(Array.isArray(req.files) ? req.files : Object.values(req.files || {}).flat())].filter(Boolean);
+  for (const file of files) {
+    const detected = detectFileType(file.buffer);
+    const allowPdf = pdfFields.includes(file.fieldname);
+    if (!detected || !(IMAGE_MIMES.has(detected.mime) || (allowPdf && detected.mime === 'application/pdf'))) {
+      return res.status(400).json({
+        message: allowPdf ? 'Please upload a JPG, PNG, WEBP or PDF file.' : 'Please upload a JPG, PNG, WEBP or GIF image.',
+      });
+    }
+  }
+  return next();
+};
+const uploadSingle = (field) => [upload.single(field), checkUploadedFiles()];
+const businessUploads = [
+  upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]),
+  checkUploadedFiles({ pdfFields: ['document'] }),
+];
+
+const saveBufferLocally = (file, detected) => {
+  const filename = `svc-${Date.now()}-${require('crypto').randomBytes(6).toString('hex')}${detected.ext}`;
   fs.writeFileSync(path.join(uploadsDir, filename), file.buffer);
   return `/uploads/${filename}`;
 };
@@ -530,27 +555,51 @@ const uploadBufferToCloudinary = (buffer, filename = 'upload', folder = 'udyogco
   });
 };
 
-// Prefer Cloudinary; fall back to local /uploads so images always display.
-const processImageUpload = async (file) => {
+/**
+ * Stores an uploaded image (or, with allowPdf, a PDF document) and returns its URL.
+ * The type is checked from the file's bytes, never from its name or the browser's MIME type.
+ * Prefers Cloudinary; falls back to local /uploads so images always display.
+ */
+const processImageUpload = async (file, { allowPdf = false } = {}) => {
   if (!file?.buffer) return '';
+  if (file.buffer.length > MAX_UPLOAD_BYTES) throw uploadError('Files must be under 8MB.');
+  const detected = detectFileType(file.buffer);
+  const allowed = detected && (isImageBuffer(file.buffer) || (allowPdf && detected.mime === 'application/pdf'));
+  if (!allowed) {
+    throw uploadError(allowPdf ? 'Please upload a JPG, PNG, WEBP or PDF file.' : 'Please upload a JPG, PNG, WEBP or GIF image.');
+  }
   if (cloudinaryConfigured && cloudinary) {
     try {
-      return await uploadBufferToCloudinary(file.buffer, file.originalname);
+      return await uploadBufferToCloudinary(file.buffer, path.parse(String(file.originalname || 'upload')).name);
     } catch (err) {
       console.error('Cloudinary upload failed, falling back to local uploads/', err.message || err);
     }
   }
   try {
-    return saveBufferLocally(file);
+    return saveBufferLocally(file, detected);
   } catch (err) {
     console.error('Local image save failed, falling back to base64', err.message || err);
-    const base64 = file.buffer.toString('base64');
-    return `data:${file.mimetype || 'image/jpeg'};base64,${base64}`;
+    return `data:${detected.mime};base64,${file.buffer.toString('base64')}`;
   }
 };
 
+/** Per-account limit for a write action: `max` requests every `minutes` minutes. */
+const writeLimiter = (name, max, minutes) => rateLimit({
+  windowMs: minutes * 60 * 1000,
+  max,
+  key: (req) => `${name}:${byUserOrIp(req)}`,
+  message: 'You are doing that too often. Please wait a moment and try again.',
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: Number(process.env.UPLOAD_RATE_LIMIT) || 60,
+  key: byUserOrIp,
+  message: 'Too many uploads. Please wait a few minutes and try again.',
+});
+
 // Provide a signing endpoint for client-side direct uploads
-app.post('/api/cloudinary/sign', authenticateToken, async (req, res) => {
+app.post('/api/cloudinary/sign', authenticateToken, uploadLimiter, async (req, res) => {
   try {
     if (!cloudinaryConfigured || !cloudinary) {
       return res.status(501).json({ message: 'Cloudinary not configured.' });
@@ -560,7 +609,8 @@ app.post('/api/cloudinary/sign', authenticateToken, async (req, res) => {
       return res.status(501).json({ message: 'Cloudinary not configured.' });
     }
     const timestamp = Math.floor(Date.now() / 1000);
-    const folder = String(req.body?.folder || 'udyogconnect');
+    // The folder is fixed so a signature can't be reused to write anywhere else in the Cloudinary account.
+    const folder = 'udyogconnect';
     const params = { timestamp, folder };
     const signature = cloudinary.utils.api_sign_request(params, cfg.api_secret);
     res.json({
@@ -577,40 +627,28 @@ app.post('/api/cloudinary/sign', authenticateToken, async (req, res) => {
 });
 
 // Dedicated image upload — returns a public URL (Cloudinary or /uploads/...)
-app.post('/api/upload/image', authenticateToken, (req, res, next) => {
-  upload.single('image')(req, res, (err) => {
-    if (err) {
-      err.status = 400;
-      err.message = err.code === 'LIMIT_FILE_SIZE'
-        ? 'Image must be under 8MB.'
-        : (err.message || 'Invalid image upload.');
-      return next(err);
-    }
-    return next();
-  });
-}, async (req, res) => {
+app.post('/api/upload/image', authenticateToken, uploadLimiter, uploadSingle('image'), async (req, res) => {
   try {
     const file = req.file || (Array.isArray(req.files) ? req.files[0] : null);
     if (!file) {
-      console.warn('[upload/image] No file received. content-type=', req.headers['content-type']);
       return res.status(400).json({ message: 'Image file is required. Please choose a JPG or PNG photo.' });
     }
     const url = await processImageUpload(file);
     if (!url) {
       return res.status(500).json({ message: 'Image upload failed.' });
     }
-    console.log('[upload/image] Saved', String(url).slice(0, 120));
     res.status(201).json({ success: true, url, imageUrl: url });
   } catch (err) {
-    console.error('Image upload failed:', err);
-    res.status(500).json({ message: err.message || 'Image upload failed.' });
+    if (err.expose) return res.status(err.status || 400).json({ message: err.message });
+    console.error('Image upload failed:', err && err.message);
+    res.status(500).json({ message: 'Image upload failed.' });
   }
 });
 
 // JSON/base64 upload fallback (avoids multipart/multer issues)
-app.post('/api/upload/image-base64', authenticateToken, async (req, res) => {
+app.post('/api/upload/image-base64', authenticateToken, uploadLimiter, async (req, res) => {
   try {
-    const { dataUrl, fileName = 'photo.jpg', mimeType = 'image/jpeg' } = req.body || {};
+    const { dataUrl, fileName = 'photo.jpg' } = req.body || {};
     if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
       return res.status(400).json({ message: 'Image data is required.' });
     }
@@ -622,27 +660,20 @@ app.post('/api/upload/image-base64', authenticateToken, async (req, res) => {
     if (!buffer.length) {
       return res.status(400).json({ message: 'Empty image data.' });
     }
-    if (buffer.length > 8 * 1024 * 1024) {
-      return res.status(400).json({ message: 'Image must be under 8MB.' });
-    }
-    const fakeFile = {
-      buffer,
-      originalname: String(fileName),
-      mimetype: match[1] || mimeType,
-    };
-    const url = await processImageUpload(fakeFile);
+    const url = await processImageUpload({ buffer, originalname: String(fileName).slice(0, 120) });
     if (!url) {
       return res.status(500).json({ message: 'Image upload failed.' });
     }
     res.status(201).json({ success: true, url, imageUrl: url });
   } catch (err) {
-    console.error('Base64 image upload failed:', err);
-    res.status(500).json({ message: err.message || 'Image upload failed.' });
+    if (err.expose) return res.status(err.status || 400).json({ message: err.message });
+    console.error('Base64 image upload failed:', err && err.message);
+    res.status(500).json({ message: 'Image upload failed.' });
   }
 });
 
-// Delete asset by public_id
-app.post('/api/cloudinary/delete', authenticateToken, requireRole(['seller','admin']), async (req, res) => {
+// Delete asset by public_id. Admin only: a public_id alone doesn't prove who owns the image.
+app.post('/api/cloudinary/delete', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     if (!cloudinaryConfigured || !cloudinary) return res.status(501).json({ message: 'Cloudinary not configured.' });
     const { public_id } = req.body;
@@ -658,9 +689,7 @@ app.post('/api/cloudinary/delete', authenticateToken, requireRole(['seller','adm
 // Serve client build if present (production multi-stage docker will copy client/dist)
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-} else {
-  app.use(express.static(__dirname));
+  app.use(express.static(clientDist, { dotfiles: 'deny' }));
 }
 
 // Conversation-based customer ↔ business messaging (private per customer+business pair)
@@ -721,7 +750,47 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 const BUSINESS_OFFERING_TYPES = ['products', 'services', 'both'];
 
-app.post('/api/auth/register', validateRegistration, async (req, res) => {
+const normalizeIdentifier = (value) => String(value ?? '').trim().toLowerCase().slice(0, 254);
+const loginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  key: (req) => `${clientIp(req)}|${normalizeIdentifier(req.body?.email || req.body?.username || req.body?.user)}`,
+  message: 'Too many sign-in attempts. Please wait 15 minutes and try again.',
+});
+const loginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many sign-in attempts from this network. Please wait and try again.',
+});
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: 'Too many accounts created from this network. Please try again later.',
+});
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  key: (req) => `${clientIp(req)}|${normalizeIdentifier(req.body?.email)}`,
+  message: 'Too many verification attempts. Please wait 15 minutes and try again.',
+});
+
+// Activation codes are shown in API responses only during local development. In production
+// they are emailed, so knowing someone's email address is never enough to activate the account.
+const exposeOtpInResponse = () => !isProduction();
+
+// Sent in the background so a slow email provider never delays sign-up or login.
+const sendVerificationOtpEmail = (user, otp) => {
+  if (process.env.NODE_ENV === 'test' || !isEmailConfigured()) return;
+  sendEmail({
+    to: user.email,
+    subject: 'Your UdyogConnect activation code',
+    text: `Your UdyogConnect activation code is ${otp}. If you did not create an account, you can ignore this email.`,
+  }).catch((err) => {
+    console.warn('Activation email could not be sent:', err && err.code ? err.code : 'unknown error');
+  });
+};
+
+app.post('/api/auth/register', registerLimiter, validateRegistration, async (req, res) => {
   try {
     const { name, email, password, confirmPassword, phone, role, businessOfferingType } = req.body;
 
@@ -751,7 +820,7 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userRole = role === 'seller' ? 'seller' : 'customer';
     const registrationDefaults = getRegistrationUserDefaults();
-    const verificationOtp = registrationDefaults.isVerified ? '' : Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationOtp = registrationDefaults.isVerified ? '' : require('crypto').randomInt(100000, 1000000).toString();
 
     const newUser = await UserMDL.create({
       name,
@@ -778,32 +847,17 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
       resetOtp: '',
     });
 
-    console.log('User registered:', newUser._id, newUser.email);
+    console.log('User registered:', String(newUser._id));
 
-    // Create notification safely
-    if (verificationOtp) {
-      try {
-        const NotificationMDL = Notification();
-        if (NotificationMDL) {
-          await NotificationMDL.create({
-            userId: String(newUser._id),
-            title: 'Verification OTP',
-            message: `Welcome to UdyogConnect! Your activation OTP code is: ${verificationOtp}`,
-            type: 'general',
-          });
-        }
-      } catch (notifErr) {
-        console.warn('Verification notification creation skipped:', notifErr && notifErr.message);
-      }
-    }
+    if (verificationOtp) sendVerificationOtpEmail(newUser, verificationOtp);
 
     const responsePayload = {
       success: true,
       isVerified: !!newUser.isVerified,
-      message: registrationDefaults.isVerified ? 'Registration completed. You can now sign in immediately.' : 'Registration completed. Verification required.',
+      message: registrationDefaults.isVerified ? 'Registration completed. You can now sign in immediately.' : 'Registration completed. Check your email for the activation code.',
       email: newUser.email,
     };
-    if (newUser.verificationOtp) responsePayload.otp = newUser.verificationOtp;
+    if (newUser.verificationOtp && exposeOtpInResponse()) responsePayload.otp = newUser.verificationOtp;
 
     // When OTP is not required, return a session so the client can finish signup in one step.
     if (newUser.isVerified) {
@@ -821,7 +875,6 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
     res.status(201).json(responsePayload);
   } catch (err) {
     if (err && err.code === 11000) {
-      console.warn('Registration duplicate key error:', err.message);
       const duplicateField = err.keyPattern?.phone ? 'phone' : 'email';
       const duplicateMessage = duplicateField === 'phone'
         ? 'This phone number is already registered.'
@@ -836,40 +889,27 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', validateLogin, async (req, res) => {
+app.post('/api/auth/login', loginIpLimiter, loginAccountLimiter, validateLogin, async (req, res) => {
   try {
     const body = req.body || {};
-    const email = body.email || body.username || body.user || '';
-    const password = body.password || '';
-    const otp = body.otp;
+    const identifier = String(body.email || body.username || body.user || '').trim().slice(0, 254);
+    const password = typeof body.password === 'string' ? body.password : '';
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({ message: 'Email/phone and password are required.' });
     }
 
     const UserMDL = User();
-    let user = await UserMDL.findOne({ email });
+    let user = await UserMDL.findOne({ email: identifier.toLowerCase() });
     if (!user) {
-      user = await UserMDL.findOne({ phone: email });
+      user = await UserMDL.findOne({ phone: identifier });
     }
 
     if (!user) {
-      console.log('Login failed: no matching user for', email);
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
-
-    if (user.status === 'suspended') {
-      return res.status(403).json({ message: 'Your account has been suspended. Please contact support.' });
-    }
-
-    if (!user.isVerified) {
-      console.log('Login blocked: account not verified for', email);
-      return res.status(400).json({
-        requireVerification: true,
-        otp: user.verificationOtp || '',
-        message: 'Account verification required. Please verify your account to continue.',
-        email: user.email,
-      });
+    if (isBlockedDemoAccount(user.email)) {
+      return res.status(403).json({ message: 'Demo accounts are disabled on the live site.' });
     }
 
     // Check lockout status
@@ -883,7 +923,6 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log('Login failed: password mismatch for', email);
       const attempts = (user.failedLoginAttempts || 0) + 1;
       let lockUntil = null;
       let msg = '';
@@ -900,13 +939,29 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
     // Reset login failures on success
     await UserMDL.findByIdAndUpdate(user._id, { failedLoginAttempts: 0, lockUntil: null });
 
-    // 2FA Mock Check
-    if (user.twoFactorEnabled && !otp) {
-      return res.json({ require2FA: true, message: '2FA verification code required.' });
+    // Account state is only revealed after the password is proven, so it can't be used to probe emails.
+    if (user.status === 'suspended') {
+      return res.status(403).json({ message: 'Your account has been suspended. Please contact support.' });
     }
 
-    if (user.twoFactorEnabled && otp !== '123456') {
-      return res.status(400).json({ message: 'Invalid 2FA verification code.' });
+    if (!user.isVerified) {
+      if (getRegistrationUserDefaults().isVerified) {
+        // Activation codes are not required on this deployment; the correct password is enough.
+        await UserMDL.findByIdAndUpdate(user._id, { isVerified: true, verificationOtp: '' });
+      } else {
+        let otp = user.verificationOtp;
+        if (!otp) {
+          otp = require('crypto').randomInt(100000, 1000000).toString();
+          await UserMDL.findByIdAndUpdate(user._id, { verificationOtp: otp });
+        }
+        sendVerificationOtpEmail(user, otp);
+        return res.status(400).json({
+          requireVerification: true,
+          ...(exposeOtpInResponse() ? { otp } : {}),
+          message: 'Account verification required. Enter the activation code we emailed you.',
+          email: user.email,
+        });
+      }
     }
 
     // Check if Seller has registered a business
@@ -934,7 +989,6 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
     await AuditLogMDL.create({ userId: user._id, action: 'LOGIN', details: 'User logged in successfully' });
 
     const token = generateToken(user);
-    console.log('User logged in:', user._id, user.email);
     res.json({
       success: true,
       token,
@@ -953,17 +1007,17 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
 });
 
 // Verification Endpoints
-app.post('/api/auth/verify', async (req, res) => {
+app.post('/api/auth/verify', verifyLimiter, async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const email = normalizeIdentifier(req.body?.email);
+    const otp = String(req.body?.otp ?? '').trim();
     if (!email || !otp) return res.status(400).json({ message: 'Email and OTP are required.' });
 
     const UserMDL = User();
     const user = await UserMDL.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'User not found.' });
-
-    if (user.verificationOtp !== otp) {
-      return res.status(400).json({ message: 'Invalid activation OTP code.' });
+    // Same answer for unknown emails and wrong codes, so this can't be used to discover accounts.
+    if (!user || !user.verificationOtp || String(user.verificationOtp) !== otp) {
+      return res.status(400).json({ message: 'Invalid email or activation code.' });
     }
 
     await UserMDL.findByIdAndUpdate(user._id, { isVerified: true, verificationOtp: '' });
@@ -1041,7 +1095,7 @@ const toSafeUser = (user) => {
 app.put('/api/auth/profile', authenticateToken, (req, res, next) => {
   const contentType = String(req.headers['content-type'] || '');
   if (contentType.includes('multipart/form-data')) {
-    return authProfileUpload(req, res, next);
+    return authProfileUpload(req, res, (err) => (err ? next(err) : checkUploadedFiles()(req, res, next)));
   }
   return next();
 }, async (req, res) => {
@@ -1051,11 +1105,40 @@ app.put('/api/auth/profile', authenticateToken, (req, res, next) => {
     if (!user) return res.status(404).json({ message: 'Profile not found.' });
 
     const updates = {};
-    if (req.body.name) updates.name = req.body.name;
-    if (req.body.phone !== undefined) updates.phone = req.body.phone;
-    if (req.body.email) updates.email = String(req.body.email).trim().toLowerCase();
-    if (req.body.twoFactorEnabled !== undefined) {
-      updates.twoFactorEnabled = req.body.twoFactorEnabled === 'true' || req.body.twoFactorEnabled === true;
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name || '').trim();
+      if (name.length < 2 || name.length > 80) {
+        return res.status(400).json({ message: 'Name must be between 2 and 80 characters.' });
+      }
+      updates.name = name;
+    }
+    if (req.body.phone !== undefined) {
+      const rawPhone = String(req.body.phone || '').trim();
+      const unchanged = rawPhone === String(user.phone || '');
+      const phone = unchanged ? rawPhone : rawPhone.replace(/[\s-]/g, '');
+      if (phone && !unchanged && !/^(97|98)\d{8}$/.test(phone)) {
+        return res.status(400).json({ message: 'Enter a valid 10-digit Nepal mobile number (starting with 97 or 98).' });
+      }
+      if (phone && !unchanged) {
+        const taken = await UserMDL.findOne({ phone });
+        if (taken && String(taken._id) !== String(user._id)) {
+          return res.status(409).json({ message: 'This phone number is already registered.' });
+        }
+      }
+      updates.phone = phone;
+    }
+    if (req.body.email) {
+      const email = String(req.body.email).trim().toLowerCase();
+      if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+        return res.status(400).json({ message: 'Enter a valid email address.' });
+      }
+      if (email !== String(user.email || '').toLowerCase()) {
+        const taken = await UserMDL.findOne({ email });
+        if (taken && String(taken._id) !== String(user._id)) {
+          return res.status(409).json({ message: 'An account with this email already exists.' });
+        }
+      }
+      updates.email = email;
     }
     if (req.body.addresses !== undefined) {
       const checked = validateAddressList(parseMaybeJson(req.body.addresses, null));
@@ -1065,16 +1148,14 @@ app.put('/api/auth/profile', authenticateToken, (req, res, next) => {
     if (req.body.wishlist !== undefined) {
       const nextWishlist = parseMaybeJson(req.body.wishlist, user.wishlist || { products: [], services: [], businesses: [] });
       const toIdList = (items) => (Array.isArray(items) ? items : [])
-        .map((item) => String(item?._id || item?.id || item || '').trim())
+        .slice(0, 500)
+      .map((item) => String(item?._id || item?.id || item || '').trim().slice(0, 64))
         .filter(Boolean);
       updates.wishlist = {
         products: toIdList(nextWishlist.products),
         services: toIdList(nextWishlist.services),
         businesses: toIdList(nextWishlist.businesses),
       };
-    }
-    if (req.body.paymentMethods !== undefined) {
-      updates.paymentMethods = parseMaybeJson(req.body.paymentMethods, user.paymentMethods || []);
     }
 
     if (req.file) {
@@ -1110,7 +1191,8 @@ app.put('/api/auth/wishlist', authenticateToken, async (req, res) => {
     }
 
     const toIdList = (items) => (Array.isArray(items) ? items : [])
-      .map((item) => String(item?._id || item?.id || item || '').trim())
+      .slice(0, 500)
+      .map((item) => String(item?._id || item?.id || item || '').trim().slice(0, 64))
       .filter(Boolean);
 
     const wishlist = {
@@ -1135,8 +1217,11 @@ app.put('/api/auth/wishlist', authenticateToken, async (req, res) => {
 app.put('/api/auth/password', authenticateToken, async (req, res) => {
   try {
     const { currentPassword, newPassword, confirmPassword } = req.body || {};
-    if (!currentPassword || !newPassword) {
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
       return res.status(400).json({ message: 'Current and new password are required.' });
+    }
+    if (newPassword.length > 128) {
+      return res.status(400).json({ message: 'New password must be at most 128 characters.' });
     }
     if (newPassword.length < 8 || !/\d/.test(newPassword) || !/[a-zA-Z]/.test(newPassword)) {
       return res.status(400).json({ message: 'New password must be at least 8 characters and include letters and numbers.' });
@@ -1153,8 +1238,14 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
     if (!isMatch) return res.status(400).json({ message: 'Current password is incorrect.' });
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await UserMDL.findByIdAndUpdate(req.user.id, { password: hashedPassword });
-    res.json({ success: true, message: 'Password updated.' });
+    // Signs out every other session; this device gets a fresh token below.
+    const updatedUser = await UserMDL.findByIdAndUpdate(
+      req.user.id,
+      { password: hashedPassword, passwordChangedAt: new Date(), failedLoginAttempts: 0 },
+      { new: true }
+    );
+    forgetPasswordChange(req.user.id);
+    res.json({ success: true, message: 'Password updated.', token: generateToken(updatedUser || user) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to update password.' });
@@ -1170,13 +1261,14 @@ app.get('/api/health/status', async (req, res) => {
     
     // Try to count businesses to verify connection
     let businessCount = 0;
-    let mongoError = null;
+    let databaseReachable = true;
     
     try {
       const BusinessMDL = Business();
       businessCount = await BusinessMDL.countDocuments({});
     } catch (err) {
-      mongoError = err.message;
+      databaseReachable = false;
+      console.error('Health check database query failed:', err && err.message);
     }
 
     res.json({
@@ -1184,8 +1276,7 @@ app.get('/api/health/status', async (req, res) => {
       timestamp: new Date().toISOString(),
       database: {
         type: mongoConnected ? 'MongoDB (Production)' : 'JSON File Storage (Development)',
-        connected: true,
-        mongoError: mongoError || null,
+        connected: databaseReachable,
         businessCount: businessCount
       },
       message: mongoConnected 
@@ -1193,11 +1284,8 @@ app.get('/api/health/status', async (req, res) => {
         : 'Using file-based storage. Business data will persist if saved to JSON files.'
     });
   } catch (err) {
-    res.status(500).json({ 
-      status: 'error', 
-      message: 'Health check failed', 
-      error: err.message 
-    });
+    console.error('Health check failed:', err && err.message);
+    res.status(500).json({ status: 'error', message: 'Health check failed' });
   }
 });
 
@@ -1236,11 +1324,8 @@ app.get('/api/admin/businesses/persistence-check', authenticateToken, requireRol
       }))
     });
   } catch (err) {
-    res.status(500).json({ 
-      status: 'error', 
-      message: 'Failed to check business persistence', 
-      error: err.message 
-    });
+    console.error('Persistence check failed:', err && err.message);
+    res.status(500).json({ status: 'error', message: 'Failed to check business persistence' });
   }
 });
 
@@ -1254,7 +1339,7 @@ app.get('/api/businesses', async (req, res) => {
 
     // Public marketplace: only admin-approved businesses go live.
     // Admins may pass ?status=... or ?includeAll=true (with auth) to manage approvals.
-    const requestUser = getOptionalRequestUser(req);
+    const requestUser = await getOptionalRequestUser(req);
     const isAdmin = requestUser?.role === 'admin';
     if (isAdmin && (status || String(req.query.includeAll || '') === 'true')) {
       if (status && status !== 'All') {
@@ -1336,7 +1421,7 @@ app.get('/api/businesses/:id', async (req, res) => {
     const business = await BusinessMDL.findById(req.params.id);
     if (!business) return res.status(404).json({ message: 'Business profile not found.' });
 
-    const requestUser = getOptionalRequestUser(req);
+    const requestUser = await getOptionalRequestUser(req);
     const isAdmin = requestUser?.role === 'admin';
     const isOwner = requestUser && String(business.ownerId) === String(requestUser.id || requestUser.userId);
     if (!isPubliclyLiveBusiness(business) && !isAdmin && !isOwner) {
@@ -1390,7 +1475,7 @@ app.get('/api/businesses/:id/suggestions', async (req, res) => {
   }
 });
 
-app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
+app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']), businessUploads, async (req, res) => {
   try {
     const { name, category, subcategory, location, price, description, phone, contactEmail, website, hours, openingTime, closingTime, latitude, longitude, registrationNumber, panVatNumber, deliveryAvailable, offeringType, isOpen, deliveryRadiusKm, openingDays } = req.body || {};
     const composedHours = (openingTime && closingTime)
@@ -1487,8 +1572,6 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
       return res.status(409).json({ message: 'A business with this name already exists. Please choose a different name.' });
     }
 
-    console.log(`[LOG] Seller ${req.user.email || ownerId} (${ownerId}) is registering business: "${name}" in category "${category}"`);
-
     let logoUrl = '';
     let coverUrl = '';
     let docUrl = '';
@@ -1502,7 +1585,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
         coverUrl = await processImageUpload(req.files.cover[0]);
       }
       if (req.files.document && req.files.document[0]) {
-        docUrl = await processImageUpload(req.files.document[0]);
+        docUrl = await processImageUpload(req.files.document[0], { allowPdf: true });
       }
       if (req.files.qr && req.files.qr[0]) {
         qrUrl = await processImageUpload(req.files.qr[0]);
@@ -1553,7 +1636,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
       offeringType: catalogType,
     });
 
-    console.log(`[SUCCESS] Business registered: "${name}" (ID: ${newBusiness._id}) by seller ${ownerId} with status: pending. Business will persist until admin verification or permanent deletion.`);
+    console.log(`Business registered: ${newBusiness._id} (pending approval)`);
 
     res.status(201).json({ success: true, business: serializeBusiness(newBusiness) });
   } catch (err) {
@@ -1566,7 +1649,7 @@ app.post('/api/businesses', authenticateToken, requireRole(['seller', 'admin']),
   }
 });
 
-app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin']), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }, { name: 'document', maxCount: 1 }, { name: 'qr', maxCount: 1 }]), async (req, res) => {
+app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin']), businessUploads, async (req, res) => {
   try {
     const BusinessMDL = Business();
     const biz = await BusinessMDL.findById(req.params.id);
@@ -1594,7 +1677,7 @@ app.put('/api/businesses/:id', authenticateToken, requireRole(['seller', 'admin'
         coverUrl = await processImageUpload(req.files.cover[0]);
       }
       if (req.files.document && req.files.document[0]) {
-        docUrl = await processImageUpload(req.files.document[0]);
+        docUrl = await processImageUpload(req.files.document[0], { allowPdf: true });
       }
       if (req.files.qr && req.files.qr[0]) {
         qrUrl = await processImageUpload(req.files.qr[0]);
@@ -1839,7 +1922,7 @@ app.delete('/api/businesses/:id', authenticateToken, requireRole(['admin']), asy
     }
 
     // Log audit trail for admin deletion
-    console.log(`[AUDIT] Admin ${req.user.email} (ID: ${req.user.id}) is deleting business "${biz.name}" (ID: ${bizId})`);
+    console.log(`[AUDIT] Admin ${req.user.id} is deleting business ${bizId}`);
 
     // Record cascading deletions for audit trail
     let deletionStats = {
@@ -1981,7 +2064,7 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), validateProductPayload, async (req, res) => {
+app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), uploadSingle('image'), validateProductPayload, async (req, res) => {
   try {
     const { businessId, name, category, subcategory, description, price, discount, stock, sku, brand } = req.body;
     const ProductMDL = Product();
@@ -2050,7 +2133,7 @@ app.post('/api/products', authenticateToken, requireRole(['seller', 'admin']), u
   }
 });
 
-app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
+app.put('/api/products/:id', authenticateToken, requireRole(['seller', 'admin']), uploadSingle('image'), async (req, res) => {
   try {
     const { name, brand, price, discount, stock, description, category, imageUrl } = req.body;
 
@@ -2167,7 +2250,7 @@ app.delete('/api/products/:id', authenticateToken, requireRole(['seller', 'admin
   }
 });
 
-app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
+app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), uploadSingle('image'), async (req, res) => {
   try {
     const { businessId, name, description, price, duration, slots, staff, homeService, availableFrom, availableTo, imageUrl } = req.body;
     const ServiceMDL = Service();
@@ -2253,7 +2336,7 @@ app.post('/api/services', authenticateToken, requireRole(['seller', 'admin']), u
   }
 });
 
-app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), upload.single('image'), async (req, res) => {
+app.put('/api/services/:id', authenticateToken, requireRole(['seller', 'admin']), uploadSingle('image'), async (req, res) => {
   try {
     const ServiceMDL = Service();
     const service = await ServiceMDL.findById(req.params.id);
@@ -2550,7 +2633,7 @@ async function notifyNewOrder(ioInstance, order) {
   ioInstance.to('role:admin').emit('new_order', sanitizeOrderFor(order, 'admin'));
 }
 
-app.post('/api/checkout', authenticateToken, async (req, res) => {
+app.post('/api/checkout', authenticateToken, writeLimiter('checkout', 20, 10), async (req, res) => {
   try {
     const { items, paymentMethod } = req.body || {};
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -2622,6 +2705,7 @@ app.post('/api/checkout', authenticateToken, async (req, res) => {
   }
 });
 
+app.use(['/api/checkout/esewa', '/api/payment/esewa'], writeLimiter('esewa', 30, 10));
 app.use(createEsewaRoutes({
   authenticateToken,
   requireRole,
@@ -2654,8 +2738,14 @@ app.post('/api/payment/confirm', authenticateToken, requireRole(['admin', 'selle
     if (status === 'refunded' && access !== 'admin') {
       return res.status(403).json({ message: 'Only an admin can mark an order as refunded.' });
     }
-    if (order.paymentMethod === 'Card' && access !== 'admin') {
-      return res.status(403).json({ message: 'Card payments are confirmed automatically by the payment provider.' });
+    if (['Card', 'eSewa'].includes(order.paymentMethod) && access !== 'admin') {
+      return res.status(403).json({ message: 'Online payments are confirmed automatically by the payment provider.' });
+    }
+    if (order.paymentStatus === 'paid' && status !== 'paid' && access !== 'admin') {
+      return res.status(403).json({ message: 'This order is already paid. Only an admin can change its payment status.' });
+    }
+    if (status === 'refunded' && order.paymentStatus !== 'paid') {
+      return res.status(409).json({ message: 'Only a paid order can be marked as refunded.' });
     }
 
     const OrderMDL = Order();
@@ -2717,7 +2807,7 @@ app.post('/api/payment/create-session', authenticateToken, async (req, res) => {
 });
 
 // Verify Stripe Checkout Session and update order payment status
-app.post('/api/payment/verify-session', authenticateToken, async (req, res) => {
+app.post('/api/payment/verify-session', authenticateToken, writeLimiter('payment-verify', 30, 10), async (req, res) => {
   try {
     if (!stripe) return res.status(501).json({ message: 'Stripe not configured on server.' });
     const { sessionId, orderId } = req.body || {};
@@ -2842,8 +2932,12 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
     if (!['placed', 'accepted', 'preparing', 'dispatched', 'completed', 'cancelled', 'rejected'].includes(status)) {
       return res.status(400).json({ message: 'Invalid order status.' });
     }
+    if (access !== 'admin' && ['completed', 'cancelled', 'rejected'].includes(String(order.status)) && status !== order.status) {
+      return res.status(409).json({ message: `This order is already ${order.status} and can no longer be changed.` });
+    }
+    const safeNote = typeof note === 'string' ? note.trim().slice(0, 500) : '';
 
-    const trackingHistory = [...(order.trackingHistory || []), { status, time: new Date().toISOString(), note: note || `Order updated to ${status}.` }];
+    const trackingHistory = [...(order.trackingHistory || []), { status, time: new Date().toISOString(), note: safeNote || `Order updated to ${status}.` }];
     const statusUpdate = { status, trackingHistory };
     if (status === 'dispatched' && order.status !== 'dispatched') {
       Object.assign(statusUpdate, { deliveryOtp: generateDeliveryOtp(), deliveryOtpAttempts: 0, dispatchedAt: new Date() });
@@ -2862,7 +2956,7 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
       socketIo.to(`user:${order.customerId}`).emit('order_status_update', {
         orderId: req.params.id,
         status,
-        note: note || `Your order has been updated to: ${status}`,
+        note: safeNote || `Your order has been updated to: ${status}`,
       });
     }
 
@@ -2873,13 +2967,13 @@ app.put('/api/orders/:id/status', authenticateToken, async (req, res) => {
         const biz = await BusinessMDL.findById(order.businessId);
         if (biz && biz.contactEmail) {
           const subject = `Order ${String(order._id).slice(-8).toUpperCase()} — ${status}`;
-          const html = `<p>Hi ${biz.name || 'Business'},</p>
-            <p>The order <strong>${order._id}</strong> has been updated to <strong>${status}</strong>.</p>
-            <p>Customer: ${order.deliveryAddress?.name || '—'} (${order.deliveryAddress?.phone || '—'})</p>
-            <p>Items: ${order.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}</p>
-            <p>Total: NPR ${order.total}</p>
+          const html = `<p>Hi ${escapeHtml(biz.name || 'Business')},</p>
+            <p>The order <strong>${escapeHtml(order._id)}</strong> has been updated to <strong>${escapeHtml(status)}</strong>.</p>
+            <p>Customer: ${escapeHtml(order.deliveryAddress?.name || '—')} (${escapeHtml(order.deliveryAddress?.phone || '—')})</p>
+            <p>Items: ${(order.items || []).map((i) => `${escapeHtml(i.name)} (x${escapeHtml(i.quantity)})`).join(', ')}</p>
+            <p>Total: NPR ${escapeHtml(order.total)}</p>
             <p>View orders in your dashboard to manage it.</p>`;
-          await sendMail({ to: biz.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+          await sendMail({ to: biz.contactEmail, subject, html });
         }
       }
     } catch (err) { console.warn('Order status email failed', err && err.message); }
@@ -2947,7 +3041,7 @@ app.get('/api/bookings/availability', async (req, res) => {
   }
 });
 
-app.post('/api/bookings', authenticateToken, async (req, res) => {
+app.post('/api/bookings', authenticateToken, writeLimiter('bookings', 20, 10), async (req, res) => {
   try {
     const { businessId, serviceId, date, timeSlot, staffMember, homeService } = req.body || {};
     if (!businessId || !serviceId || !date || !timeSlot) {
@@ -3283,11 +3377,11 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
         const latest = updated;
         if (business && business.contactEmail) {
           const subject = `Booking ${String(latest._id).slice(-8).toUpperCase()} — ${latest.status}`;
-          const html = `<p>Hi ${business.name || 'Business'},</p>
-            <p>The booking <strong>${latest._id}</strong> for service <strong>${latest.serviceName || latest.serviceId}</strong> has been updated to <strong>${latest.status}</strong>.</p>
-            <p>Customer: ${latest.customerName || latest.customerId}</p>
-            <p>Date: ${latest.date} · Time: ${latest.timeSlot}</p>`;
-          await sendMail({ to: business.contactEmail, from: process.env.SMTP_FROM || process.env.SMTP_USER, subject, html });
+          const html = `<p>Hi ${escapeHtml(business.name || 'Business')},</p>
+            <p>The booking <strong>${escapeHtml(latest._id)}</strong> for service <strong>${escapeHtml(latest.serviceName || latest.serviceId)}</strong> has been updated to <strong>${escapeHtml(latest.status)}</strong>.</p>
+            <p>Customer: ${escapeHtml(latest.customerName || latest.customerId)}</p>
+            <p>Date: ${escapeHtml(latest.date)} · Time: ${escapeHtml(latest.timeSlot)}</p>`;
+          await sendMail({ to: business.contactEmail, subject, html });
         }
       }
     } catch (mailErr) {
@@ -3299,7 +3393,7 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
     if (err?.status) {
       return res.status(err.status).json({ message: err.message, code: err.code });
     }
-    res.status(500).json({ message: err?.message || 'Status update failed.' });
+    res.status(500).json({ message: 'Status update failed.' });
   }
 });
 
@@ -3421,11 +3515,26 @@ app.get('/api/admin/support-tickets', authenticateToken, requireRole(['admin']),
   }
 });
 
-app.post('/api/support-tickets', authenticateToken, async (req, res) => {
+const SUPPORT_TICKET_PRIORITIES = ['low', 'medium', 'high'];
+const supportTicketLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  key: byUserOrIp,
+  message: 'You have sent several support requests recently. Please wait before sending another.',
+});
+
+app.post('/api/support-tickets', authenticateToken, supportTicketLimiter, async (req, res) => {
   try {
-    const { category = 'general', subject, message, priority = 'medium' } = req.body;
+    const rawPriority = String(req.body?.priority || 'medium').trim().toLowerCase();
+    const category = String(req.body?.category || 'general').trim().slice(0, 50) || 'general';
+    const priority = SUPPORT_TICKET_PRIORITIES.includes(rawPriority) ? rawPriority : 'medium';
+    const subject = String(req.body?.subject || '').trim();
+    const message = String(req.body?.message || '').trim();
     if (!subject || !message) {
       return res.status(400).json({ message: 'Subject and message are required.' });
+    }
+    if (subject.length > 150 || message.length > 5000) {
+      return res.status(400).json({ message: 'Subject must be at most 150 characters and message at most 5000 characters.' });
     }
 
     const SupportTicketMDL = db.SupportTicket || require('./db').SupportTicket();
@@ -3457,9 +3566,13 @@ app.post('/api/support-tickets', authenticateToken, async (req, res) => {
 
 app.put('/api/admin/support-tickets/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { status, resolution } = req.body;
+    const status = String(req.body?.status || '').trim();
+    if (!['open', 'in-progress', 'resolved'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid ticket status.' });
+    }
+    const resolution = String(req.body?.resolution || '').trim().slice(0, 5000);
     const SupportTicketMDL = db.SupportTicket || require('./db').SupportTicket();
-    const updated = await SupportTicketMDL.findByIdAndUpdate(req.params.id, { status, resolution: resolution || '' }, { new: true });
+    const updated = await SupportTicketMDL.findByIdAndUpdate(req.params.id, { status, resolution }, { new: true });
     if (!updated) return res.status(404).json({ message: 'Support ticket not found.' });
 
     const socketIo = req.app.get('io');
@@ -3557,8 +3670,18 @@ app.put('/api/reviews/:id', authenticateToken, async (req, res) => {
     }
 
     const updates = {};
-    if (req.body.rating !== undefined) updates.rating = parseInt(req.body.rating, 10);
-    if (req.body.comment !== undefined) updates.comment = String(req.body.comment).trim();
+    if (req.body.rating !== undefined) {
+      const rating = Number(req.body.rating);
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: 'Rating must be a whole number from 1 to 5.' });
+      }
+      updates.rating = rating;
+    }
+    if (req.body.comment !== undefined) {
+      const comment = String(req.body.comment).trim();
+      if (comment.length > 2000) return res.status(400).json({ message: 'Review must be at most 2000 characters.' });
+      updates.comment = comment;
+    }
     const updated = await ReviewMDL.findByIdAndUpdate(req.params.id, updates, { new: true });
     await recalculateBusinessRating(review.businessId);
     res.json({ success: true, review: updated });
@@ -3583,7 +3706,7 @@ app.delete('/api/reviews/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single('image'), async (req, res) => {
+app.post('/api/reviews', authenticateToken, writeLimiter('reviews', 10, 60), validateReviewPayload, uploadSingle('image'), async (req, res) => {
   try {
     const { businessId, targetId, targetType, rating, comment } = req.body;
     const ReviewMDL = Review();
@@ -3677,7 +3800,7 @@ app.get('/api/chat/:receiverId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/chat', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/chat', authenticateToken, writeLimiter('chat', 60, 1), uploadSingle('image'), async (req, res) => {
   try {
     const { receiverId, message } = req.body;
     const UserMDL = User();
@@ -3938,13 +4061,31 @@ app.post('/api/admin/coupons', authenticateToken, requireRole(['admin']), async 
     if (!code || !discountPercent || !maxDiscount || !expiryDate) {
       return res.status(400).json({ message: 'All coupon fields required.' });
     }
+    const cleanCode = String(code).trim().toUpperCase();
+    const percent = Number(discountPercent);
+    const cap = Number(maxDiscount);
+    if (!/^[A-Z0-9_-]{3,30}$/.test(cleanCode)) {
+      return res.status(400).json({ message: 'Coupon code must be 3-30 letters, numbers, dashes or underscores.' });
+    }
+    if (!Number.isInteger(percent) || percent < 1 || percent > 90) {
+      return res.status(400).json({ message: 'Discount must be a whole number from 1 to 90 percent.' });
+    }
+    if (!Number.isFinite(cap) || cap <= 0 || cap > 100000) {
+      return res.status(400).json({ message: 'Maximum discount must be between 1 and 100000.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(expiryDate)) || Number.isNaN(new Date(`${expiryDate}T00:00:00`).getTime())) {
+      return res.status(400).json({ message: 'Expiry date must be a valid date (YYYY-MM-DD).' });
+    }
 
     const CouponMDL = Coupon();
+    if (await CouponMDL.findOne({ code: cleanCode })) {
+      return res.status(409).json({ message: 'A coupon with this code already exists.' });
+    }
     const newCoupon = await CouponMDL.create({
-      code: code.toUpperCase(),
-      discountPercent: parseInt(discountPercent),
-      maxDiscount: parseFloat(maxDiscount),
-      expiryDate,
+      code: cleanCode,
+      discountPercent: percent,
+      maxDiscount: cap,
+      expiryDate: String(expiryDate),
       active: true,
     });
     res.status(201).json({ success: true, coupon: newCoupon });
@@ -3953,20 +4094,48 @@ app.post('/api/admin/coupons', authenticateToken, requireRole(['admin']), async 
   }
 });
 
-app.get('/api/admin/coupons', authenticateToken, async (req, res) => {
+const isCouponUsable = (coupon, now = new Date()) => {
+  if (!coupon || !coupon.active) return false;
+  if (!coupon.expiryDate) return true;
+  return new Date(`${coupon.expiryDate}T23:59:59`) >= now;
+};
+
+// The full coupon list is admin-only; shoppers check one code at a time below.
+app.get('/api/admin/coupons', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const CouponMDL = Coupon();
     const coupons = await CouponMDL.find({});
-    const now = new Date();
-    const activeCoupons = coupons.filter((coupon) => {
-      if (!coupon.active) return false;
-      if (!coupon.expiryDate) return true;
-      const expiry = new Date(`${coupon.expiryDate}T23:59:59`);
-      return expiry >= now;
-    });
-    res.json(activeCoupons);
+    res.json(coupons.filter((coupon) => isCouponUsable(coupon)));
   } catch (err) {
     res.status(500).json({ message: 'Failed to retrieve coupons.' });
+  }
+});
+
+const couponCheckLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  key: byUserOrIp,
+  message: 'Too many coupon attempts. Please wait a few minutes and try again.',
+});
+
+app.get('/api/coupons/validate', authenticateToken, couponCheckLimiter, async (req, res) => {
+  try {
+    const code = String(req.query.code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{1,30}$/.test(code)) {
+      return res.status(400).json({ message: 'Enter a valid coupon code.' });
+    }
+    const coupon = await Coupon().findOne({ code });
+    if (!isCouponUsable(coupon)) {
+      return res.status(404).json({ message: 'This coupon code is invalid or has expired.' });
+    }
+    res.json({
+      code: coupon.code,
+      discountPercent: Number(coupon.discountPercent) || 0,
+      maxDiscount: Number(coupon.maxDiscount) || 0,
+      expiryDate: coupon.expiryDate || null,
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not check this coupon right now.' });
   }
 });
 
@@ -4015,16 +4184,18 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admins can send announcements.' });
     }
-    const { title, message } = req.body;
+    const title = String(req.body?.title || '').trim().slice(0, 120) || 'Admin Announcement';
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ message: 'Announcement message is required.' });
+    if (message.length > 2000) return res.status(400).json({ message: 'Announcement must be at most 2000 characters.' });
     const NotificationMDL = Notification();
-    const UserMDL = User;
+    const UserMDL = User();
     
-    // Broadcast to all active demo users or all users in DB
     const users = await UserMDL.find({});
     for (const u of users) {
       await NotificationMDL.create({
         userId: String(u._id),
-        title: title || 'Admin Announcement',
+        title,
         message,
         type: 'admin',
         read: false
@@ -4079,8 +4250,12 @@ app.get('/api/categories', async (req, res) => {
 
 app.post('/api/categories', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim();
     if (!name) return res.status(400).json({ message: 'Category name is required.' });
+    if (name.length > 60 || description.length > 300) {
+      return res.status(400).json({ message: 'Category name must be at most 60 characters and description at most 300.' });
+    }
 
     const CategoryMDL = Category();
     const existing = await CategoryMDL.findOne({ name });
@@ -4095,9 +4270,18 @@ app.post('/api/categories', authenticateToken, requireRole(['admin']), async (re
 
 app.put('/api/categories/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const updates = {};
+    if (req.body?.name !== undefined) updates.name = String(req.body.name || '').trim();
+    if (req.body?.description !== undefined) updates.description = String(req.body.description || '').trim();
+    if (updates.name !== undefined && (!updates.name || updates.name.length > 60)) {
+      return res.status(400).json({ message: 'Category name must be 1-60 characters.' });
+    }
+    if (updates.description !== undefined && updates.description.length > 300) {
+      return res.status(400).json({ message: 'Category description must be at most 300 characters.' });
+    }
     const CategoryMDL = Category();
-    const updated = await CategoryMDL.findByIdAndUpdate(req.params.id, { name, description });
+    const updated = await CategoryMDL.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Category not found.' });
     res.json({ success: true, category: updated });
   } catch (err) {
     res.status(500).json({ message: 'Category update failed.' });
@@ -4129,24 +4313,78 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), async (re
 
 app.put('/api/admin/users/:id/status', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { suspended } = req.body;
+    const suspended = req.body?.suspended === true || req.body?.suspended === 'true';
+    if (String(req.params.id) === String(req.user.id)) {
+      return res.status(400).json({ message: 'You cannot suspend your own admin account.' });
+    }
     const UserMDL = User();
     const user = await UserMDL.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    // Suspended for 1 year or unlocked
-    let lockUntil = suspended ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : null;
-    await UserMDL.findByIdAndUpdate(req.params.id, { lockUntil, failedLoginAttempts: suspended ? 99 : 0 });
+    // status is what blocks access; lockUntil is kept so the admin list shows the state as before.
+    const lockUntil = suspended ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : null;
+    await UserMDL.findByIdAndUpdate(req.params.id, {
+      status: suspended ? 'suspended' : 'active',
+      lockUntil,
+      failedLoginAttempts: 0,
+    });
+    forgetPasswordChange(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update user status.' });
   }
 });
 
-app.delete('/api/admin/users/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Older builds suspended accounts only through a one-year login lock, which a password reset clears.
+const migrateLegacySuspensions = async () => {
   try {
     const UserMDL = User();
+    const users = await UserMDL.find({});
+    const now = Date.now();
+    for (const user of Array.isArray(users) ? users : []) {
+      const legacySuspended = user.status !== 'suspended'
+        && Number(user.failedLoginAttempts || 0) >= 99
+        && user.lockUntil && new Date(user.lockUntil).getTime() > now;
+      if (legacySuspended) await UserMDL.findByIdAndUpdate(user._id, { status: 'suspended' });
+    }
+  } catch (err) {
+    console.warn('Suspension migration skipped:', err && err.message);
+  }
+};
+
+// ADMIN_EMAILS (server environment only) lets the owner grant admin to their own existing
+// accounts, since the published demo admin is disabled on the live site.
+const promoteConfiguredAdmins = async () => {
+  const emails = String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => EMAIL_PATTERN.test(email) && !isBlockedDemoAccount(email));
+  if (!emails.length) return;
+  try {
+    const UserMDL = User();
+    let promoted = 0;
+    for (const email of emails) {
+      const user = await UserMDL.findOne({ email });
+      if (user && user.role !== 'admin') {
+        await UserMDL.findByIdAndUpdate(user._id, { role: 'admin' });
+        forgetPasswordChange(user._id);
+        promoted += 1;
+      }
+    }
+    if (promoted) console.log(`ADMIN_EMAILS: granted admin to ${promoted} account(s).`);
+  } catch (err) {
+    console.warn('ADMIN_EMAILS promotion skipped:', err && err.message);
+  }
+};
+
+app.delete('/api/admin/users/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    if (String(req.params.id) === String(req.user.id)) {
+      return res.status(400).json({ message: 'You cannot delete your own admin account.' });
+    }
+    const UserMDL = User();
     await UserMDL.deleteOne({ _id: req.params.id });
+    forgetPasswordChange(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete user account.' });
@@ -4172,28 +4410,32 @@ app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
 
 app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { taxRate, deliveryFee, commissionRate, paymentMethods } = req.body;
+    const { taxRate, deliveryFee, commissionRate, paymentMethods } = req.body || {};
     const SystemSettingMDL = SystemSetting();
+    const updates = {};
 
-    if (taxRate !== undefined) {
-      const setting = await SystemSettingMDL.findOne({ key: 'taxRate' });
-      await SystemSettingMDL.findByIdAndUpdate(setting._id, { value: parseFloat(taxRate) });
-    }
-    if (deliveryFee !== undefined) {
-      const setting = await SystemSettingMDL.findOne({ key: 'deliveryFee' });
-      await SystemSettingMDL.findByIdAndUpdate(setting._id, { value: parseFloat(deliveryFee) });
-    }
-    if (commissionRate !== undefined) {
-      const setting = await SystemSettingMDL.findOne({ key: 'commissionRate' });
-      await SystemSettingMDL.findByIdAndUpdate(setting._id, { value: parseFloat(commissionRate) });
-    }
+    const numberSetting = (value, label, min, max) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+        throw Object.assign(new Error(`${label} must be a number from ${min} to ${max}.`), { status: 400, expose: true });
+      }
+      return parsed;
+    };
+    if (taxRate !== undefined) updates.taxRate = numberSetting(taxRate, 'Tax rate', 0, 100);
+    if (commissionRate !== undefined) updates.commissionRate = numberSetting(commissionRate, 'Commission rate', 0, 100);
+    if (deliveryFee !== undefined) updates.deliveryFee = numberSetting(deliveryFee, 'Delivery fee', 0, 100000);
     if (paymentMethods !== undefined) {
-      const setting = await SystemSettingMDL.findOne({ key: 'paymentMethods' });
-      await SystemSettingMDL.findByIdAndUpdate(setting._id, { value: paymentMethods });
+      const list = Array.isArray(paymentMethods) ? paymentMethods : [];
+      updates.paymentMethods = list.map((method) => String(method || '').trim().slice(0, 30)).filter(Boolean).slice(0, 10);
+    }
+
+    for (const [key, value] of Object.entries(updates)) {
+      await SystemSettingMDL.findOneAndUpdate({ key }, { $set: { key, value } }, { upsert: true, new: true });
     }
 
     res.json({ success: true });
   } catch (err) {
+    if (err.expose) return res.status(err.status || 400).json({ message: err.message });
     res.status(500).json({ message: 'Failed to update system settings.' });
   }
 });
@@ -4253,7 +4495,8 @@ app.put('/api/admin/hero-image', authenticateToken, requireRole(['admin']), asyn
     );
     res.json({ success: true, heroImage });
   } catch (err) {
-    console.error('Hero image update failed:', err);
+    if (err.expose) return res.status(err.status || 400).json({ message: err.message });
+    console.error('Hero image update failed:', err && err.message);
     res.status(500).json({ message: 'Failed to update the home page picture.' });
   }
 });
@@ -4269,6 +4512,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Unknown API routes get a JSON 404 instead of the website's HTML page.
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'This API endpoint does not exist.', errorCode: 'NOT_FOUND' });
+});
+
 // Serve client index.html fallback for SPA routing (must be defined last)
 if (fs.existsSync(clientDist)) {
   app.get(/.*/, (req, res) => {
@@ -4276,22 +4524,55 @@ if (fs.existsSync(clientDist)) {
   });
 }
 
-// Global Error Handler
+const UPLOAD_ERROR_MESSAGES = {
+  LIMIT_FILE_SIZE: 'Files must be under 8MB.',
+  LIMIT_FILE_COUNT: 'Too many files in one upload.',
+  LIMIT_UNEXPECTED_FILE: 'Unexpected file field in the upload.',
+  LIMIT_FIELD_VALUE: 'One of the form fields is too large.',
+  LIMIT_FIELD_COUNT: 'Too many form fields.',
+  LIMIT_PART_COUNT: 'Too many parts in the upload.',
+};
+
+// Global error handler: internal details are logged on the server, never sent to the browser.
 app.use((err, req, res, next) => {
-  console.error('Unhandled Error:', err.message || err);
-  
   if (res.headersSent) {
     return next(err);
   }
 
-  // Determine standard error properties
-  const statusCode = err.status || err.statusCode || 500;
-  const errorCode = err.code || 'SERVER_ERROR';
-  
-  res.status(statusCode).json({
+  let status = Number(err?.status || err?.statusCode) || 500;
+  let message = '';
+  if (err instanceof multer.MulterError) {
+    status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    message = UPLOAD_ERROR_MESSAGES[err.code] || 'Invalid file upload.';
+  } else if (err?.type === 'entity.parse.failed') {
+    status = 400;
+    message = 'Invalid request body.';
+  } else if (err?.type === 'entity.too.large') {
+    status = 413;
+    message = 'This request is too large.';
+  } else if (err?.name === 'CastError') {
+    status = 400;
+    message = 'Invalid id.';
+  } else if (err?.name === 'ValidationError') {
+    status = 400;
+    message = Object.values(err.errors || {})[0]?.message || 'Some details are invalid.';
+  } else if (err?.code === 11000) {
+    status = 409;
+    message = 'This record already exists.';
+  }
+  if (status < 400 || status > 599) status = 500;
+
+  if (status >= 500) {
+    console.error(`Unhandled error on ${req.method} ${req.path}:`, err?.stack || err?.message || err);
+    message = 'Something went wrong on our side. Please try again.';
+  } else if (!message) {
+    message = err?.expose !== false && err?.message ? String(err.message).slice(0, 300) : 'The request could not be processed.';
+  }
+
+  res.status(status).json({
     success: false,
-    message: err.message || 'Server is temporarily unavailable. Please try again.',
-    errorCode: errorCode
+    message,
+    errorCode: status >= 500 ? 'SERVER_ERROR' : (typeof err?.code === 'string' ? err.code : 'REQUEST_ERROR'),
   });
 });
 
@@ -4300,17 +4581,18 @@ app.use((err, req, res, next) => {
 module.exports = {
   app,
   httpServer,
+  promoteConfiguredAdmins,
   startServer: async () => {
-    if (process.env.NODE_ENV === 'production') {
-      if (!process.env.JWT_SECRET) {
-        console.warn('WARNING: JWT_SECRET is missing. Authentication will fail until this is set in Render Environment Variables.');
-      }
+    assertJwtSecretConfigured();
+    if (isProduction()) {
       if (!process.env.MONGODB_URI) {
         console.warn('WARNING: MONGODB_URI is missing. Database connection will fail until this is set in Render Environment Variables.');
       }
     }
     await connectDb();
     await reconcileBusinessRatings();
+    await migrateLegacySuspensions();
+    await promoteConfiguredAdmins();
     const actualPort = await getAvailablePort(port);
     return new Promise((resolve) => {
       httpServer.listen(actualPort, () => {

@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { authenticateToken } = require('../middleware/authMiddleware');
 const { AuditLog } = require('../db');
+const { detectFileType } = require('../utils/fileType');
 const {
   sid,
   getOrCreateConversation,
@@ -17,7 +18,7 @@ const {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 20 },
 });
 
 function createConversationRoutes({ processImageUpload } = {}) {
@@ -143,16 +144,18 @@ function createConversationRoutes({ processImageUpload } = {}) {
         let messageType = sid(req.body?.messageType) || 'text';
 
         if (req.file) {
-          const mime = String(req.file.mimetype || '');
-          if (!mime.startsWith('image/') && !mime.startsWith('application/pdf')) {
+          const detected = detectFileType(req.file.buffer);
+          if (!detected) {
             return res.status(400).json({ message: 'Only images or PDF files are allowed.' });
           }
           if (typeof processImageUpload === 'function') {
-            attachmentUrl = await processImageUpload(req.file);
+            attachmentUrl = await processImageUpload(req.file, { allowPdf: true });
           } else {
-            attachmentUrl = `data:${mime};base64,${req.file.buffer.toString('base64')}`;
+            attachmentUrl = `data:${detected.mime};base64,${req.file.buffer.toString('base64')}`;
           }
-          messageType = mime.startsWith('image/') ? 'image' : 'file';
+          messageType = detected.mime.startsWith('image/') ? 'image' : 'file';
+        } else if (attachmentUrl && !/^(https:\/\/|\/uploads\/)/i.test(attachmentUrl)) {
+          return res.status(400).json({ message: 'Invalid attachment link.' });
         }
 
         const created = await createMessage({

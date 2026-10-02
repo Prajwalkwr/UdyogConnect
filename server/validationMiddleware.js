@@ -39,6 +39,8 @@ const validateRegistration = (req, res, next) => {
     errors.name = isSeller
       ? 'Business name must be at least 2 characters long.'
       : 'Name must be at least 2 characters long.';
+  } else if (String(name).trim().length > 80) {
+    errors.name = 'Name must be at most 80 characters long.';
   } else if (!PERSON_NAME_REGEX.test(String(name).trim())) {
     errors.name = isSeller
       ? 'Business name can only contain letters and spaces (words only).'
@@ -47,6 +49,8 @@ const validateRegistration = (req, res, next) => {
 
   if (!email || !String(email).trim()) {
     errors.email = 'Email address is required.';
+  } else if (String(email).trim().length > 254) {
+    errors.email = 'Email address is too long.';
   } else if (isSeller) {
     if (!BUSINESS_EMAIL_REGEX.test(String(email).trim())) {
       errors.email = 'Business email must be in words@number.com format (e.g. shop@123.com).';
@@ -61,10 +65,12 @@ const validateRegistration = (req, res, next) => {
     errors.phone = 'Phone number must be exactly 10 digits starting with 97 or 98.';
   }
 
-  if (!password) {
+  if (!password || typeof password !== 'string') {
     errors.password = 'Password is required.';
   } else if (password.length < 8) {
     errors.password = 'Password must be at least 8 characters long.';
+  } else if (password.length > 128) {
+    errors.password = 'Password must be at most 128 characters long.';
   } else if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
     errors.password = 'Password must contain at least one letter and one number.';
   }
@@ -105,8 +111,10 @@ const validateLogin = (req, res, next) => {
     errors.email = 'Email or phone number is required.';
   }
 
-  if (!password) {
+  if (!password || typeof password !== 'string') {
     errors.password = 'Password is required.';
+  } else if (password.length > 128) {
+    errors.password = 'Invalid email or password.';
   }
 
   if (Object.keys(errors).length > 0) {
@@ -259,6 +267,8 @@ const validateReviewPayload = (req, res, next) => {
     errors.comment = 'Review text cannot be empty.';
   } else if (String(reviewContent).trim().length < 5) {
     errors.comment = 'Review text must be at least 5 characters long.';
+  } else if (String(reviewContent).trim().length > 2000) {
+    errors.comment = 'Review text must be at most 2000 characters long.';
   }
 
   if (Object.keys(errors).length > 0) {

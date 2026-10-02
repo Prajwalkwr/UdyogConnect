@@ -40,7 +40,7 @@ function createHomeRoutes({ isLiveBusiness, serializeBusiness, getOptionalUser }
 
   router.get('/home/feed', async (req, res) => {
     try {
-      const user = getOptionalUser(req);
+      const user = await getOptionalUser(req);
       const feed = await buildHomeFeed({
         user,
         visitorId: readVisitorId(req),
@@ -58,7 +58,7 @@ function createHomeRoutes({ isLiveBusiness, serializeBusiness, getOptionalUser }
 
   router.post('/activity/view', async (req, res) => {
     try {
-      const user = getOptionalUser(req);
+      const user = await getOptionalUser(req);
       const userId = String(user?.id || user?.userId || '');
       const visitorId = readVisitorId(req);
       if (!userId && !visitorId) return res.status(400).json({ message: 'Visitor id required.' });
@@ -97,7 +97,7 @@ function createHomeRoutes({ isLiveBusiness, serializeBusiness, getOptionalUser }
   // Clears the caller's own browsing signals. Orders, bookings, reviews and saved businesses are kept.
   router.delete('/activity/history', async (req, res) => {
     try {
-      const user = getOptionalUser(req);
+      const user = await getOptionalUser(req);
       const userId = String(user?.id || user?.userId || '');
       const visitorId = readVisitorId(req);
       if (!userId && !visitorId) return res.status(400).json({ message: 'Visitor id required.' });

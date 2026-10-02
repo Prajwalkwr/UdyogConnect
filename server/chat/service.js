@@ -17,6 +17,9 @@ const {
   resolveBusiness,
 } = require('./access');
 
+const USER_MESSAGE_TYPES = new Set(['text', 'image', 'file', 'product', 'order']);
+const MAX_MESSAGE_LENGTH = 4000;
+
 function previewText(messageType, message) {
   if (messageType === 'image') return '📷 Image';
   if (messageType === 'file') return '📎 File';
@@ -199,7 +202,13 @@ async function createMessage({
   }
 
   let type = messageType || 'text';
+  if (!USER_MESSAGE_TYPES.has(type)) {
+    return { ok: false, status: 400, message: 'Unsupported message type.' };
+  }
   let body = String(message || '').trim();
+  if (body.length > MAX_MESSAGE_LENGTH) {
+    return { ok: false, status: 400, message: `Messages can be at most ${MAX_MESSAGE_LENGTH} characters.` };
+  }
   let attach = sid(attachmentUrl);
   let safeProductId = '';
   let safeOrderId = '';

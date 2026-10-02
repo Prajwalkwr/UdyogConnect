@@ -5,7 +5,7 @@ import {
   FiHeadphones, FiGift, FiGrid, FiTool, FiMoreHorizontal, FiHeart,
 } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 import AccountProfileCard from './AccountProfileCard';
 import BillViewer from './bill/BillViewer';
 import BillDownloadButton from './bill/BillDownloadButton';
@@ -174,7 +174,9 @@ export default function CustomerDashboard({
       setProfileData(pRes.data);
       fetchCustomerReviews();
     } catch (e) {
-      console.log(e);
+      if (e?.response?.status !== 401) {
+        Swal.fire({ icon: 'error', text: getApiErrorMessage(e, 'Could not load your dashboard. Please check your connection and try again.') });
+      }
     }
   };
 

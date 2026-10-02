@@ -10,7 +10,7 @@ const { loadConversationForUser, sid } = require('./service');
 function registerChatSockets(io, onlineUsers) {
   // Strengthen auth: prefer verified JWT; reject chat joins without identity.
   io.use((socket, next) => {
-    if (socket.userId) return next();
+    if (socket.userId || socket.authChecked) return next();
     const token = socket.handshake.auth?.token || socket.handshake.query?.token;
     if (!token) return next();
     try {

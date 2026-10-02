@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { FiUsers, FiCheckCircle, FiShield, FiTrendingUp, FiDownload, FiPlus, FiTag, FiFlag, FiShoppingCart, FiSettings, FiGrid, FiTrash2, FiEdit3, FiFileText, FiHome, FiBriefcase, FiPackage, FiBell, FiLifeBuoy, FiLogOut, FiUser, FiCalendar, FiChevronRight, FiCreditCard, FiStar, FiTruck } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 import { buildAdminSettingsPayload, normalizeAdminSettings } from '../utils/admin';
+
+const isUserSuspended = (account) => account?.status === 'suspended'
+  || Boolean(account?.lockUntil && new Date(account.lockUntil) > new Date());
 import { CONTENT_REPORTS_EVENT } from '../utils/reports';
 import ContentReportsDesk from './ContentReportsDesk';
 import { createSubmissionGuard, createIdempotencyHeader } from '../utils/submitProtection';
@@ -123,8 +126,10 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
       setReviews(Array.isArray(reviewRes.data) ? reviewRes.data : []);
       setLoading(false);
     } catch (e) {
-      console.log(e);
       setLoading(false);
+      if (e?.response?.status !== 401) {
+        Swal.fire({ icon: 'error', text: getApiErrorMessage(e, 'Could not load dashboard data. Please check your connection and try again.') });
+      }
     }
   };
 
@@ -254,17 +259,25 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
       Swal.fire({ icon: 'success', text: translate('User status updated.', 'प्रयोगकर्ता स्थिति अद्यावधिक भयो।') });
       fetchAdminData();
     } catch (e) {
-      Swal.fire({ icon: 'error', text: 'Failed to update user status.' });
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(e, 'Failed to update user status.') });
     }
   };
 
   const handleDeleteUser = async (userId) => {
+    const confirmation = await Swal.fire({
+      icon: 'warning',
+      title: translate('Delete this account?', 'यो खाता मेटाउने?'),
+      text: translate('This cannot be undone.', 'यो पूर्ववत गर्न सकिँदैन।'),
+      showCancelButton: true,
+      confirmButtonText: translate('Delete account', 'खाता मेटाउनुहोस्'),
+    });
+    if (!confirmation.isConfirmed) return;
     try {
       await api.delete(`/api/admin/users/${userId}`);
       Swal.fire({ icon: 'success', text: translate('User removed.', 'प्रयोगकर्ता हटाइयो।') });
       fetchAdminData();
     } catch (e) {
-      Swal.fire({ icon: 'error', text: 'Failed to remove user.' });
+      Swal.fire({ icon: 'error', text: getApiErrorMessage(e, 'Failed to remove user.') });
     }
   };
 
@@ -610,8 +623,8 @@ export default function AdminDashboard({ user, lang, onLogout, liveOrderTick = 0
                       <p className="text-xs text-slate-400 mt-1">{u.email} • {u.phone || 'No phone'}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => handleToggleUserStatus(u._id, !(u.lockUntil && new Date(u.lockUntil) > new Date()))} className="rounded-lg bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950">
-                        {u.lockUntil && new Date(u.lockUntil) > new Date() ? 'Reactivate' : 'Suspend'}
+                      <button onClick={() => handleToggleUserStatus(u._id, !isUserSuspended(u))} className="rounded-lg bg-amber-400 px-3 py-1.5 text-[10px] font-bold text-slate-950">
+                        {isUserSuspended(u) ? 'Reactivate' : 'Suspend'}
                       </button>
                       <button onClick={() => handleDeleteUser(u._id)} className="rounded-lg bg-rose-500 px-3 py-1.5 text-[10px] font-bold text-slate-950">
                         Delete

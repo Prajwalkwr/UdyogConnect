@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiShoppingBag, FiTrash2, FiMapPin, FiTruck, FiCheckCircle, FiTag, FiArrowLeft, FiMail } from 'react-icons/fi';
 import Swal from 'sweetalert2';
-import api from '../utils/api';
+import api, { getApiErrorMessage } from '../utils/api';
 import { resolveCheckoutBusinessId } from '../utils/checkout';
 import { createSubmissionGuard, createIdempotencyKey } from '../utils/submitProtection';
 import { validateCheckoutForm, sanitizeCheckoutWords, sanitizeCheckoutEmail, isCheckoutGmail } from '../utils/validation';
@@ -116,30 +116,27 @@ export default function CartCheckout({
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleApplyCoupon = async () => {
-    if (!promoCode) return;
+    const code = promoCode.trim();
+    if (!code) return;
     try {
-      const response = await api.get('/api/admin/coupons');
-      const match = response.data.find(
-        (c) => c.code === promoCode.toUpperCase() && c.active
-      );
-
-      if (match) {
-        setCouponData(match);
-        setDiscountPercent(match.discountPercent);
-        Swal.fire({
-          icon: 'success',
-          title: translate('Promo Code Applied!', 'कुपन लागु भयो!'),
-          text: `${match.discountPercent}% off has been applied.`,
-          timer: 1500,
-          showConfirmButton: false,
-        });
-      } else {
-        Swal.fire({ icon: 'error', text: translate('Invalid or expired coupon.', 'अमान्य वा म्याद समाप्त कुपन।') });
-        setCouponData(null);
-        setDiscountPercent(0);
-      }
+      const response = await api.get('/api/coupons/validate', { params: { code } });
+      const match = response.data;
+      setCouponData(match);
+      setDiscountPercent(match.discountPercent);
+      Swal.fire({
+        icon: 'success',
+        title: translate('Promo Code Applied!', 'कुपन लागु भयो!'),
+        text: `${match.discountPercent}% off has been applied.`,
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch (e) {
-      console.log(e);
+      setCouponData(null);
+      setDiscountPercent(0);
+      const text = e?.response?.status === 404
+        ? translate('Invalid or expired coupon.', 'अमान्य वा म्याद समाप्त कुपन।')
+        : getApiErrorMessage(e, translate('Could not check this coupon. Please try again.', 'कुपन जाँच गर्न सकिएन। फेरि प्रयास गर्नुहोस्।'));
+      Swal.fire({ icon: 'error', text });
     }
   };
 
