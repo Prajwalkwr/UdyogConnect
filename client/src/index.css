@@ -889,6 +889,28 @@ textarea {
   .uc-bot-ring { display: none; }
 }
 
+/* Twinkling sparkles icon */
+.uc-sparkle {
+  overflow: visible;
+  transform-origin: 50% 50%;
+  animation: uc-sparkle-pulse 2.8s ease-in-out infinite;
+}
+.uc-sparkle > * { transform-box: fill-box; transform-origin: center; }
+.uc-sparkle > :not(:first-child) { animation: uc-sparkle-twinkle 2.8s ease-in-out infinite; }
+.uc-sparkle > circle { animation-delay: 1.4s; }
+@keyframes uc-sparkle-pulse {
+  0%, 100% { transform: scale(1) rotate(0deg); filter: drop-shadow(0 0 0 transparent); }
+  50% { transform: scale(1.12) rotate(8deg); filter: drop-shadow(0 0 4px rgb(201 162 39 / 0.55)); }
+}
+@keyframes uc-sparkle-twinkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  40% { opacity: 0.15; transform: scale(0.4); }
+  60% { opacity: 1; transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .uc-sparkle, .uc-sparkle > * { animation: none; }
+}
+
 /* Report dialog */
 .uc-report-form { text-align: left; display: grid; gap: 10px; }
 .uc-report-target {

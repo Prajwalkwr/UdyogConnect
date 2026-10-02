@@ -140,7 +140,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="ai-recs-title" className="flex items-center gap-2 text-lg font-bold text-[var(--mp-ink)]">
-            <Sparkles className="h-5 w-5 text-[var(--mp-gold)]" /> Udyog Recommends
+            <Sparkles className="uc-sparkle h-5 w-5 text-[var(--mp-gold)]" /> Udyog Recommends
           </h2>
           <p className="mt-0.5 text-xs text-[var(--mp-muted)]">
             {feed?.personalized
