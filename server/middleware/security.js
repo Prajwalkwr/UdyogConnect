@@ -81,11 +81,15 @@ const byUserOrIp = (req) => (req.user?.id ? `user:${req.user.id}` : `ip:${client
 // The project's own deployed websites (see render.yaml); always allowed once any origin list is configured.
 const FIRST_PARTY_ORIGINS = ['https://udyog-connect-lyart.vercel.app', 'https://udyogconnect-client.onrender.com'];
 
-/** Allowed browser origins from CORS_ORIGINS (comma separated), falling back to CLIENT_URL / FRONTEND_URL. */
+/**
+ * Allowed browser origins from CORS_ORIGINS (comma separated), falling back to CLIENT_URL / FRONTEND_URL.
+ * Production always allows the first-party sites; an empty list (any origin) is for local development only.
+ */
 function allowedOrigins() {
   const raw = process.env.CORS_ORIGINS || [process.env.CLIENT_URL, process.env.FRONTEND_URL].filter(Boolean).join(',');
   const configured = raw.split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean);
-  return configured.length ? [...new Set([...configured, ...FIRST_PARTY_ORIGINS])] : [];
+  if (configured.length || isProduction()) return [...new Set([...configured, ...FIRST_PARTY_ORIGINS])];
+  return [];
 }
 
 /** CORS origin check: same-origin and server-to-server requests have no Origin header and are always allowed. */

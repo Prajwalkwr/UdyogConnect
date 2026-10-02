@@ -66,6 +66,15 @@ describe('Production guards', () => {
     expect(isBlockedDemoAccount('admin@udyog.np')).toBe(false);
   });
 
+  it('allows only the first-party sites in production when no origins are configured', () => {
+    asProduction();
+    const check = (origin) => new Promise((resolve) => corsOrigin(origin, (_, allowed) => resolve(allowed)));
+    return Promise.all([
+      check('https://udyog-connect-lyart.vercel.app').then((allowed) => expect(allowed).toBe(true)),
+      check('https://evil.example').then((allowed) => expect(allowed).toBe(false)),
+    ]);
+  });
+
   it('only allows configured browser origins in production', () => {
     asProduction({ CORS_ORIGINS: 'https://udyogconnect.example' });
     const check = (origin) => new Promise((resolve) => corsOrigin(origin, (_, allowed) => resolve(allowed)));
