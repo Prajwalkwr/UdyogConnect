@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   FiShoppingCart, FiBell, FiMessageSquare, FiUser, FiLogOut,
   FiSettings, FiGlobe, FiSearch, FiGrid, FiShoppingBag,
@@ -103,6 +103,7 @@ export default function Navbar({
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
   const location = useLocation();
+  const navigate = useNavigate();
 
   const safeNotifications = Array.isArray(notifications) ? notifications : [];
   const unreadNotifs = safeNotifications.filter((n) => !n.read);
@@ -220,7 +221,7 @@ export default function Navbar({
               >
                 <FiBell className="h-4 w-4" />
                 {unreadNotifs.length > 0 ? (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-white">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-[#2C2118]">
                     {unreadNotifs.length}
                   </span>
                 ) : null}
@@ -235,7 +236,7 @@ export default function Navbar({
                     {unreadNotifs.length > 0 && (
                       <button
                         onClick={onClearNotifications}
-                        className="text-[10px] font-bold text-[#C9A227] hover:text-[#5C3D2E] bg-transparent border-none cursor-pointer"
+                        className="text-[10px] font-bold text-[#7E610C] hover:text-[#5C3D2E] bg-transparent border-none cursor-pointer"
                       >
                         {translate('Mark read', 'पढिएको')}
                       </button>
@@ -271,7 +272,7 @@ export default function Navbar({
             >
               <FiShoppingCart className="h-4 w-4" />
               {cartCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C9A227] px-1 text-[8px] font-bold text-[#2C2118]">
                   {cartCount}
                 </span>
               )}
@@ -298,7 +299,7 @@ export default function Navbar({
               <div className="hidden items-center gap-2 sm:flex">
                 <button
                   onClick={() => onOpenAuth('signup')}
-                  className="rounded-full bg-[#C9A227] px-5 py-2.5 text-[12px] font-bold text-white shadow-sm transition hover:bg-[#B8921F] cursor-pointer"
+                  className="rounded-full bg-[#C9A227] px-5 py-2.5 text-[12px] font-bold text-[#2C2118] shadow-sm transition hover:bg-[#B8921F] cursor-pointer"
                 >
                   Register
                 </button>
@@ -334,7 +335,7 @@ export default function Navbar({
             </div>
             {!user && (
               <div className="mt-2 flex gap-2">
-                <button onClick={() => onOpenAuth('signup')} className="flex-1 rounded-full bg-[#C9A227] py-2 text-xs font-bold text-white">Register</button>
+                <button onClick={() => onOpenAuth('signup')} className="flex-1 rounded-full bg-[#C9A227] py-2 text-xs font-bold text-[#2C2118]">Register</button>
                 <button onClick={() => onOpenAuth('login')} className="flex-1 rounded-full bg-[#5C3D2E] py-2 text-xs font-bold text-white">Login</button>
               </div>
             )}
@@ -507,7 +508,8 @@ export default function Navbar({
         {/* Help & Support + Logout */}
         <div style={{ padding: '8px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <button
-            onClick={() => {}}
+            type="button"
+            onClick={() => navigate('/about')}
             style={{
               display: 'flex', alignItems: 'center', gap: 12,
               padding: '10px 14px', borderRadius: 12,
@@ -546,8 +548,11 @@ export default function Navbar({
       <div className="content-header" style={{ marginLeft: hideSidebar ? '0' : 'var(--sidebar-width)' }}>
         {/* Mobile hamburger */}
         <button
+          type="button"
           className="lg:hidden"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileMenuOpen}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6B7280' }}
         >
           {mobileMenuOpen ? <FiX size={22} /> : <FiMenu size={22} />}
@@ -608,7 +613,9 @@ export default function Navbar({
         {/* Right actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
+            type="button"
             onClick={() => setLang(lang === 'en' ? 'ne' : 'en')}
+            aria-label={lang === 'en' ? 'Switch language to Nepali' : 'Switch language to English'}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               borderRadius: 9999, border: '1px solid #E5E7EB',
@@ -621,7 +628,9 @@ export default function Navbar({
 
           {user && (
             <button
+              type="button"
               onClick={onOpenChat}
+              aria-label="Messages"
               style={{
                 position: 'relative', borderRadius: 9999,
                 border: '1px solid #E5E7EB', background: '#F9FAFB',
@@ -635,7 +644,10 @@ export default function Navbar({
           {/* Notifications */}
           <div style={{ position: 'relative' }}>
             <button
+              type="button"
               onClick={() => { setShowNotifMenu(!showNotifMenu); setShowProfileMenu(false); }}
+              aria-label={unreadNotifs.length ? `Notifications, ${unreadNotifs.length} unread` : 'Notifications'}
+              aria-expanded={showNotifMenu}
               style={{
                 position: 'relative', borderRadius: 9999,
                 border: '1px solid #E5E7EB', background: '#F9FAFB',
@@ -669,7 +681,7 @@ export default function Navbar({
                     {translate('Notifications', 'सूचनाहरू')}
                   </span>
                   {unreadNotifs.length > 0 && (
-                    <button onClick={onClearNotifications} style={{ fontSize: 12, fontWeight: 500, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer' }}>
+                    <button type="button" onClick={onClearNotifications} style={{ fontSize: 12, fontWeight: 500, color: '#7E610C', background: 'none', border: 'none', cursor: 'pointer' }}>
                       {translate('Mark read', 'पढिएको')}
                     </button>
                   )}
@@ -686,7 +698,7 @@ export default function Navbar({
                         background: !notif.read ? '#FFFBEB' : 'transparent',
                       }}>
                         <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', margin: 0 }}>{notif.title}</p>
-                        <p style={{ fontSize: 12, color: '#9CA3AF', margin: '2px 0 0' }}>{notif.message}</p>
+                        <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0' }}>{notif.message}</p>
                       </div>
                     ))
                   )}
@@ -697,7 +709,9 @@ export default function Navbar({
 
           {/* Cart */}
           <button
+            type="button"
             onClick={() => onOpenDashboard('checkout')}
+            aria-label={cartCount ? `Cart, ${cartCount} items` : 'Cart'}
             style={{
               position: 'relative', borderRadius: 9999,
               border: '1px solid #E5E7EB', background: '#F9FAFB',
@@ -719,7 +733,10 @@ export default function Navbar({
           {/* User Profile */}
           <div style={{ position: 'relative' }}>
             <button
+              type="button"
               onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifMenu(false); }}
+              aria-label="Account menu"
+              aria-expanded={showProfileMenu}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 borderRadius: 9999, border: '1px solid #E5E7EB',

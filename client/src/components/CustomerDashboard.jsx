@@ -11,6 +11,7 @@ import BillViewer from './bill/BillViewer';
 import BillDownloadButton from './bill/BillDownloadButton';
 import { billEmailMeta, formatRs, paymentStatusMeta, PAYMENT_METHOD_LABELS } from '../utils/bill';
 import OrderTracking from './orders/OrderTracking';
+import { SITE_INFO } from '../legal/siteInfo';
 
 const toIdList = (items) => (Array.isArray(items) ? items : [])
   .map((item) => String(item?._id || item?.id || item || '').trim())
@@ -495,7 +496,7 @@ export default function CustomerDashboard({
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-[#68778c]">{card.label}</p>
                       <p className="mt-1 text-2xl font-extrabold tracking-tight text-[#102341]">{card.value}</p>
-                      <p className="mt-1 text-[11px] font-semibold text-[#F2B71D]">{card.hint}</p>
+                      <p className="mt-1 text-[11px] font-semibold text-[#7E610C]">{card.hint}</p>
                     </div>
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: card.iconBg }}>
                       {card.icon}
@@ -512,7 +513,7 @@ export default function CustomerDashboard({
                 <section className="rounded-2xl border border-[#E5EBF2] bg-white p-4 shadow-[0_4px_14px_rgba(16,35,65,0.04)] sm:p-5">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <h2 className="text-base font-extrabold text-[#102341]">Recent Orders</h2>
-                    <button type="button" onClick={() => changeTab('orders')} className="text-xs font-bold text-[#F2B71D] hover:text-[#102341]">
+                    <button type="button" onClick={() => changeTab('orders')} className="text-xs font-bold text-[#7E610C] hover:text-[#102341]">
                       View All Orders →
                     </button>
                   </div>
@@ -619,7 +620,7 @@ export default function CustomerDashboard({
                 <section className="rounded-2xl border border-[#E5EBF2] bg-white p-4 shadow-[0_4px_14px_rgba(16,35,65,0.04)] sm:p-5">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <h2 className="text-base font-extrabold text-[#102341]">Recommended for You</h2>
-                    <button type="button" onClick={() => onOpenDashboard?.('home')} className="text-xs font-bold text-[#F2B71D]">
+                    <button type="button" onClick={() => onOpenDashboard?.('home')} className="text-xs font-bold text-[#7E610C]">
                       View All →
                     </button>
                   </div>
@@ -667,7 +668,7 @@ export default function CustomerDashboard({
                               <h3 className="truncate text-xs font-bold text-[#102341]">{product.name}</h3>
                               <p className="mt-0.5 truncate text-[10px] text-[#68778c]">{businessNameForProduct(product)}</p>
                               {Number.isFinite(rating) && rating > 0 ? (
-                                <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-[#F2B71D]">
+                                <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-[#7E610C]">
                                   <FiStar className="h-3 w-3 fill-[#F2B71D]" />
                                   {rating.toFixed(1)}
                                 </div>
@@ -765,12 +766,12 @@ export default function CustomerDashboard({
                     </div>
                     <div>
                       <h3 className="text-sm font-extrabold text-[#102341]">Quick Support</h3>
-                      <p className="text-[11px] text-[#52627a]">We are here 24/7 for you</p>
+                      <p className="text-[11px] text-[#52627a]">{SITE_INFO.hours ? `Support hours: ${SITE_INFO.hours}` : 'Email us and we will reply as soon as we can'}</p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => Swal.fire({ icon: 'info', title: 'Support', text: 'Email support@udyogconnect.np or use the chat button.' })}
+                    onClick={() => Swal.fire({ icon: 'info', title: 'Support', text: `Email ${SITE_INFO.email} or message the business from your order.` })}
                     className="mt-3 w-full rounded-xl bg-[#0B1A30] py-2.5 text-xs font-bold text-white"
                   >
                     Contact Support →
@@ -868,7 +869,7 @@ export default function CustomerDashboard({
                         <OrderTracking order={o} onUpdated={(updated) => setOrders((prev) => prev.map((item) => (item._id === updated._id ? updated : item)))} />
                       </div>
                       <div className="text-right">
-                        <span className="text-sm font-black text-[#F2B71D]">{formatRs(o.total)}</span>
+                        <span className="text-sm font-black text-[#7E610C]">{formatRs(o.total)}</span>
                         {String(o.status).toLowerCase() === 'completed' || String(o.status).toLowerCase() === 'delivered' ? (
                           <div className="mt-2 min-w-[220px] rounded-xl border border-[#E5EBF2] bg-[#F8FAFC] p-3 text-left">
                             <div className="mb-2 flex items-center justify-between gap-2">
@@ -903,7 +904,7 @@ export default function CustomerDashboard({
             <div className="space-y-3 border-t border-[#E5EBF2] pt-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-lg font-extrabold text-[#102341]">{translate('Service Bookings', 'सेवा बुकिङ')}</h3>
-                <button type="button" onClick={() => changeTab('bookings')} className="text-xs font-bold text-[#F2B71D]">
+                <button type="button" onClick={() => changeTab('bookings')} className="text-xs font-bold text-[#7E610C]">
                   {translate('View all', 'सबै हेर्नुहोस्')}
                 </button>
               </div>

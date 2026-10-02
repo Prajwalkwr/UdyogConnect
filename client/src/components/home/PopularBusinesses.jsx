@@ -30,7 +30,7 @@ export default function PopularBusinesses({ businesses = [], status, onOpenBusin
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 id="popular-title" className="text-lg font-bold text-[var(--mp-ink)]">Popular Local Businesses</h2>
-          <p className="mt-0.5 text-xs text-[var(--mp-muted)]">Discover trusted businesses near you</p>
+          <p className="mt-0.5 text-xs text-[var(--mp-muted)]">Discover local businesses near you</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {POPULAR_TABS.map((item) => {
@@ -47,7 +47,7 @@ export default function PopularBusinesses({ businesses = [], status, onOpenBusin
                 aria-pressed={active}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
                   active
-                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-white'
+                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-[var(--mp-ink)]'
                     : 'border-[var(--mp-border)] bg-white text-[var(--mp-brown)] hover:border-[var(--mp-gold)]'
                 }`}
               >
@@ -61,7 +61,7 @@ export default function PopularBusinesses({ businesses = [], status, onOpenBusin
               setTab(null);
               setExpanded((open) => !(open && !tab));
             }}
-            className="ml-1 inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold)] hover:text-[var(--mp-brown)]"
+            className="ml-1 inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold-ink)] hover:text-[var(--mp-brown)]"
           >
             {expanded && !tab ? 'Show less' : 'View All'} <FiArrowRight />
           </button>

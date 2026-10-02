@@ -120,25 +120,30 @@ export default function ReviewsPanel({
 
       {!preview && (
         <form className="bp-write" onSubmit={onSubmit}>
-          <div>
+          <div role="group" aria-label="Your rating">
             {[1, 2, 3, 4, 5].map((star) => (
               <button
                 type="button"
                 key={star}
                 className={`bp-star-btn ${star <= draft.rating ? 'on' : ''}`}
                 onClick={() => setDraft((current) => ({ ...current, rating: star }))}
-                aria-label={`${star} stars`}
+                aria-label={`${star} ${star === 1 ? 'star' : 'stars'}`}
+                aria-pressed={draft.rating === star}
               >
                 ★
               </button>
             ))}
           </div>
           <textarea
+            aria-label="Your review"
             rows={3}
             placeholder="Share your experience with this business..."
             value={draft.comment}
             onChange={(event) => setDraft((current) => ({ ...current, comment: event.target.value }))}
           />
+          <p className="bp-muted" style={{ fontSize: 11, margin: 0 }}>
+            Your name, rating and review are shown publicly. Only review a business you have actually used, and do not include personal details.
+          </p>
           <div className="bp-modal-actions">
             <button type="submit" className="bp-btn bp-btn-gold" disabled={isSubmitting}>
               {isSubmitting ? 'Posting...' : 'Post Review'}

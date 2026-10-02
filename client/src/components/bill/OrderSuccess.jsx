@@ -80,7 +80,7 @@ export default function OrderSuccess({ order, bill, user, onContinue }) {
             <span className="ml-2 font-semibold text-slate-500">{PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}</span>
           </span>
         </div>
-        <div className="flex justify-between gap-3 border-t border-[#e8dfd0] pt-2.5 text-sm"><span className="font-bold text-[#1a1a2e]">Total</span><span className="font-black text-[#d49a00]">{formatRs(order.total)}</span></div>
+        <div className="flex justify-between gap-3 border-t border-[#e8dfd0] pt-2.5 text-sm"><span className="font-bold text-[#1a1a2e]">Total</span><span className="font-black text-[#7E610C]">{formatRs(order.total)}</span></div>
       </div>
 
       {billNumber && (
@@ -92,7 +92,7 @@ export default function OrderSuccess({ order, bill, user, onContinue }) {
             {(email.status === 'failed' || email.status === 'not_sent') && (
               <>
                 We couldn&apos;t email your bill to <strong className="text-[#1a1a2e]">{email.to || 'your email'}</strong> yet. Your order is confirmed and the bill is available below.
-                <button type="button" onClick={retryEmail} disabled={retrying} className="ml-1 font-bold text-[#d49a00] underline disabled:opacity-60">
+                <button type="button" onClick={retryEmail} disabled={retrying} className="ml-1 font-bold text-[#7E610C] underline disabled:opacity-60">
                   {retrying ? 'Sending…' : 'Retry email'}
                 </button>
                 {retryMessage && <span className="mt-1 block text-rose-600">{retryMessage}</span>}

@@ -13,16 +13,9 @@ import RecentActivity from './home/RecentActivity';
 import CustomerReviews from './home/CustomerReviews';
 import PopularBusinesses from './home/PopularBusinesses';
 import BusinessRecCard from './home/BusinessRecCard';
-import { formatCountdown } from './home/homeFormat';
 import { HERO_IMAGE_EVENT, cachedHeroImage, fetchHeroImage, heroBackground } from '../utils/siteAppearance';
 
 const DEFAULT_LOCATION = 'Kathmandu, Nepal';
-
-function localMidnight() {
-  const midnight = new Date();
-  midnight.setHours(24, 0, 0, 0);
-  return midnight.getTime();
-}
 
 export default function Marketplace({
   user,
@@ -48,7 +41,6 @@ export default function Marketplace({
   const [locating, setLocating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [customerReviews, setCustomerReviews] = useState([]);
-  const [now, setNow] = useState(() => Date.now());
   const [heroImage, setHeroImage] = useState(cachedHeroImage);
 
   const { feed, status: feedStatus, reload: reloadFeed } = useHomeFeed({ user, area: feedArea, coords });
@@ -91,11 +83,6 @@ export default function Marketplace({
     setSearchQuery(query);
     setSearchTrigger(query);
   }, [initialSearchQuery]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -227,8 +214,7 @@ export default function Marketplace({
     setLocationQuery(DEFAULT_LOCATION);
   };
 
-  const dealsEndAt = feed?.deals?.endsAt ? new Date(feed.deals.endsAt).getTime() : localMidnight();
-  const timeLeft = formatCountdown(dealsEndAt - now).replace(/ /g, '');
+  const dealCount = Array.isArray(feed?.deals?.items) ? feed.deals.items.length : null;
 
   const handleShopNow = (business) => {
     const tab = business.offeringType === 'services' ? 'services' : 'products';
@@ -299,7 +285,7 @@ export default function Marketplace({
               <button
                 type="button"
                 onClick={handleFindGems}
-                className="rounded-full bg-[var(--mp-gold)] px-7 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[var(--accent-hover)]"
+                className="rounded-full bg-[var(--mp-gold)] px-7 py-3 text-sm font-semibold text-[var(--mp-ink)] shadow-md transition hover:bg-[var(--accent-hover)]"
               >
                 {translate('Find Local Gems', 'स्थानीय रत्न खोज्नुहोस्')}
               </button>
@@ -313,13 +299,16 @@ export default function Marketplace({
             </div>
           </div>
 
-          <div className="mp-deals-ring" aria-label="Local deals countdown">
+          <div className="mp-deals-ring" role="group" aria-label="Local deals available now">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--mp-muted)]">
-                Local Deals End In
+                Local Deals Live
               </p>
-              <p className="mp-display mt-2 text-[clamp(1.8rem,3vw,2.4rem)] font-semibold tabular-nums text-[var(--mp-ink)]">
-                {timeLeft}
+              <p className="mp-display mt-1 text-[clamp(2.2rem,3.6vw,3rem)] font-semibold tabular-nums text-[var(--mp-ink)]">
+                {dealCount === null ? '—' : dealCount}
+              </p>
+              <p className="text-[10px] font-semibold text-[var(--mp-muted)]">
+                {dealCount === 1 ? 'discount' : 'discounts'} from local shops
               </p>
             </div>
           </div>
@@ -335,7 +324,7 @@ export default function Marketplace({
           <button
             type="button"
             onClick={() => setSelectedCategory('All')}
-            className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--mp-gold)] hover:text-[var(--mp-brown)]"
+            className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--mp-gold-ink)] hover:text-[var(--mp-brown)]"
           >
             View All
           </button>
@@ -351,7 +340,7 @@ export default function Marketplace({
                 aria-pressed={active}
                 className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] transition ${
                   active
-                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-white'
+                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-[var(--mp-ink)]'
                     : 'border-[var(--mp-border)] bg-[var(--mp-paper)] text-[var(--mp-brown)] hover:border-[var(--mp-gold)]'
                 }`}
               >
@@ -473,7 +462,7 @@ export default function Marketplace({
           <button
             type="button"
             onClick={() => onOpenDashboard('dashboard')}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--mp-gold)] px-6 py-3 text-sm font-bold text-white transition hover:bg-[var(--accent-hover)]"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--mp-gold)] px-6 py-3 text-sm font-bold text-[var(--mp-ink)] transition hover:bg-[var(--accent-hover)]"
           >
             Register Your Business <FiArrowRight />
           </button>

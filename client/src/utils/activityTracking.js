@@ -1,5 +1,6 @@
 import { getApiUrl } from './api';
 import { getSessionToken } from './sessionAuth';
+import { personalizationAllowed } from '../legal/privacyChoices';
 
 const VISITOR_KEY = 'udyog_visitor_id';
 
@@ -8,9 +9,9 @@ function randomId() {
   return `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-/** Anonymous, per-browser id so guests also get "people also viewed" and trending signals. */
+/** Anonymous, per-browser id so guests also get "people also viewed" and trending signals. Only created after opt-in. */
 export function getVisitorId() {
-  if (typeof window === 'undefined') return '';
+  if (typeof window === 'undefined' || !personalizationAllowed()) return '';
   try {
     let id = window.localStorage.getItem(VISITOR_KEY);
     if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
@@ -34,6 +35,7 @@ export function visitorHeaders() {
  */
 export function trackView({ businessId, productId } = {}) {
   if (typeof window === 'undefined' || typeof fetch !== 'function' || (!businessId && !productId)) return;
+  if (!personalizationAllowed()) return;
   const headers = { 'Content-Type': 'application/json', ...visitorHeaders() };
   const token = getSessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;

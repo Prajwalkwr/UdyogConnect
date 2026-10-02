@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
-import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import api from './utils/api';
 import { notifyOrdersUpdated } from './utils/bill';
@@ -15,6 +15,9 @@ import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
 import Marketplace from './components/Marketplace';
 import DetailsModal from './components/DetailsModal';
+import PrivacyChoicesBanner from './components/legal/PrivacyChoicesBanner';
+import { openPrivacyChoices } from './legal/privacyChoices';
+import { SITE_INFO, operatorName } from './legal/siteInfo';
 const CustomerDashboard = lazy(() => import('./components/CustomerDashboard'));
 const SellerDashboard = lazy(() => import('./components/SellerDashboard'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
@@ -28,6 +31,11 @@ const AiAssistant = lazy(() => import('./components/ai/AiAssistant'));
 const CustomerMessagesPage = lazy(() => import('./components/messaging/CustomerMessagesPage'));
 const ForgotPasswordPage = lazy(() => import('./components/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./components/auth/ResetPasswordPage'));
+const PrivacyPolicyPage = lazy(() => import('./components/legal/PrivacyPolicyPage'));
+const TermsPage = lazy(() => import('./components/legal/TermsPage'));
+const CookiePolicyPage = lazy(() => import('./components/legal/CookiePolicyPage'));
+const RefundPolicyPage = lazy(() => import('./components/legal/RefundPolicyPage'));
+const AboutContactPage = lazy(() => import('./components/legal/AboutContactPage'));
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -828,6 +836,11 @@ function App() {
             <Route path="/payment/esewa/success" element={<EsewaPaymentReturn outcome="success" />} />
             <Route path="/payment/esewa/failure" element={<EsewaPaymentReturn outcome="failure" />} />
             <Route path="/payment/esewa/simulator" element={<EsewaSimulator />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/cookies" element={<CookiePolicyPage />} />
+            <Route path="/refunds" element={<RefundPolicyPage />} />
+            <Route path="/about" element={<AboutContactPage />} />
           </Routes>
           </Suspense>
         </div>
@@ -867,11 +880,25 @@ function App() {
           padding: '24px 0',
           textAlign: 'center',
           fontSize: 13,
-          color: '#9CA3AF',
+          color: '#57657A',
         }}>
-          <div className="homepage-footer-content"><strong>UdyogConnect</strong><a href="#about">About</a><a href="#businesses">Businesses</a><a href="#products">Products</a><a href="#services">Services</a><a href="#contact">Help &amp; Contact</a><a href="#about">Privacy Policy</a><a href="#about">Terms &amp; Conditions</a><span>© 2026 UdyogConnect · Supporting local businesses in Nepal.</span></div>
+          <nav className="homepage-footer-content" aria-label="Footer">
+            <strong>UdyogConnect</strong>
+            <Link to="/about">About &amp; Contact</Link>
+            <a href="/#businesses">Businesses</a>
+            <a href="/#products">Deals</a>
+            <Link to="/terms">Terms &amp; Conditions</Link>
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/cookies">Cookie Policy</Link>
+            <Link to="/refunds">Refund Policy</Link>
+            <button type="button" onClick={openPrivacyChoices}>Privacy choices</button>
+            <a href={`mailto:${SITE_INFO.email}`}>{SITE_INFO.email}</a>
+            <span>© {new Date().getFullYear()} {operatorName()} · Supporting local businesses in Nepal.</span>
+          </nav>
         </footer>
       )}
+
+      <PrivacyChoicesBanner />
     </div>
   );
 }

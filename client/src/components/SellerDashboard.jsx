@@ -275,6 +275,7 @@ export default function SellerDashboard({
     openingDays: [...ALL_OPENING_DAYS],
   });
   const [bizDoc, setBizDoc] = useState(null);
+  const [bizDeclaration, setBizDeclaration] = useState(false);
   const [bizQr, setBizQr] = useState(null);
 
   // Product/Service add form
@@ -612,6 +613,10 @@ export default function SellerDashboard({
     if (!bizDoc) {
       submitGuard.finish();
       return Swal.fire({ icon: 'warning', title: 'Missing Document', text: 'Business certificate/document is required.' });
+    }
+    if (!bizDeclaration) {
+      submitGuard.finish();
+      return Swal.fire({ icon: 'warning', title: 'Declaration Required', text: 'Please confirm your business details and documents are genuine and that you agree to the Terms & Conditions.' });
     }
     if (!lettersOnly(bizForm.name)) {
       submitGuard.finish();
@@ -1313,7 +1318,28 @@ export default function SellerDashboard({
                 </label>
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setBizDoc(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-400/10 file:px-3 file:py-1.5 file:text-amber-300 file:font-semibold file:text-xs hover:file:bg-amber-400/20" required />
                 {bizDoc && <p className="mt-1.5 text-[11px] text-emerald-400">✓ {bizDoc.name}</p>}
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                  {t('Your documents are used only to review your application and are not shown on your public profile.', 'तपाईंका कागजात आवेदन जाँच्न मात्र प्रयोग हुन्छन् र सार्वजनिक प्रोफाइलमा देखाइँदैनन्।')}
+                </p>
               </div>
+
+              <label htmlFor="biz-declaration" className="flex items-start gap-3 rounded-2xl border border-slate-700/60 bg-slate-950/40 p-4 text-xs leading-relaxed text-slate-300">
+                <input
+                  id="biz-declaration"
+                  type="checkbox"
+                  checked={bizDeclaration}
+                  onChange={(e) => setBizDeclaration(e.target.checked)}
+                  required
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400"
+                />
+                <span>
+                  {t('I confirm that I am authorised to register this business, that its details and documents are genuine, and that I agree to the ', 'म पुष्टि गर्छु कि म यो व्यवसाय दर्ता गर्न अधिकृत छु, विवरण र कागजात सत्य छन्, र म ')}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-amber-300 underline">{t('Terms & Conditions', 'सर्त तथा नियम')}</a>
+                  {t(' (including the seller rules) and the ', ' (बिक्रेता नियमसहित) र ')}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-amber-300 underline">{t('Privacy Policy', 'गोपनीयता नीति')}</a>
+                  {t('.', 'मा सहमत छु।')}
+                </span>
+              </label>
 
               <button type="submit" disabled={isSubmitting} className="w-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all hover:-translate-y-0.5 active:scale-98 disabled:opacity-60 sm:max-w-md">
                 {isSubmitting ? t('Processing...', 'प्रोसेस हुँदै...') : t('Submit Business Registration', 'व्यवसाय दर्ता पेश गर्नुहोस्')}

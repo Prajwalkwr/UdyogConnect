@@ -41,6 +41,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [offers, setOffers] = useState({ products: true, services: true });
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
@@ -72,6 +73,16 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
       if (role === 'seller' && !offers.products && !offers.services) {
         validation.isValid = false;
         validation.errors = { ...validation.errors, businessOfferingType: translate('Choose Products, Services, or both.', 'उत्पादन, सेवा वा दुवै छान्नुहोस्।') };
+      }
+      if (!acceptTerms) {
+        validation.isValid = false;
+        validation.errors = {
+          ...validation.errors,
+          acceptTerms: translate(
+            'Please confirm you are 18 or older and agree to the Terms & Conditions and Privacy Policy.',
+            'कृपया तपाईं १८ वर्ष वा माथि हुनुहुन्छ र नियम तथा सर्त र गोपनीयता नीतिमा सहमत हुनुहुन्छ भनी पुष्टि गर्नुहोस्।'
+          ),
+        };
       }
       if (!validation.isValid) {
         setFieldErrors(validation.errors);
@@ -106,7 +117,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
         const registerResponse = await api.post(
           '/api/auth/register',
           {
-            name, email, password, confirmPassword, phone, role,
+            name, email, password, confirmPassword, phone, role, acceptTerms,
             ...(role === 'seller'
               ? { businessOfferingType: offers.products && offers.services ? 'both' : (offers.products ? 'products' : 'services') }
               : {}),
@@ -152,13 +163,16 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
   /* ── Shared input style ─────────────────────────── */
   const inputClass = 'w-full rounded-xl border border-[#E5E7EB] bg-white py-3 pl-10 pr-4 text-sm text-[#1A1A2E] placeholder:text-[#9CA3AF] outline-none focus:border-[#F2B71D] focus:ring-2 focus:ring-[#F2B71D]/15 transition';
 
+  const fieldLabelStyle = { display: 'block', fontSize: 13, fontWeight: 500, color: '#4B5563', marginBottom: 6 };
+  const legalLinkStyle = { color: '#7E610C', fontWeight: 700, textDecoration: 'underline' };
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       overflowY: 'auto', background: 'rgba(7, 20, 35, 0.48)', padding: '24px 16px', backdropFilter: 'blur(4px)',
     }}>
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title" style={{
         position: 'relative', width: '100%', maxWidth: 860,
         display: 'grid', gridTemplateColumns: '0.9fr 1.1fr',
         borderRadius: 24, background: '#FFFFFF',
@@ -193,13 +207,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
             </h3>
             <p style={{ margin: 0, color: '#dbeaf8', fontSize: 14, lineHeight: 1.6 }}>
               {mode === 'login'
-                ? 'Find trusted products, services, and sellers in your community.'
+                ? 'Find local products, services, and sellers in your community.'
                 : 'Reach customers in your area and manage your business with ease.'}
             </p>
           </div>
 
           <div style={{ marginTop: 22, display: 'grid', gap: 10 }}>
-            {['Trusted local sellers', 'Secure checkout flow', 'Quick business growth tools'].map((item) => (
+            {['Businesses reviewed before listing', 'Prices checked on our server at checkout', 'Order, booking and chat tools for sellers'].map((item) => (
               <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e6edf7', fontSize: 13 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F2B71D', display: 'inline-block' }} />
                 {item}
@@ -212,7 +226,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
           <button
             onClick={onClose}
             type="button"
-            aria-label="Close signup dialog"
+            aria-label={mode === 'login' ? 'Close sign-in dialog' : 'Close sign-up dialog'}
             style={{
               position: 'absolute', top: 16, right: 16,
               background: 'none', border: 'none', cursor: 'pointer',
@@ -223,18 +237,18 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
           </button>
 
           <div style={{ marginTop: 12, marginBottom: 20 }}>
-            <h2 style={{ fontSize: 30, fontWeight: 800, color: '#1A1A2E', margin: 0 }}>
+            <h2 id="auth-dialog-title" style={{ fontSize: 30, fontWeight: 800, color: '#1A1A2E', margin: 0 }}>
               {mode === 'login' && translate('Welcome Back', 'स्वागत छ')}
               {mode === 'signup' && translate('Create Your Account', 'खाता सिर्जना गर्नुहोस्')}
             </h2>
-            <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 6, marginBottom: 0 }}>
+            <p style={{ fontSize: 13, color: '#6B7280', marginTop: 6, marginBottom: 0 }}>
               {mode === 'login' && translate('Access Nepal\'s local marketplace', 'नेपालको स्थानीय बजारमा पहुँच पाउनुहोस्')}
               {mode === 'signup' && translate('Grow Your Business Locally', 'आफ्नो व्यवसाय स्थानीय रूपमा बढाउनुहोस्')}
             </p>
           </div>
 
           {mode === 'signup' && (
-            <div style={{
+            <div role="group" aria-label={translate('Account type', 'खाताको प्रकार')} style={{
               display: 'flex', gap: 0, marginBottom: 18,
               background: '#F3F4F6', borderRadius: 10, padding: 3,
             }}>
@@ -246,11 +260,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   key={item.value}
                   type="button"
                   onClick={() => setRole(item.value)}
+                  aria-pressed={role === item.value}
                   style={{
                     flex: 1, padding: '8px 0', borderRadius: 8,
                     fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
                     background: role === item.value ? '#FFFFFF' : 'transparent',
-                    color: role === item.value ? '#1A1A2E' : '#9CA3AF',
+                    color: role === item.value ? '#1A1A2E' : '#4B5563',
                     boxShadow: role === item.value ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     transition: 'all 0.15s',
                   }}
@@ -262,7 +277,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
           )}
 
           {error && (
-            <div style={{
+            <div role="alert" style={{
               marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8,
               borderRadius: 10, border: '1px solid #FEE2E2', background: '#FEF2F2',
               padding: '10px 14px', fontSize: 12, color: '#DC2626',
@@ -275,12 +290,16 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
+                <label htmlFor="auth-name" style={fieldLabelStyle}>
                   {role === 'seller' ? translate('Business Name', 'व्यवसायको नाम') : translate('Full Name', 'पूरा नाम')}
                 </label>
-                <FiUser style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
+                <FiUser aria-hidden style={{ position: 'absolute', top: 36, left: 12, color: '#6B7280' }} />
                 <input
+                  id="auth-name"
                   type="text"
+                  autoComplete={role === 'seller' ? 'organization' : 'name'}
+                  aria-invalid={Boolean(fieldErrors.name)}
+                  aria-describedby={fieldErrors.name ? 'auth-name-error' : undefined}
                   placeholder={role === 'seller' ? 'Enter your business name (letters only)' : translate('Full Name', 'पूरा नाम')}
                   value={name}
                   onChange={(e) => {
@@ -290,18 +309,24 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   }}
                   className={inputClass}
                 />
-                {fieldErrors.name && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.name}</p>}
+                {fieldErrors.name && <p id="auth-name-error" style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.name}</p>}
               </div>
             )}
 
             <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
-                  {translate('Email Address', 'इमेल ठेगाना')}
+                <label htmlFor="auth-email" style={fieldLabelStyle}>
+                  {mode === 'login' ? translate('Email or Phone Number', 'इमेल वा फोन नम्बर') : translate('Email Address', 'इमेल ठेगाना')}
                 </label>
-                <FiMail style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
+                <FiMail aria-hidden style={{ position: 'absolute', top: 36, left: 12, color: '#6B7280' }} />
                 <input
-                  type="email"
-                  placeholder={role === 'seller' ? 'words@number.com (e.g. shop@123.com)' : translate('Email address', 'इमेल ठेगाना')}
+                  id="auth-email"
+                  type={mode === 'login' ? 'text' : 'email'}
+                  autoComplete={mode === 'login' ? 'username' : 'email'}
+                  aria-invalid={Boolean(fieldErrors.email)}
+                  aria-describedby={fieldErrors.email ? 'auth-email-error' : undefined}
+                  placeholder={mode === 'login'
+                    ? translate('Email or phone number', 'इमेल वा फोन नम्बर')
+                    : role === 'seller' ? 'words@number.com (e.g. shop@123.com)' : translate('Email address', 'इमेल ठेगाना')}
                   value={email}
                   onChange={(e) => {
                     let next = e.target.value.trim();
@@ -314,17 +339,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   }}
                   className={inputClass}
                 />
-                {fieldErrors.email && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.email}</p>}
+                {fieldErrors.email && <p id="auth-email-error" style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.email}</p>}
             </div>
 
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
+                <label htmlFor="auth-phone" style={fieldLabelStyle}>
                   {translate('Phone Number *', 'फोन नम्बर *')}
                 </label>
-                <FiPhone style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
+                <FiPhone aria-hidden style={{ position: 'absolute', top: 36, left: 12, color: '#6B7280' }} />
                 <input
+                  id="auth-phone"
                   type="tel"
+                  autoComplete="tel-national"
+                  aria-invalid={Boolean(fieldErrors.phone)}
+                  aria-describedby={fieldErrors.phone ? 'auth-phone-error' : undefined}
                   placeholder={translate('10 digits starting with 97 or 98', '97 वा 98 बाट सुरु हुने 10 अंक')}
                   value={phone}
                   onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setFieldErrors(prev => ({ ...prev, phone: '' })); }}
@@ -333,17 +362,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                   maxLength={10}
                   pattern="^(97|98)[0-9]{8}$"
                 />
-                {fieldErrors.phone && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.phone}</p>}
+                {fieldErrors.phone && <p id="auth-phone-error" style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.phone}</p>}
               </div>
             )}
 
             <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
+                <label htmlFor="auth-password" style={fieldLabelStyle}>
                   {translate('Password', 'पासवर्ड')}
                 </label>
-                <FiLock style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
+                <FiLock aria-hidden style={{ position: 'absolute', top: 36, left: 12, color: '#6B7280' }} />
                 <input
+                  id="auth-password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  aria-describedby={fieldErrors.password ? 'auth-password-error' : undefined}
                   placeholder={translate('Enter your password', 'पासवर्ड राख्नुहोस्')}
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setFieldErrors(prev => ({ ...prev, password: '' })); }}
@@ -357,17 +390,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 >
                   {showPassword ? <FiEyeOff /> : <FiEye />}
                 </button>
-                {fieldErrors.password && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.password}</p>}
+                {fieldErrors.password && <p id="auth-password-error" style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.password}</p>}
             </div>
 
             {mode === 'signup' && (
               <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6B7280', marginBottom: 6 }}>
+                <label htmlFor="auth-confirm-password" style={fieldLabelStyle}>
                   {translate('Confirm Password', 'पासवर्ड पुष्टि')}
                 </label>
-                <FiLock style={{ position: 'absolute', top: 36, left: 12, color: '#9CA3AF' }} />
+                <FiLock aria-hidden style={{ position: 'absolute', top: 36, left: 12, color: '#6B7280' }} />
                 <input
+                  id="auth-confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                  aria-describedby={fieldErrors.confirmPassword ? 'auth-confirm-error' : undefined}
                   placeholder={translate('Confirm Password', 'पासवर्ड पुष्टि गर्नुहोस्')}
                   value={confirmPassword}
                   onChange={(e) => { setConfirmPassword(e.target.value); setFieldErrors(prev => ({ ...prev, confirmPassword: '' })); }}
@@ -381,7 +418,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                 >
                   {showConfirmPassword ? <FiEyeOff /> : <FiEye />}
                 </button>
-                {fieldErrors.confirmPassword && <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.confirmPassword}</p>}
+                {fieldErrors.confirmPassword && <p id="auth-confirm-error" style={{ color: '#DC2626', fontSize: 12, marginTop: 4, margin: '4px 0 0' }}>❌ {fieldErrors.confirmPassword}</p>}
               </div>
             )}
 
@@ -421,10 +458,42 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
                     onClose();
                     navigate('/forgot-password', { state: { email: email.trim() } });
                   }}
-                  style={{ color: '#F2B71D', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{ color: '#7E610C', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}
                 >
                   {translate('Forgot Password?', 'पासवर्ड बिर्सनुभयो?')}
                 </button>
+              </div>
+            )}
+
+            {mode === 'signup' && (
+              <div>
+                <label htmlFor="auth-accept-terms" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, lineHeight: 1.5, color: '#374151', cursor: 'pointer' }}>
+                  <input
+                    id="auth-accept-terms"
+                    type="checkbox"
+                    checked={acceptTerms}
+                    onChange={(e) => {
+                      setAcceptTerms(e.target.checked);
+                      setFieldErrors((prev) => ({ ...prev, acceptTerms: '' }));
+                    }}
+                    required
+                    aria-invalid={Boolean(fieldErrors.acceptTerms)}
+                    aria-describedby={fieldErrors.acceptTerms ? 'auth-terms-error' : undefined}
+                    style={{ accentColor: '#7E610C', width: 18, height: 18, marginTop: 1, flexShrink: 0 }}
+                  />
+                  <span>
+                    {translate('I am 18 or older and I agree to the ', 'म १८ वर्ष वा माथिको हुँ र ')}
+                    <a href="/terms" target="_blank" rel="noopener noreferrer" style={legalLinkStyle}>{translate('Terms & Conditions', 'नियम तथा सर्त')}</a>
+                    {translate(' and ', ' र ')}
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer" style={legalLinkStyle}>{translate('Privacy Policy', 'गोपनीयता नीति')}</a>
+                    {translate('.', 'मा सहमत छु।')}
+                    {role === 'seller' && translate(
+                      ' I confirm my business details and documents will be genuine.',
+                      ' मेरो व्यवसायको विवरण र कागजात सत्य हुनेछन् भनी पुष्टि गर्छु।'
+                    )}
+                  </span>
+                </label>
+                {fieldErrors.acceptTerms && <p id="auth-terms-error" style={{ color: '#DC2626', fontSize: 12, margin: '4px 0 0' }}>❌ {fieldErrors.acceptTerms}</p>}
               </div>
             )}
 
@@ -452,21 +521,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, lang, initia
 
           <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13 }}>
             {mode === 'login' ? (
-              <p style={{ color: '#9CA3AF', margin: 0 }}>
+              <p style={{ color: '#4B5563', margin: 0 }}>
                 {translate('Don\'t have an account?', 'नयाँ हुनुहुन्छ?')}{' '}
-                <button onClick={() => setMode('signup')} style={{ fontWeight: 700, color: '#F2B71D', background: 'none', border: 'none', cursor: 'pointer' }}>
+                <button type="button" onClick={() => setMode('signup')} style={{ fontWeight: 700, color: '#7E610C', background: 'none', border: 'none', cursor: 'pointer' }}>
                   {translate('Sign Up', 'दर्ता गर्नुहोस्')}
                 </button>
               </p>
-            ) : null}
+            ) : (
+              <p style={{ color: '#4B5563', margin: 0 }}>
+                {translate('Already have an account?', 'पहिले नै खाता छ?')}{' '}
+                <button type="button" onClick={() => setMode('login')} style={{ fontWeight: 700, color: '#7E610C', background: 'none', border: 'none', cursor: 'pointer' }}>
+                  {translate('Log In', 'लगइन')}
+                </button>
+              </p>
+            )}
           </div>
-
-          {mode === 'signup' && (
-            <p style={{ marginTop: 12, textAlign: 'center', fontSize: 11, color: '#9CA3AF' }}>
-              By registering, you agree to our{' '}
-              <span style={{ textDecoration: 'underline', cursor: 'pointer' }}>Terms & Conditions</span>
-            </p>
-          )}
         </div>
       </div>
     </div>

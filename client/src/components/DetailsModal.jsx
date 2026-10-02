@@ -236,28 +236,30 @@ export default function DetailsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-4xl rounded-[32px] border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden my-8 max-h-[90vh] flex flex-col">
+      <div role="dialog" aria-modal="true" aria-label={businessData?.business?.name || translate('Business details', 'व्यवसाय विवरण')} className="relative w-full max-w-4xl rounded-[32px] border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden my-8 max-h-[90vh] flex flex-col">
         {/* Header Visual */}
         <div className="relative h-44 sm:h-52 bg-slate-950 flex-shrink-0">
           {businessData?.business?.bannerUrl ? (
-            <img src={businessData.business.bannerUrl} alt="banner" className="h-full w-full object-cover opacity-60" />
+            <img src={businessData.business.bannerUrl} alt="" className="h-full w-full object-cover opacity-60" />
           ) : (
             <div className="h-full w-full bg-gradient-to-br from-indigo-500/20 via-slate-950 to-amber-500/20" />
           )}
 
           {/* Close button */}
           <button
+            type="button"
             onClick={onClose}
+            aria-label={translate('Close business details', 'व्यवसाय विवरण बन्द गर्नुहोस्')}
             className="absolute top-4 right-4 rounded-full bg-slate-900/60 p-2 text-slate-400 hover:text-white backdrop-blur-md"
           >
-            <FiX className="h-6 w-6" />
+            <FiX className="h-6 w-6" aria-hidden="true" />
           </button>
 
           {/* Profile details */}
           <div className="absolute bottom-4 left-6 flex items-end gap-4">
             <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-2xl bg-slate-900 border-2 border-slate-800 flex items-center justify-center text-4xl shadow-xl">
               {businessImage ? (
-                <img src={businessImage} alt="logo" className="h-full w-full object-cover rounded-2xl" />
+                <img src={businessImage} alt={`${businessData?.business?.name || 'Business'} logo`} className="h-full w-full object-cover rounded-2xl" />
               ) : (
                 businessData?.business?.name?.charAt(0) || '🏪'
               )}
@@ -526,13 +528,15 @@ export default function DetailsModal({
                     <form onSubmit={handlePostReview} className="rounded-xl border border-slate-850 bg-slate-950/20 p-4 space-y-3">
                       <h4 className="font-bold text-xs text-white uppercase tracking-wider">{translate('Leave a feedback review', 'आफ्नो प्रतिक्रिया राख्नुहोस्')}</h4>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">{translate('Rating Stars:', 'रेटिङ:')}</span>
-                        <div className="flex gap-1">
+                        <span id="review-rating-label" className="text-xs text-slate-400">{translate('Rating Stars:', 'रेटिङ:')}</span>
+                        <div className="flex gap-1" role="group" aria-labelledby="review-rating-label">
                           {[1, 2, 3, 4, 5].map((star) => (
                             <button
                               key={star}
                               type="button"
                               onClick={() => setReviewRating(star)}
+                              aria-label={`${star} ${star === 1 ? 'star' : 'stars'}`}
+                              aria-pressed={reviewRating === star}
                               className={`text-lg transition ${reviewRating >= star ? 'text-amber-400' : 'text-slate-600'}`}
                             >
                               ★
@@ -540,7 +544,9 @@ export default function DetailsModal({
                           ))}
                         </div>
                       </div>
+                      <label htmlFor="review-comment" className="sr-only">{translate('Your review', 'तपाईंको समीक्षा')}</label>
                       <textarea
+                        id="review-comment"
                         value={reviewComment}
                         onChange={(e) => setReviewComment(e.target.value)}
                         placeholder={translate('Describe your dining, shopping or service experience...', 'आफ्नो अनुभव लेख्नुहोस्...')}
@@ -553,6 +559,7 @@ export default function DetailsModal({
                           type="file"
                           accept="image/*"
                           onChange={(e) => setReviewImage(e.target.files[0])}
+                          aria-label={translate('Add a photo to your review (optional)', 'समीक्षामा फोटो थप्नुहोस् (ऐच्छिक)')}
                           className="text-xs text-slate-400"
                         />
                         <button
@@ -560,9 +567,15 @@ export default function DetailsModal({
                           disabled={isSubmitting}
                           className="rounded-lg bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
                         >
-                          {isSubmitting ? translate('Processing...', 'प्रोसेस हुँदै...') : 'Submit'}
+                          {isSubmitting ? translate('Processing...', 'प्रोसेस हुँदै...') : translate('Post review', 'समीक्षा पोस्ट गर्नुहोस्')}
                         </button>
                       </div>
+                      <p className="text-[10px] leading-relaxed text-slate-400">
+                        {translate(
+                          'Your name, rating, review and photo are shown publicly. Only review a business you have actually used, and do not include personal details.',
+                          'तपाईंको नाम, रेटिङ, समीक्षा र फोटो सार्वजनिक देखिन्छ। आफूले प्रयोग गरेको व्यवसायको मात्र समीक्षा गर्नुहोस्, र व्यक्तिगत विवरण नराख्नुहोस्।'
+                        )}
+                      </p>
                     </form>
 
                     {/* Reviews List */}
@@ -589,17 +602,19 @@ export default function DetailsModal({
                                 </div>
                               </div>
                               <button
+                                type="button"
                                 onClick={() => handleReportReview(r)}
-                                className="text-slate-550 hover:text-rose-450 p-1 rounded transition"
+                                className="text-slate-400 hover:text-rose-400 p-1 rounded transition"
                                 title="Report Fake / Offensive Review"
+                                aria-label={`Report review by ${r.customerName}`}
                               >
-                                <FiFlag className="h-3 w-3" />
+                                <FiFlag className="h-3 w-3" aria-hidden="true" />
                               </button>
                             </div>
                             <p className="mt-2 text-xs text-slate-400 leading-relaxed">{r.comment}</p>
                             {r.images && r.images[0] && (
                               <div className="mt-2 h-16 w-16 bg-slate-900 rounded-lg overflow-hidden">
-                                <img src={r.images[0]} alt="review attachment" className="h-full w-full object-cover" />
+                                <img src={r.images[0]} alt={`Photo attached to ${r.customerName}'s review`} className="h-full w-full object-cover" />
                               </div>
                             )}
                           </div>

@@ -172,7 +172,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
             <button
               type="button"
               onClick={() => (expanded ? setExpanded(false) : openAll('forYou'))}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold)] hover:text-[var(--mp-brown)]"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold-ink)] hover:text-[var(--mp-brown)]"
             >
               {expanded ? 'Show less' : 'View All'} <FiArrowRight />
             </button>
@@ -185,7 +185,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
       {status === 'error' && !feed && (
         <div className="rounded-2xl bg-white py-8 text-center text-sm text-[var(--mp-muted)]">
           Recommendations could not be loaded.
-          <button type="button" onClick={onRetry} className="ml-2 font-bold text-[var(--mp-gold)] hover:underline">Retry</button>
+          <button type="button" onClick={onRetry} className="ml-2 font-bold text-[var(--mp-gold-ink)] hover:underline">Retry</button>
         </div>
       )}
 
@@ -251,7 +251,7 @@ export default function AiRecommendations({ feed, status, user, onOpenBusiness, 
                 onClick={() => setActiveSlot(slot.key)}
                 className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
                   activeSlot === slot.key
-                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-white'
+                    ? 'border-[var(--mp-gold)] bg-[var(--mp-gold)] text-[var(--mp-ink)]'
                     : 'border-[var(--mp-border)] bg-white text-[var(--mp-brown)] hover:border-[var(--mp-gold)]'
                 }`}
               >

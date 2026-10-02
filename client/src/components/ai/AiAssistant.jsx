@@ -63,7 +63,7 @@ function QuickActions({ signedIn, extra, onAsk, disabled }) {
       <div className="flex flex-col gap-2 text-left text-xs">
         <div className="flex items-center justify-between">
           <p className="text-xs font-bold text-[var(--mp-ink)]"><span aria-hidden>{category.icon}</span> {category.label}</p>
-          <button type="button" onClick={() => setCategoryId(null)} className="text-[11px] font-bold text-[var(--mp-gold)] hover:underline">← All topics</button>
+          <button type="button" onClick={() => setCategoryId(null)} className="text-[11px] font-bold text-[var(--mp-gold-ink)] hover:underline">← All topics</button>
         </div>
         {category.questions.map((question) => (
           <button key={question} type="button" disabled={disabled} onClick={() => onAsk(question)} className={suggestionClass}>{question}</button>
@@ -96,7 +96,7 @@ function QuickActions({ signedIn, extra, onAsk, disabled }) {
 }
 
 const actionClass = 'rounded-full border border-[var(--mp-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--mp-brown)] transition hover:border-[var(--mp-gold)] hover:text-[var(--mp-gold)]';
-const primaryClass = 'rounded-full bg-[var(--mp-gold)] px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-[var(--mp-brown)] disabled:cursor-not-allowed disabled:bg-slate-300';
+const primaryClass = 'rounded-full bg-[var(--mp-gold)] px-2.5 py-1 text-[11px] font-bold text-[var(--mp-ink)] transition hover:bg-[var(--mp-brown)] hover:text-white disabled:cursor-not-allowed disabled:bg-slate-300';
 
 function BusinessResult({ business, onOpenBusiness, onOpenProduct }) {
   const top = business.topItem;
@@ -525,7 +525,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
         >
           <header className="flex items-center justify-between border-b border-[var(--mp-border)] bg-white px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--mp-gold)] text-white"><Bot className="h-5 w-5" /></span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--mp-gold)] text-[var(--mp-ink)]"><Bot className="h-5 w-5" /></span>
               <div>
                 <p className="text-sm font-bold text-[var(--mp-ink)]">UdyogConnect AI</p>
                 <p className="text-[10px] text-[var(--mp-muted)]">Answers from live UdyogConnect listings</p>
@@ -571,7 +571,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
                     )}
                     {(message.error || message.restored) && message.question && (
                       <p className="mt-1.5 text-[11px]">
-                        <button type="button" onClick={() => send(message.question)} disabled={loading} className="inline-flex items-center gap-1 font-bold text-[var(--mp-gold)] hover:underline disabled:opacity-50">
+                        <button type="button" onClick={() => send(message.question)} disabled={loading} className="inline-flex items-center gap-1 font-bold text-[var(--mp-gold-ink)] hover:underline disabled:opacity-50">
                           <FiRefreshCw className="h-3 w-3" /> {message.error ? 'Try again' : 'Ask again'}
                         </button>
                       </p>
@@ -598,7 +598,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
                   type="button"
                   onClick={() => setShowSuggestions((value) => !value)}
                   aria-expanded={showSuggestions}
-                  className="text-[11px] font-bold text-[var(--mp-gold)] hover:underline"
+                  className="text-[11px] font-bold text-[var(--mp-gold-ink)] hover:underline"
                 >
                   {showSuggestions ? 'Hide suggested questions' : '💡 Suggested questions'}
                 </button>
@@ -638,7 +638,7 @@ export default function AiAssistant({ user, onOpenBusiness, onOpenProduct, onAdd
             <button
               type="submit"
               disabled={!input.trim() || loading}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--mp-gold)] text-white transition hover:bg-[var(--mp-brown)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--mp-gold)] text-[var(--mp-ink)] transition hover:bg-[var(--mp-brown)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Send"
             >
               <FiSend />

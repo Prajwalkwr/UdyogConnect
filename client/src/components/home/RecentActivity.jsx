@@ -26,7 +26,7 @@ export default function RecentActivity({ user, activity = [], status, onOpenBusi
           <button
             type="button"
             onClick={onViewAll}
-            className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold)] hover:text-[var(--mp-brown)]"
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--mp-gold-ink)] hover:text-[var(--mp-brown)]"
           >
             View All <FiArrowRight />
           </button>
@@ -39,7 +39,7 @@ export default function RecentActivity({ user, activity = [], status, onOpenBusi
           <button
             type="button"
             onClick={onSignIn}
-            className="mt-3 rounded-full bg-[var(--mp-gold)] px-4 py-1.5 text-[11px] font-bold text-white transition hover:bg-[var(--accent-hover)]"
+            className="mt-3 rounded-full bg-[var(--mp-gold)] px-4 py-1.5 text-[11px] font-bold text-[var(--mp-ink)] transition hover:bg-[var(--accent-hover)]"
           >
             Sign in
           </button>

@@ -185,19 +185,14 @@ export function normalizeProfile(id, payload) {
       openingDays: Array.isArray(business.openingDays) ? business.openingDays : [],
       tags: Array.isArray(business.tags) ? business.tags : [],
       highlights: Array.isArray(business.highlights) ? business.highlights : [
-        { id: 'quality', label: 'Quality Service', icon: 'utensils' },
         { id: 'local', label: 'Local Business', icon: 'store' },
       ],
-      whyChooseUs: Array.isArray(business.whyChooseUs) ? business.whyChooseUs : [
-        'Trusted Local Business',
-        'Friendly Staff',
-        'Quality Products',
-        'Customer Focused',
-      ],
+      // Only claims the business itself entered; nothing is filled in on its behalf.
+      whyChooseUs: Array.isArray(business.whyChooseUs) ? business.whyChooseUs : [],
       paymentMethods: Array.isArray(business.paymentMethods) ? business.paymentMethods : [
         'Cash on Delivery',
-        'eSewa',
-        'Card Payment',
+        ...(business.esewaEnabled ? ['eSewa'] : []),
+        ...(business.qrUrl ? ['QR Payment'] : []),
       ],
       specialOffer: business.specialOffer || null,
     },

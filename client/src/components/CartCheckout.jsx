@@ -110,7 +110,8 @@ export default function CartCheckout({
 
   useEffect(() => {
     if (paymentMethod === 'eSewa' && !esewaEnabled) setPaymentMethod('COD');
-  }, [esewaEnabled, paymentMethod]);
+    if (paymentMethod === 'QR' && !checkoutBusinessQrUrl) setPaymentMethod('COD');
+  }, [esewaEnabled, checkoutBusinessQrUrl, paymentMethod]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -275,7 +276,7 @@ export default function CartCheckout({
   const paymentOptions = [
     { value: 'COD', label: 'Cash / COD' },
     ...(esewaEnabled ? [{ value: 'eSewa', label: 'eSewa' }] : []),
-    { value: 'QR', label: 'QR Scan' },
+    ...(checkoutBusinessQrUrl ? [{ value: 'QR', label: 'QR Scan' }] : []),
     ...(stripeEnabled ? [{ value: 'Card', label: 'Card' }] : []),
   ];
 
@@ -371,13 +372,17 @@ export default function CartCheckout({
                       )}
                       <div className="flex items-center rounded-xl border border-[#e8dfd0] bg-[#fffaf0] p-1">
                         <button
+                          type="button"
                           onClick={() => onUpdateQty(item.id, item.quantity - 1)}
-                          className="px-2 text-slate-500 hover:text-slate-800"
+                          aria-label={`Decrease quantity of ${item.name}`}
+                          className="px-2 text-slate-600 hover:text-slate-800"
                         >
                           -
                         </button>
-                        <span className="px-2 text-xs font-bold text-[#1a1a2e]">{item.quantity}</span>
+                        <span className="px-2 text-xs font-bold text-[#1a1a2e]" aria-live="polite" aria-label={`Quantity ${item.quantity}`}>{item.quantity}</span>
                         <button
+                          type="button"
+                          aria-label={`Increase quantity of ${item.name}`}
                           onClick={() => onUpdateQty(item.id, item.quantity + 1)}
                           disabled={item.quantity >= Math.min(20, item.stock || 20)}
                           className={`px-2 ${item.quantity >= Math.min(20, item.stock || 20) ? 'cursor-not-allowed text-slate-400' : 'text-slate-500 hover:text-slate-800'}`}
@@ -386,37 +391,41 @@ export default function CartCheckout({
                         </button>
                       </div>
                     </div>
-                    <span className="text-xs font-black text-[#d49a00] sm:text-sm">
+                    <span className="text-xs font-black text-[#7E610C] sm:text-sm">
                       {displayPrice(item.price * item.quantity)}
                     </span>
                     <button
+                      type="button"
                       onClick={() => onRemoveItem(item.id)}
-                      className="p-1 text-slate-500 hover:text-rose-500"
+                      aria-label={`Remove ${item.name} from cart`}
+                      className="p-1 text-slate-600 hover:text-rose-600"
                     >
-                      <FiTrash2 className="h-4 w-4" />
+                      <FiTrash2 className="h-4 w-4" aria-hidden />
                     </button>
                   </div>
                 </div>
               ))}
 
               <div className="rounded-[24px] border border-[#e8dfd0] bg-white p-4 shadow-sm">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{translate('Discount Code', 'कुपन कोड')}</span>
+                <label htmlFor="checkout-discount-code" className="text-[10px] font-bold uppercase tracking-wider text-slate-600">{translate('Discount Code', 'कुपन कोड')}</label>
                 <div className="mt-2 flex gap-2">
                   <div className="relative flex-1">
-                    <FiTag className="absolute left-3 top-3.5 text-slate-400" />
+                    <FiTag className="absolute left-3 top-3.5 text-slate-500" aria-hidden />
                     <input
+                      id="checkout-discount-code"
                       type="text"
                       placeholder="e.g. NEPAL50"
                       value={promoCode}
                       onChange={(e) => setPromoCode(e.target.value)}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] py-2.5 pl-9 pr-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] py-2.5 pl-9 pr-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                     />
                   </div>
                   <button
+                    type="button"
                     onClick={handleApplyCoupon}
                     className="rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 text-xs font-semibold text-[#1a1a2e] hover:bg-[#fef1c7]"
                   >
-                    Apply
+                    Apply code
                   </button>
                 </div>
               </div>
@@ -430,13 +439,15 @@ export default function CartCheckout({
                       type="text"
                       required
                       autoComplete="name"
+                      aria-label={translate('Full name', 'पूरा नाम')}
+                      aria-invalid={Boolean(fieldErrors.name)}
                       placeholder={translate('Full Name *', 'पूरा नाम *')}
                       value={name}
                       onChange={(e) => {
                         setName(sanitizeCheckoutWords(e.target.value));
                         setFieldErrors((prev) => ({ ...prev, name: '' }));
                       }}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                     />
                     {fieldErrors.name && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.name}</span>}
                   </div>
@@ -445,10 +456,12 @@ export default function CartCheckout({
                       type="email"
                       required
                       autoComplete="email"
+                      aria-label="Email"
+                      aria-invalid={Boolean(fieldErrors.email)}
                       placeholder="Email *"
                       value={email}
                       onChange={(e) => { setEmail(sanitizeCheckoutEmail(e.target.value)); setFieldErrors(prev => ({ ...prev, email: '' })); }}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                     />
                     {fieldErrors.email ? (
                       <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.email}</span>
@@ -469,6 +482,8 @@ export default function CartCheckout({
                       inputMode="numeric"
                       autoComplete="tel"
                       maxLength={10}
+                      aria-label={translate('Phone number', 'फोन नम्बर')}
+                      aria-invalid={Boolean(fieldErrors.phone)}
                       placeholder={translate('Phone Number *', 'फोन नम्बर *')}
                       value={phone}
                       onChange={(e) => {
@@ -476,7 +491,7 @@ export default function CartCheckout({
                         setPhone(digits);
                         setFieldErrors((prev) => ({ ...prev, phone: '' }));
                       }}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                     />
                     {fieldErrors.phone && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.phone}</span>}
                   </div>
@@ -486,10 +501,12 @@ export default function CartCheckout({
                       required
                       list="nepal-places-list"
                       autoComplete="address-level2"
+                      aria-label={translate('Location or city in Nepal', 'स्थान / शहर (नेपाल)')}
+                      aria-invalid={Boolean(fieldErrors.city)}
                       placeholder={translate('Location / City * (Nepal)', 'स्थान / शहर * (नेपाल)')}
                       value={location}
                       onChange={(e) => { setLocation(sanitizeCheckoutWords(e.target.value)); setFieldErrors(prev => ({ ...prev, city: '' })); }}
-                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                      className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                     />
                     <datalist id="nepal-places-list">
                       {NEPAL_PLACES.map((place) => (
@@ -505,14 +522,16 @@ export default function CartCheckout({
                     type="text"
                     required
                     autoComplete="street-address"
+                    aria-label={translate('Street or landmark', 'सडक / स्थलचिन्ह')}
+                    aria-invalid={Boolean(fieldErrors.address)}
                     placeholder={translate('Street / Landmark *', 'सडक / स्थलचिन्ह *')}
                     value={address}
                     onChange={(e) => { setAddress(sanitizeCheckoutWords(e.target.value)); setFieldErrors(prev => ({ ...prev, address: '' })); }}
-                    className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-400 outline-none focus:border-[#f2b71d]"
+                    className="w-full rounded-2xl border border-[#e8dfd0] bg-[#fffaf0] px-4 py-3 text-xs text-[#1a1a2e] placeholder:text-slate-500 outline-none focus:border-[#f2b71d]"
                   />
                   {fieldErrors.address && <span className="text-rose-500 text-[11px] mt-1 block">❌ {fieldErrors.address}</span>}
                 </div>
-                <p className="mt-3 text-[11px] text-slate-400">{translate('All fields are required to place your order.', 'अर्डर गर्न सबै विवरण अनिवार्य छन्।')}</p>
+                <p className="mt-3 text-[11px] text-slate-500">{translate('All fields are required to place your order.', 'अर्डर गर्न सबै विवरण अनिवार्य छन्।')}</p>
               </div>
             </div>
 
@@ -524,7 +543,9 @@ export default function CartCheckout({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{translate('Delivery Method', 'डेलिभरी विधि')}</span>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
+                      type="button"
                       onClick={() => setDeliveryMethod('delivery')}
+                      aria-pressed={deliveryMethod === 'delivery'}
                       className={`flex items-center justify-center gap-2 rounded-xl border py-2 text-xs font-semibold ${
                         deliveryMethod === 'delivery' ? 'border-[#f2b71d] bg-[#fff1c7] text-[#1a1a2e]' : 'border-[#e8dfd0] bg-[#fffaf0] text-slate-500'
                       }`}
@@ -533,7 +554,9 @@ export default function CartCheckout({
                       <span>Home Delivery</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setDeliveryMethod('pickup')}
+                      aria-pressed={deliveryMethod === 'pickup'}
                       className={`flex items-center justify-center gap-2 rounded-xl border py-2 text-xs font-semibold ${
                         deliveryMethod === 'pickup' ? 'border-[#f2b71d] bg-[#fff1c7] text-[#1a1a2e]' : 'border-[#e8dfd0] bg-[#fffaf0] text-slate-500'
                       }`}
@@ -552,6 +575,7 @@ export default function CartCheckout({
                         key={pay.value}
                         type="button"
                         onClick={() => setPaymentMethod(pay.value)}
+                        aria-pressed={paymentMethod === pay.value}
                         className={`rounded-xl border py-2 text-xs font-semibold transition ${
                           paymentMethod === pay.value
                             ? pay.value === 'eSewa' ? 'border-[#60bb46] bg-[#eaf7e4] text-[#2f7d1c]' : 'border-[#f2b71d] bg-[#fff1c7] text-[#1a1a2e]'
@@ -593,7 +617,7 @@ export default function CartCheckout({
                   </div>
                   <div className="mt-2 flex justify-between border-t border-[#e8dfd0] pt-3 text-sm font-black text-[#1a1a2e]">
                     <span>Total Payable</span>
-                    <span className="text-[#d49a00]">{displayPrice(total)}</span>
+                    <span className="text-[#7E610C]">{displayPrice(total)}</span>
                   </div>
                 </div>
 
@@ -609,6 +633,17 @@ export default function CartCheckout({
                       ? `Pay with eSewa (${displayPrice(total)})`
                       : `Place order (${displayPrice(total)})`}
                 </button>
+                <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+                  {translate('By placing this order you agree to our ', 'अर्डर गरेर तपाईं हाम्रो ')}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7E610C] underline">{translate('Terms', 'सर्तहरू')}</a>
+                  {translate(' and ', ' र ')}
+                  <a href="/refunds" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7E610C] underline">{translate('Refund Policy', 'फिर्ता नीति')}</a>
+                  {translate('. Your name, phone, email and address are shared with ', 'मा सहमत हुनुहुन्छ। तपाईंको नाम, फोन, इमेल र ठेगाना ')}
+                  {checkoutBusinessName || translate('the business', 'व्यवसाय')}
+                  {translate(' to fulfil it. See our ', 'सँग अर्डर पूरा गर्न साझा गरिन्छ। हेर्नुहोस्: ')}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7E610C] underline">{translate('Privacy Policy', 'गोपनीयता नीति')}</a>
+                  .
+                </p>
               </div>
             </div>
           </div>
@@ -616,48 +651,45 @@ export default function CartCheckout({
 
         {showQrModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-[28px] border border-[#e8dfd0] bg-white p-6 text-center shadow-2xl">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">{translate('Scan to Pay', 'स्क्यान गरी भुक्तानी गर्नुहोस्')}</h4>
+            <div role="dialog" aria-modal="true" aria-labelledby="qr-pay-title" className="w-full max-w-sm rounded-[28px] border border-[#e8dfd0] bg-white p-6 text-center shadow-2xl">
+              <h4 id="qr-pay-title" className="text-sm font-bold uppercase tracking-wider text-slate-600">{translate('Scan to Pay', 'स्क्यान गरी भुक्तानी गर्नुहोस्')}</h4>
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                 {checkoutBusinessName ? `${translate('Pay the business', 'व्यवसायलाई भुक्तान गर्नुहोस्')}: ${checkoutBusinessName}` : translate('Scan the QR code with your mobile banking or eSewa app.', 'मोबाइल बैंकिङ वा eSewa एपबाट QR स्क्यान गर्नुहोस्।')}
               </p>
               <div className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-2xl bg-white p-3 shadow-inner ring-1 ring-[#e8dfd0]">
                 {checkoutBusinessQrUrl ? (
-                  <img src={checkoutBusinessQrUrl} alt="Business payment QR" className="h-full w-full rounded-2xl object-contain" />
+                  <img
+                    src={checkoutBusinessQrUrl}
+                    alt={translate(`Payment QR code for ${checkoutBusinessName || 'this business'}`, `${checkoutBusinessName || 'यस व्यवसाय'}को भुक्तानी QR कोड`)}
+                    className="h-full w-full rounded-2xl object-contain"
+                  />
                 ) : (
-                  <div className="grid h-full w-full grid-cols-5 gap-2.5 opacity-90">
-                    {Array.from({ length: 25 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`rounded ${
-                          (i % 3 === 0 && i % 2 === 0) || i === 0 || i === 4 || i === 20 || i === 24
-                            ? 'bg-slate-950'
-                            : 'bg-slate-200'
-                        }`}
-                      />
-                    ))}
-                  </div>
+                  <p className="px-2 text-xs leading-relaxed text-slate-600">
+                    {translate('No QR code is available for this business.', 'यस व्यवसायको QR कोड उपलब्ध छैन।')}
+                  </p>
                 )}
               </div>
               <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
                 {checkoutBusinessQrUrl
                   ? translate('Scan with eSewa, Khalti, or Mobile Banking app. Business-specific QR code is shown when available.', 'eSewa, Khalti वा मोबाइल बैंकिङ प्रयोग गरी स्क्यान गर्नुहोस्। उपलब्ध भएमा व्यवसाय-विशिष्ट QR कोड देखाइन्छ।')
-                  : translate('This business has not uploaded a QR code yet. Complete payment via your preferred method and confirm when ready.', 'यस व्यवसायले अझै QR कोड अपलोड गरेको छैन। तपाईंको मनपर्ने तरिका प्रयोग गरी भुक्तानी गरी पुष्टि गर्नुहोस्।')}
+                  : translate('Please close this window and choose another payment option.', 'कृपया यो विन्डो बन्द गरी अर्को भुक्तानी विकल्प छान्नुहोस्।')}
               </p>
               <button
+                type="button"
                 onClick={() => handlePlaceOrder(null)}
-                disabled={placingOrder}
+                disabled={placingOrder || !checkoutBusinessQrUrl}
                 className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400"
               >
                 <FiCheckCircle />
                 <span>{placingOrder ? processingLabel : translate("I've Paid — Place Order", 'भुक्तानी गरें — अर्डर गर्नुहोस्')}</span>
               </button>
-              <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-600">
                 {translate('The business confirms QR payments. Your bill shows the payment as pending until then.', 'व्यवसायले QR भुक्तानी पुष्टि गर्छ। त्यतिन्जेल बिलमा भुक्तानी बाँकी देखिन्छ।')}
               </p>
               <button
+                type="button"
                 onClick={() => setShowQrModal(false)}
-                className="mt-3 text-xs text-slate-500 hover:text-slate-700"
+                className="mt-3 text-xs text-slate-600 hover:text-slate-800"
               >
                 {translate('Cancel', 'रद्द गर्नुहोस्')}
               </button>

@@ -29,17 +29,19 @@ export default function InfoSidebar({ business, services = [], showServices = tr
 
   return (
     <aside className="bp-side">
-      <section className="bp-side-card">
-        <h3>Why Choose Us?</h3>
-        <ul className="bp-why-list">
-          {(business.whyChooseUs || []).map((item) => (
-            <li key={item}>
-              <CheckCircle2 size={16} color="#16a34a" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {business.whyChooseUs?.length ? (
+        <section className="bp-side-card">
+          <h3>Why Choose Us?</h3>
+          <ul className="bp-why-list">
+            {business.whyChooseUs.map((item) => (
+              <li key={item}>
+                <CheckCircle2 size={16} color="#16a34a" aria-hidden="true" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {showServices && (
       <section className="bp-side-card">

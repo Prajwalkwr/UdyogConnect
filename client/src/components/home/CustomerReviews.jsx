@@ -31,12 +31,13 @@ export default function CustomerReviews({ reviews = [], businesses = [], title =
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-semibold text-[var(--mp-ink)]">{review.customerName || 'Customer'}</p>
                   {businessName && (
-                    <p
+                    <button
+                      type="button"
                       onClick={() => review.businessId && onOpenBusiness?.(review.businessId)}
-                      className="cursor-pointer truncate text-[10.5px] text-[var(--mp-muted)] hover:text-[var(--mp-brown)]"
+                      className="block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[10.5px] text-[var(--mp-muted)] hover:text-[var(--mp-brown)]"
                     >
                       {businessName}
-                    </p>
+                    </button>
                   )}
                 </div>
                 <span className="flex shrink-0 items-center gap-0.5" aria-label={`${rating} out of 5 stars`}>
