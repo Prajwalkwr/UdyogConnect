@@ -33,7 +33,7 @@ const nextPhone = () => `98${String(Date.now() + (phoneSeq += 7)).slice(-8)}`;
 
 async function registerSeller(label, businessOfferingType) {
   const email = `${label}@${Date.now() + phoneSeq}.com`;
-  const body = { name: 'Offer Seller', email, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: nextPhone() };
+  const body = { name: 'Offer Seller', email, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone: nextPhone() };
   if (businessOfferingType !== undefined) body.businessOfferingType = businessOfferingType;
   const res = await request(app).post('/api/auth/register').send(body);
   return { res, email };

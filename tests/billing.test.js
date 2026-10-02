@@ -66,7 +66,7 @@ async function registerCustomer() {
     name: 'Other Customer',
     email,
     password,
-    confirmPassword: password,
+    confirmPassword: password, acceptTerms: true,
     phone: `98${String(Date.now()).slice(-8)}`,
     role: 'customer',
   });

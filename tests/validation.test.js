@@ -44,7 +44,7 @@ describe('System Validation & Security Test Suite', () => {
           name: 'Invalid Email User',
           email: 'invalid-email-format',
           password: 'Password123',
-          confirmPassword: 'Password123',
+          confirmPassword: 'Password123', acceptTerms: true,
         });
 
       expect(res.status).toBe(400);
@@ -58,11 +58,26 @@ describe('System Validation & Security Test Suite', () => {
           name: 'Weak Password User',
           email: 'weak@example.com',
           password: '123',
-          confirmPassword: '123',
+          confirmPassword: '123', acceptTerms: true,
         });
 
       expect(res.status).toBe(400);
       expect(res.body.errors.password).toBeDefined();
+    });
+
+    it('rejects registration without accepting the Terms and Privacy Policy', async () => {
+      const base = {
+        name: 'Consent User',
+        email: `consent${Date.now()}@example.com`,
+        password: 'Password123',
+        confirmPassword: 'Password123',
+        phone: `98${String(Date.now() + 41).slice(-8)}`,
+      };
+      for (const acceptTerms of [undefined, false, 'false']) {
+        const res = await request(app).post('/api/auth/register').send({ ...base, acceptTerms });
+        expect(res.status).toBe(400);
+        expect(res.body.errors.acceptTerms).toBeDefined();
+      }
     });
 
     it('rejects mismatched password confirmation', async () => {
@@ -72,7 +87,7 @@ describe('System Validation & Security Test Suite', () => {
           name: 'Mismatch User',
           email: 'mismatch@example.com',
           password: 'Password123',
-          confirmPassword: 'DifferentPassword123',
+          confirmPassword: 'DifferentPassword123', acceptTerms: true,
         });
 
       expect(res.status).toBe(400);
@@ -83,12 +98,12 @@ describe('System Validation & Security Test Suite', () => {
       const email = `dup_${Date.now()}@example.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'User One', email, password: 'Password123', confirmPassword: 'Password123', phone: `98${String(Date.now()).slice(-8)}` })
+        .send({ name: 'User One', email, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, phone: `98${String(Date.now()).slice(-8)}` })
         .expect(201);
 
       const dupRes = await request(app)
         .post('/api/auth/register')
-        .send({ name: 'User Two', email, password: 'Password123', confirmPassword: 'Password123', phone: `97${String(Date.now()).slice(-8)}` });
+        .send({ name: 'User Two', email, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, phone: `97${String(Date.now()).slice(-8)}` });
 
       expect([400, 409]).toContain(dupRes.status);
     });
@@ -111,7 +126,7 @@ describe('System Validation & Security Test Suite', () => {
       const sellerPhone = `98${String(Date.now()).slice(-8)}`;
       const sellerReg = await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller User', email, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: sellerPhone });
+        .send({ name: 'Seller User', email, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone: sellerPhone });
       if (sellerReg.status !== 201) {
         throw new Error(`seller register ${sellerReg.status}: ${JSON.stringify(sellerReg.body)}`);
       }
@@ -202,7 +217,7 @@ describe('System Validation & Security Test Suite', () => {
       const custEmail = `cust_review_${Date.now()}@example.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Reviewer Cust', email: custEmail, password: 'Password123', confirmPassword: 'Password123', role: 'customer', phone: `98${String(Date.now()).slice(-8)}` });
+        .send({ name: 'Reviewer Cust', email: custEmail, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'customer', phone: `98${String(Date.now()).slice(-8)}` });
 
       const custLogin = await request(app).post('/api/auth/login').send({ email: custEmail, password: 'Password123' });
       customerToken = custLogin.body.token;
@@ -210,7 +225,7 @@ describe('System Validation & Security Test Suite', () => {
       const sellerEmail = `reviewseller@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Review Owner Seller', email: sellerEmail, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 11).slice(-8)}` });
+        .send({ name: 'Review Owner Seller', email: sellerEmail, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone: `98${String(Date.now() + 11).slice(-8)}` });
 
       const sellerLogin = await request(app).post('/api/auth/login').send({ email: sellerEmail, password: 'Password123' });
       sellerToken = sellerLogin.body.token;
@@ -291,7 +306,7 @@ describe('System Validation & Security Test Suite', () => {
       const email1 = `sellerone@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller One', email: email1, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 21).slice(-8)}` });
+        .send({ name: 'Seller One', email: email1, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone: `98${String(Date.now() + 21).slice(-8)}` });
 
       const login1 = await request(app).post('/api/auth/login').send({ email: email1, password: 'Password123' });
       seller1Token = login1.body.token;
@@ -337,7 +352,7 @@ describe('System Validation & Security Test Suite', () => {
       const email2 = `sellertwo@${Date.now()}.com`;
       await request(app)
         .post('/api/auth/register')
-        .send({ name: 'Seller Two', email: email2, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone: `98${String(Date.now() + 31).slice(-8)}` });
+        .send({ name: 'Seller Two', email: email2, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone: `98${String(Date.now() + 31).slice(-8)}` });
 
       const login2 = await request(app).post('/api/auth/login').send({ email: email2, password: 'Password123' });
       seller2Token = login2.body.token;

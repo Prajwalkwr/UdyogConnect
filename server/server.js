@@ -46,6 +46,7 @@ const { createAiRoutes } = require('./ai/routes');
 const { buildSuggestions } = require('./suggestions');
 const { validateAddressList } = require('./deliveryAddress');
 const { createPasswordResetRoutes, SENSITIVE_USER_FIELDS } = require('./auth/passwordReset');
+const { POLICY_VERSION, LOGIN_HISTORY_LIMIT } = require('./legal/policy');
 const billing = require('./billing/service');
 const { roundMoney, VAT_RATE } = require('./billing/billData');
 const { isBillEmailConfigured } = require('./utils/sendBillEmail');
@@ -413,6 +414,26 @@ const serializeBusiness = (business) => {
   };
 };
 
+// Verification documents, tax IDs and moderation notes are visible only to the owner and admins.
+const PRIVATE_BUSINESS_FIELDS = [
+  'documents', 'documentUrl', 'registrationNumber', 'panVatNumber',
+  'rejectionReason', 'revisionReason', 'revisionRequestedBy', 'revisionRequestedAt',
+  'approvedBy', 'commissionRate',
+];
+
+const serializePublicBusiness = (business) => {
+  const serialized = serializeBusiness(business);
+  for (const field of PRIVATE_BUSINESS_FIELDS) delete serialized[field];
+  return serialized;
+};
+
+const canSeePrivateBusinessFields = (business, requestUser) => Boolean(
+  requestUser && (
+    requestUser.role === 'admin'
+    || String(business?.ownerId) === String(requestUser.id || requestUser.userId)
+  )
+);
+
 const idempotencyStore = new Map();
 
 app.use((req, res, next) => {
@@ -647,7 +668,7 @@ app.use('/api/conversations', createConversationRoutes({ processImageUpload }));
 app.use('/api/orders', createBillingRoutes());
 app.use('/api', createHomeRoutes({
   isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
-  serializeBusiness: (business) => serializeBusiness(business),
+  serializeBusiness: (business) => serializePublicBusiness(business),
   getOptionalUser: (req) => getOptionalRequestUser(req),
 }));
 app.use('/api', createAiRoutes({
@@ -656,7 +677,7 @@ app.use('/api', createAiRoutes({
   isLiveBusiness: (business) => isPubliclyLiveBusiness(business),
   getApprovalStatus: (business) => getApprovalStatus(business),
   buildHomeFeed,
-  serializeBusiness: (business) => serializeBusiness(business),
+  serializeBusiness: (business) => serializePublicBusiness(business),
 }));
 
 // Helper: Extract Cloudinary public_id from secure_url
@@ -748,6 +769,8 @@ app.post('/api/auth/register', validateRegistration, async (req, res) => {
       wishlist: { products: [], services: [], businesses: [] },
       twoFactorEnabled: false,
       loginHistory: [],
+      termsAcceptedAt: new Date(),
+      termsVersion: POLICY_VERSION,
       isVerified: registrationDefaults.isVerified,
       verificationOtp: registrationDefaults.isVerified ? '' : verificationOtp,
       failedLoginAttempts: 0,
@@ -901,7 +924,10 @@ app.post('/api/auth/login', validateLogin, async (req, res) => {
     }
 
     // Update login history
-    const updatedHistory = [...(user.loginHistory || []), { timestamp: new Date().toISOString(), ip: req.ip, agent: req.headers['user-agent'] }];
+    const updatedHistory = [
+      ...(user.loginHistory || []),
+      { timestamp: new Date().toISOString(), ip: req.ip, agent: String(req.headers['user-agent'] || '').slice(0, 200) },
+    ].slice(-LOGIN_HISTORY_LIMIT);
     await UserMDL.findByIdAndUpdate(user._id, { loginHistory: updatedHistory });
 
     const AuditLogMDL = AuditLog();
@@ -1008,6 +1034,7 @@ const toSafeUser = (user) => {
   if (!user) return null;
   const safeUser = typeof user.toObject === 'function' ? user.toObject() : { ...user };
   for (const field of SENSITIVE_USER_FIELDS) delete safeUser[field];
+  delete safeUser.loginHistory;
   return safeUser;
 };
 
@@ -1267,7 +1294,9 @@ app.get('/api/businesses', async (req, res) => {
       }
     }
 
-    res.json(listings.map(serializeBusiness).slice(0, 200));
+    res.json(listings
+      .map((b) => (canSeePrivateBusinessFields(b, requestUser) ? serializeBusiness(b) : serializePublicBusiness(b)))
+      .slice(0, 200));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to retrieve listings.' });
@@ -1324,7 +1353,7 @@ app.get('/api/businesses/:id', async (req, res) => {
     });
 
     res.json({
-      business: serializeBusiness(business),
+      business: isAdmin || isOwner ? serializeBusiness(business) : serializePublicBusiness(business),
       products,
       services,
       reviews,
@@ -3444,6 +3473,55 @@ app.put('/api/admin/support-tickets/:id', authenticateToken, requireRole(['admin
   }
 });
 
+const averageRating = (reviews) => {
+  const ratings = reviews.map((r) => Number(r.rating)).filter((n) => n >= 1 && n <= 5);
+  if (!ratings.length) return { rating: 0, reviewCount: 0 };
+  return {
+    rating: parseFloat((ratings.reduce((sum, n) => sum + n, 0) / ratings.length).toFixed(1)),
+    reviewCount: ratings.length,
+  };
+};
+
+/** A business's rating and review count always come from its real business reviews. */
+const recalculateBusinessRating = async (businessId) => {
+  if (!businessId) return;
+  try {
+    const reviews = await Review().find({ businessId, targetType: 'business' });
+    await Business().findByIdAndUpdate(businessId, averageRating(Array.isArray(reviews) ? reviews : []));
+  } catch (err) {
+    console.warn('Rating recalculation skipped:', err && err.message);
+  }
+};
+
+// Demo reviews older builds wrote into every new database; they are not from real customers.
+const SEEDED_DEMO_REVIEWS = {
+  r_v1: 'Excellent food, traditional tastes are amazing! Love the Newari platter.',
+  r_v2: 'Very beautiful handmade basket. Highly recommended!',
+};
+
+const reconcileBusinessRatings = async () => {
+  try {
+    const ReviewMDL = Review();
+    const BusinessMDL = Business();
+    let reviews = await ReviewMDL.find({});
+    reviews = Array.isArray(reviews) ? reviews : [];
+    const seeded = reviews.filter((r) => SEEDED_DEMO_REVIEWS[String(r._id)] === r.comment);
+    for (const review of seeded) await ReviewMDL.deleteOne({ _id: review._id });
+    const real = reviews.filter((r) => !seeded.includes(r));
+
+    const businesses = await BusinessMDL.find({});
+    for (const business of Array.isArray(businesses) ? businesses : []) {
+      const own = real.filter((r) => r.targetType === 'business' && String(r.businessId) === String(business._id));
+      const next = averageRating(own);
+      if (Number(business.rating || 0) !== next.rating || Number(business.reviewCount || 0) !== next.reviewCount) {
+        await BusinessMDL.findByIdAndUpdate(business._id, next);
+      }
+    }
+  } catch (err) {
+    console.warn('Rating reconciliation skipped:', err && err.message);
+  }
+};
+
 app.get('/api/reviews', async (req, res) => {
   try {
     const ReviewMDL = Review();
@@ -3482,6 +3560,7 @@ app.put('/api/reviews/:id', authenticateToken, async (req, res) => {
     if (req.body.rating !== undefined) updates.rating = parseInt(req.body.rating, 10);
     if (req.body.comment !== undefined) updates.comment = String(req.body.comment).trim();
     const updated = await ReviewMDL.findByIdAndUpdate(req.params.id, updates, { new: true });
+    await recalculateBusinessRating(review.businessId);
     res.json({ success: true, review: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update review.' });
@@ -3497,6 +3576,7 @@ app.delete('/api/reviews/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'You can only delete your own reviews.' });
     }
     await ReviewMDL.deleteOne({ _id: req.params.id });
+    await recalculateBusinessRating(review.businessId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete review.' });
@@ -3537,13 +3617,7 @@ app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single
       reported: false,
     });
 
-    // Recompute average rating for Business
-    const reviews = await ReviewMDL.find({ businessId, targetType: 'business' });
-    if (reviews.length > 0) {
-      const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
-      const avg = parseFloat((sum / reviews.length).toFixed(1));
-      await BusinessMDL.findByIdAndUpdate(businessId, { rating: avg, reviewCount: reviews.length });
-    }
+    await recalculateBusinessRating(businessId);
 
     res.status(201).json({ success: true, review: newReview });
   } catch (err) {
@@ -3553,8 +3627,8 @@ app.post('/api/reviews', authenticateToken, validateReviewPayload, upload.single
 
 // ==================== CHAT & AI SUPPORT CHATBOT ====================
 
-// GET /api/users — list all users (for chat contact list); returns safe fields only
-app.get('/api/users', authenticateToken, async (req, res) => {
+// GET /api/users — admin-only user directory; returns safe fields only
+app.get('/api/users', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const UserMDL = User();
     const users = await UserMDL.find({});
@@ -4236,6 +4310,7 @@ module.exports = {
       }
     }
     await connectDb();
+    await reconcileBusinessRatings();
     const actualPort = await getAvailablePort(port);
     return new Promise((resolve) => {
       httpServer.listen(actualPort, () => {

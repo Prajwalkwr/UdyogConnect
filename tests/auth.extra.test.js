@@ -38,7 +38,7 @@ describe('Auth extra flows', () => {
 
     const reg = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Verify User', email, password, confirmPassword: password, phone: `98${String(Date.now()).slice(-8)}` })
+      .send({ name: 'Verify User', email, password, confirmPassword: password, acceptTerms: true, phone: `98${String(Date.now()).slice(-8)}` })
       .expect(201);
 
     expect(reg.body).toHaveProperty('success', true);
@@ -63,7 +63,7 @@ describe('Auth extra flows', () => {
     const password = 'Lock12345';
 
     // Register and verify
-    const reg = await request(app).post('/api/auth/register').send({ name: 'Lock User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 2).slice(-8)}` }).expect(201);
+    const reg = await request(app).post('/api/auth/register').send({ name: 'Lock User', email, password, confirmPassword: password, acceptTerms: true, phone: `98${String(Date.now() + 2).slice(-8)}` }).expect(201);
     const otp = reg.body.otp;
     await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
 
@@ -88,8 +88,8 @@ describe('Auth extra flows', () => {
     const password = 'Dup12345';
 
     const phone = `98${String(Date.now() + 3).slice(-8)}`;
-    await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, phone }).expect(201);
-    const dup = await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 4).slice(-8)}` }).expect(409);
+    await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, acceptTerms: true, phone }).expect(201);
+    const dup = await request(app).post('/api/auth/register').send({ name: 'Dup User', email, password, confirmPassword: password, acceptTerms: true, phone: `98${String(Date.now() + 4).slice(-8)}` }).expect(409);
     expect(dup.body.message).toMatch(/already exists/);
   });
 
@@ -97,7 +97,7 @@ describe('Auth extra flows', () => {
     const email = `expuser+${Date.now()}@example.com`;
     const password = 'Exp12345';
 
-    const reg = await request(app).post('/api/auth/register').send({ name: 'Exp User', email, password, confirmPassword: password, phone: `98${String(Date.now() + 5).slice(-8)}` }).expect(201);
+    const reg = await request(app).post('/api/auth/register').send({ name: 'Exp User', email, password, confirmPassword: password, acceptTerms: true, phone: `98${String(Date.now() + 5).slice(-8)}` }).expect(201);
     const otp = reg.body.otp;
     await request(app).post('/api/auth/verify').send({ email, otp }).expect(200);
 

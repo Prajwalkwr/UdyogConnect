@@ -20,7 +20,7 @@ beforeAll(async () => {
   app = serverModule.app || (serverModule.default && serverModule.default.app);
 
   const reg = await request(app).post('/api/auth/register').send({
-    name: 'Address Customer', email: `addr${Date.now()}@example.com`, password: 'Password123', confirmPassword: 'Password123', role: 'customer', phone: `98${String(Date.now()).slice(-8)}`,
+    name: 'Address Customer', email: `addr${Date.now()}@example.com`, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'customer', phone: `98${String(Date.now()).slice(-8)}`,
   });
   token = reg.body.token;
 });

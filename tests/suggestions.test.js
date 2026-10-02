@@ -91,7 +91,7 @@ async function sellerWithBusiness(label) {
   const email = `${label}@${Date.now() + seq}.com`;
   const phone = `98${String(Date.now() + seq * 13).slice(-8)}`;
   const reg = await request(app).post('/api/auth/register').send({
-    name: 'Suggest Seller', email, password: 'Password123', confirmPassword: 'Password123', role: 'seller', phone, businessOfferingType: 'both',
+    name: 'Suggest Seller', email, password: 'Password123', confirmPassword: 'Password123', acceptTerms: true, role: 'seller', phone, businessOfferingType: 'both',
   });
   const token = reg.body.token;
   const biz = await request(app).post('/api/businesses').set('Authorization', `Bearer ${token}`).send({

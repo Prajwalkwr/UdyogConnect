@@ -456,8 +456,8 @@ const defaultBusinesses = [
     longitude: 85.3126,
     verified: 'verified',
     approvalStatus: 'approved',
-    rating: 4.7,
-    reviewCount: 162,
+    rating: 0,
+    reviewCount: 0,
   },
   {
     _id: 'b1',
@@ -476,8 +476,8 @@ const defaultBusinesses = [
     latitude: 27.7007,
     longitude: 85.3001,
     verified: 'verified',
-    rating: 4.8,
-    reviewCount: 1,
+    rating: 0,
+    reviewCount: 0,
   },
   {
     _id: 'b2',
@@ -496,8 +496,8 @@ const defaultBusinesses = [
     latitude: 28.2096,
     longitude: 83.9856,
     verified: 'verified',
-    rating: 4.5,
-    reviewCount: 1,
+    rating: 0,
+    reviewCount: 0,
   },
   {
     _id: 'b3',
@@ -516,7 +516,7 @@ const defaultBusinesses = [
     latitude: 27.6710,
     longitude: 85.3240,
     verified: 'pending',
-    rating: 4.0,
+    rating: 0,
     reviewCount: 0,
   },
   {
@@ -540,7 +540,7 @@ const defaultBusinesses = [
     isVerified: true,
     approvedAt: new Date().toISOString(),
     approvedBy: 'demo-admin',
-    rating: 4.7,
+    rating: 0,
     reviewCount: 0,
   },
   {
@@ -564,7 +564,7 @@ const defaultBusinesses = [
     isVerified: true,
     approvedAt: new Date().toISOString(),
     approvedBy: 'demo-admin',
-    rating: 4.8,
+    rating: 0,
     reviewCount: 0,
   },
   {
@@ -588,7 +588,7 @@ const defaultBusinesses = [
     isVerified: true,
     approvedAt: new Date().toISOString(),
     approvedBy: 'demo-admin',
-    rating: 4.6,
+    rating: 0,
     reviewCount: 0,
   },
 ];
@@ -787,6 +787,8 @@ const initMongooseModels = async () => {
     loyaltyPoints: { type: Number, default: 0, min: 0 },
     twoFactorEnabled: { type: Boolean, default: false },
     loginHistory: { type: Array, default: [] },
+    termsAcceptedAt: { type: Date, default: null },
+    termsVersion: { type: String, default: '', trim: true },
     isVerified: { type: Boolean, default: false },
     verificationOtp: { type: String, default: '' },
     failedLoginAttempts: { type: Number, default: 0, min: 0 },
@@ -1240,34 +1242,7 @@ const initMockModels = async () => {
   db.PaymentCredential = new MockModel('PaymentCredential', []);
   db.EsewaPayment = new MockModel('EsewaPayment', []);
   db.Booking = new MockModel('Booking', []);
-  db.Review = new MockModel('Review', [
-    {
-      _id: 'r_v1',
-      customerId: 'u1',
-      customerName: 'Prajwal Customer',
-      businessId: 'b1',
-      targetId: 'b1',
-      targetType: 'business',
-      rating: 5,
-      comment: 'Excellent food, traditional tastes are amazing! Love the Newari platter.',
-      images: [],
-      reported: false,
-      createdAt: new Date().toISOString(),
-    },
-    {
-      _id: 'r_v2',
-      customerId: 'u1',
-      customerName: 'Prajwal Customer',
-      businessId: 'b2',
-      targetId: 'p2',
-      targetType: 'product',
-      rating: 4,
-      comment: 'Very beautiful handmade basket. Highly recommended!',
-      images: [],
-      reported: false,
-      createdAt: new Date().toISOString(),
-    },
-  ]);
+  db.Review = new MockModel('Review', []);
   db.Report = new MockModel('Report', []);
   db.Chat = new MockModel('Chat', [
     {

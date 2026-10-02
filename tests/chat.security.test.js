@@ -50,7 +50,7 @@ describe('Conversation privacy', () => {
       name: 'Customer B',
       email: emailB,
       password: passwordB,
-      confirmPassword: passwordB,
+      confirmPassword: passwordB, acceptTerms: true,
       phone: phoneB,
       role: 'customer',
     });

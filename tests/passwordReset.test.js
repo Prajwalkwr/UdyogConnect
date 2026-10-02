@@ -63,7 +63,7 @@ const findUser = (email) => dbModule.User().findOne({ email }).lean();
 async function registerCustomer(password = 'Oldpass123') {
   const email = `reset${Date.now()}${(seq += 1)}@example.com`;
   const res = await request(app).post('/api/auth/register').send({
-    name: 'Reset Customer', email, password, confirmPassword: password, role: 'customer', phone: uniquePhone(),
+    name: 'Reset Customer', email, password, confirmPassword: password, acceptTerms: true, role: 'customer', phone: uniquePhone(),
   });
   expect(res.status).toBe(201);
   return { email, password, userId: String(res.body.user.id || res.body.user._id) };
@@ -72,7 +72,7 @@ async function registerCustomer(password = 'Oldpass123') {
 async function registerSeller(password = 'Shoppass123') {
   const email = `resetshop@${Date.now()}${(seq += 1)}.com`;
   const res = await request(app).post('/api/auth/register').send({
-    name: 'Reset Shop', email, password, confirmPassword: password, role: 'seller', businessOfferingType: 'both', phone: uniquePhone(),
+    name: 'Reset Shop', email, password, confirmPassword: password, acceptTerms: true, role: 'seller', businessOfferingType: 'both', phone: uniquePhone(),
   });
   expect(res.status).toBe(201);
   return { email, password };

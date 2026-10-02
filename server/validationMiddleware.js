@@ -81,6 +81,11 @@ const validateRegistration = (req, res, next) => {
     errors.role = 'Invalid account role specified.';
   }
 
+  const acceptTerms = (req.body || {}).acceptTerms;
+  if (acceptTerms !== true && acceptTerms !== 'true') {
+    errors.acceptTerms = 'Please confirm you are 18 or older and agree to the Terms & Conditions and Privacy Policy.';
+  }
+
   if (Object.keys(errors).length > 0) {
     return res.status(400).json({
       message: errors[Object.keys(errors)[0]] || 'Validation failed.',

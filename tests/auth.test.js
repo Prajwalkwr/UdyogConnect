@@ -40,7 +40,7 @@ describe('Auth: register and login', () => {
     // Register
     const reg = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Test User', email, password, confirmPassword: password, phone: `98${String(Date.now()).slice(-8)}` })
+      .send({ name: 'Test User', email, password, confirmPassword: password, acceptTerms: true, phone: `98${String(Date.now()).slice(-8)}` })
       .expect(201);
 
     expect(reg.body).toHaveProperty('success', true);
@@ -62,7 +62,7 @@ describe('Auth: register and login', () => {
   it('exposes live admin catalog and support data endpoints', async () => {
     const blocked = await request(app)
       .post('/api/auth/register')
-      .send({ name: 'Admin Live', email: `adminlive+${Date.now()}@example.com`, password: 'Adminpass123', confirmPassword: 'Adminpass123', phone: `97${String(Date.now()).slice(-8)}`, role: 'admin' });
+      .send({ name: 'Admin Live', email: `adminlive+${Date.now()}@example.com`, password: 'Adminpass123', confirmPassword: 'Adminpass123', acceptTerms: true, phone: `97${String(Date.now()).slice(-8)}`, role: 'admin' });
     expect(blocked.status).toBe(400);
 
     const login = await request(app)
