@@ -352,7 +352,14 @@ describe('File uploads', () => {
       const served = await request(app).get(url);
       expect(served.status).toBe(200);
       expect(served.headers['content-security-policy']).toMatch(/sandbox/);
+      expect(served.headers['cache-control']).toMatch(/max-age=\d+/);
     }
+  });
+
+  it('answers a missing upload with 404, not the website page', async () => {
+    const res = await request(app).get('/uploads/does-not-exist-0000.jpg');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).not.toMatch(/html/);
   });
 
   it('requires login to upload', async () => {

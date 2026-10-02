@@ -8,6 +8,7 @@ const STORAGE = [
   { name: 'cart:…', where: 'Local storage', purpose: 'Remembers the items in your cart.', kept: 'Until you empty your cart or clear browser data', type: 'Essential' },
   { name: 'uc-privacy-choice', where: 'Local storage', purpose: 'Remembers whether you allowed personalisation, so we do not ask again on every page.', kept: 'Until you change it or clear browser data', type: 'Essential' },
   { name: 'uc-hero-image', where: 'Local storage', purpose: 'Caches the home page banner address so the page loads faster. Contains no personal data.', kept: 'Until replaced', type: 'Essential' },
+  { name: 'uc-public-cache:*', where: 'Local storage', purpose: 'Keeps the last public list of businesses, products and the guest home page so pages appear instantly and still work on a slow connection. Saved only while signed out; contains no personal data.', kept: 'Refreshed on each visit; ignored after 24 hours', type: 'Essential' },
   { name: 'udyog_ai_chat:…', where: 'Session storage', purpose: 'Keeps your recent AI assistant conversation while the tab is open.', kept: 'Until you close the tab', type: 'Functional' },
   { name: 'udyog_visitor_id', where: 'Local storage', purpose: 'A random ID that links your product and business views so we can personalise recommendations. Created only if you allow personalisation.', kept: 'Until you turn personalisation off or clear browser data; view records are deleted after 90 days', type: 'Personalisation (optional)' },
 ];

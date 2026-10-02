@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../utils/api';
 import { visitorHeaders } from '../../utils/activityTracking';
+import { readPublicCache, writePublicCache } from '../../utils/publicCache';
+import { getSessionToken } from '../../utils/sessionAuth';
 
 const FOCUS_REFRESH_MS = 60 * 1000;
 
@@ -18,7 +20,6 @@ export default function useHomeFeed({ user, area = '', coords = null }) {
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
-    setStatus((prev) => (prev === 'ready' ? 'ready' : 'loading'));
     const params = {};
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       params.lat = lat;
@@ -26,12 +27,24 @@ export default function useHomeFeed({ user, area = '', coords = null }) {
     } else if (area) {
       params.area = area;
     }
+    // Signed-in feeds include personal activity, so only guest feeds are kept on the device.
+    const cacheKey = getSessionToken()
+      ? ''
+      : `home-feed:${params.lat !== undefined ? `${lat.toFixed(2)},${lng.toFixed(2)}` : area}`;
+    const cached = cacheKey ? readPublicCache(cacheKey) : null;
+    if (cached) {
+      setFeed(cached);
+      setStatus('ready');
+    } else {
+      setStatus((prev) => (prev === 'ready' ? 'ready' : 'loading'));
+    }
     try {
       const { data } = await api.get('/api/home/feed', { params, headers: visitorHeaders() });
       if (requestId !== requestRef.current) return;
       setFeed(data);
       setStatus('ready');
       loadedAtRef.current = Date.now();
+      if (cacheKey && !getSessionToken()) writePublicCache(cacheKey, data);
     } catch {
       if (requestId !== requestRef.current) return;
       setStatus((prev) => (prev === 'ready' ? 'ready' : 'error'));

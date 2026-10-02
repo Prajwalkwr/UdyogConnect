@@ -508,7 +508,9 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use('/uploads', uploadHeaders, express.static(uploadsDir, { dotfiles: 'deny', index: false }));
+// Upload names are unique (timestamp/hash), so browsers may cache them for a long time.
+app.use('/uploads', uploadHeaders, express.static(uploadsDir, { dotfiles: 'deny', index: false, maxAge: '30d', immutable: true }));
+app.use('/uploads', (req, res) => res.status(404).type('text/plain').send('Not found'));
 
 const uploadError = (message) => Object.assign(new Error(message), { status: 400, expose: true });
 

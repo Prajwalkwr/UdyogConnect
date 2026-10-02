@@ -7,6 +7,7 @@ import App from './App';
 import store from './store';
 import { AuthProvider } from './context/AuthContext';
 import ErrorBoundary from './ErrorBoundary';
+import { installImageFallback } from './utils/imageFallback';
 import '@fontsource/outfit/400.css';
 import '@fontsource/outfit/500.css';
 import '@fontsource/outfit/600.css';
@@ -29,6 +30,7 @@ const installGlobalErrorHandlers = () => {
 };
 
 installGlobalErrorHandlers();
+installImageFallback();
 
 const rootElement = document.getElementById('root');
 

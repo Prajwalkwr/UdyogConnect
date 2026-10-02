@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Link, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import api from './utils/api';
+import { readPublicCache, writePublicCache } from './utils/publicCache';
 import { notifyOrdersUpdated } from './utils/bill';
 import { CONTENT_REPORTS_EVENT } from './utils/reports';
 import Swal from 'sweetalert2';
@@ -36,6 +37,8 @@ const TermsPage = lazy(() => import('./components/legal/TermsPage'));
 const CookiePolicyPage = lazy(() => import('./components/legal/CookiePolicyPage'));
 const RefundPolicyPage = lazy(() => import('./components/legal/RefundPolicyPage'));
 const AboutContactPage = lazy(() => import('./components/legal/AboutContactPage'));
+
+const CATALOG_CACHE_KEY = 'catalog-v1';
 
 // Wrapper for checking paths and initializing overlays
 function DetailsPathWrapper({ setSelectedProductId }) {
@@ -294,7 +297,16 @@ function App() {
 
   // Load Marketplace Catalogs (ignore stale responses after unmount / remount)
   const fetchMarketplaceData = () => {
-    setCatalogStatus('loading');
+    const cached = readPublicCache(CATALOG_CACHE_KEY);
+    if (cached) {
+      setBusinesses(cached.businesses);
+      dispatch({ type: 'SET_BUSINESSES', payload: cached.businesses });
+      setProducts(cached.products);
+      setServices(cached.services);
+      setCatalogStatus('ready');
+    } else {
+      setCatalogStatus('loading');
+    }
     const requestId = Symbol('catalog');
     fetchMarketplaceData.currentRequest = requestId;
 
@@ -305,18 +317,24 @@ function App() {
     ]).then(([businessResult, productResult, serviceResult]) => {
       if (fetchMarketplaceData.currentRequest !== requestId) return;
 
-      if (businessResult.status === 'fulfilled') {
-        const list = Array.isArray(businessResult.value.data) ? businessResult.value.data : [];
-        setBusinesses(list);
-        dispatch({ type: 'SET_BUSINESSES', payload: list });
-      } else {
-        setBusinesses([]);
-        dispatch({ type: 'SET_BUSINESSES', payload: [] });
-      }
-      setProducts(productResult.status === 'fulfilled' && Array.isArray(productResult.value.data) ? productResult.value.data : []);
-      setServices(serviceResult.status === 'fulfilled' && Array.isArray(serviceResult.value.data) ? serviceResult.value.data : []);
+      const listFrom = (result, fallback) => {
+        if (result.status === 'fulfilled') return Array.isArray(result.value.data) ? result.value.data : [];
+        return fallback || [];
+      };
+      const businessList = listFrom(businessResult, cached?.businesses);
+      const productList = listFrom(productResult, cached?.products);
+      const serviceList = listFrom(serviceResult, cached?.services);
+      setBusinesses(businessList);
+      dispatch({ type: 'SET_BUSINESSES', payload: businessList });
+      setProducts(productList);
+      setServices(serviceList);
+
       const failed = [businessResult, productResult, serviceResult].some((result) => result.status === 'rejected');
-      setCatalogStatus(failed ? 'error' : 'ready');
+      // Signed-in owners and admins receive private fields, so only guest responses are saved.
+      if (!failed && !getSessionToken()) {
+        writePublicCache(CATALOG_CACHE_KEY, { businesses: businessList, products: productList, services: serviceList });
+      }
+      setCatalogStatus(failed && !cached ? 'error' : 'ready');
     });
   };
 
